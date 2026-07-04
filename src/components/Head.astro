@@ -1,0 +1,70 @@
+---
+const { head, entry, sidebar, siteTitleHref, siteTitle, locale } = Astro.locals.starlightRoute;
+const noindex = entry.data.noindex;
+
+// Cammina nell'albero della sidebar e ricostruisce il percorso fino alla pagina corrente
+function findPath(items, trail = []) {
+  for (const item of items) {
+    if (item.type === 'link') {
+      const newTrail = [...trail, { name: item.label, href: item.href }];
+      if (item.isCurrent) return newTrail;
+    } else if (item.type === 'group') {
+      // Se il gruppo è autogenerato, usiamo la sua pagina "intro" come URL del livello
+      const groupHref = item.autogenerate
+        ? `/${locale}/${item.autogenerate.directory}/intro/`
+        : undefined;
+      const newTrail = groupHref
+        ? [...trail, { name: item.label, href: groupHref }]
+        : trail; // senza un URL valido, saltiamo questo livello nel breadcrumb
+      const found = findPath(item.entries, newTrail);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+const trail = findPath(sidebar) || [];
+const siteUrl = Astro.site?.toString().replace(/\/$/, '') || '';
+
+const breadcrumbItems = [{ name: siteTitle, href: siteTitleHref }, ...trail].map(
+  (item, index) => {
+    const listItem = {
+      '@type': 'ListItem',
+      position: index + 1,
+      name: item.name,
+    };
+    if (item.href) listItem.item = siteUrl + item.href;
+    return listItem;
+  }
+);
+
+const breadcrumbJsonLd =
+  trail.length > 0
+    ? JSON.stringify({
+        '@context': 'https://schema.org',
+        '@type': 'BreadcrumbList',
+        itemListElement: breadcrumbItems,
+      })
+    : null;
+
+// Sulla home mostra solo "MathGround", non "Home | MathGround" o "Home" come og:title
+const isHome = Astro.url.pathname === `/${locale}/`;
+---
+
+{head.map(({ tag, attrs, content }) => {
+  const Tag = tag;
+  let finalContent = content;
+  if (isHome && tag === 'title') finalContent = siteTitle;
+  if (isHome && tag === 'meta' && attrs?.property === 'og:title') {
+    attrs = { ...attrs, content: siteTitle };
+    finalContent = undefined;
+  }
+  return <Tag {...attrs} set:html={finalContent} />;
+})}
+{noindex && <meta name="robots" content="noindex" />}
+<meta name="google-site-verification" content="TYo-vG_-1nB9bGsIZpd1linIPfW8-mC7LH137fvzQYU" />
+{breadcrumbJsonLd && (
+  <script type="application/ld+json" is:inline set:html={breadcrumbJsonLd} />
+)}
+
+<script defer is:inline src="https://cloud.umami.is/script.js" data-website-id="a2b22d6d-5fc8-42a6-aa27-e21a31492c95"></script>

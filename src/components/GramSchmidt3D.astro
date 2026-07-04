@@ -1,0 +1,578 @@
+---
+/*
+  GramSchmidt3D.astro
+  --------------------------------------------------------------------------
+  Ortonormalizzazione di Gram-Schmidt in R^3, completamente nativa:
+  - nessuna libreria a runtime (niente p5.js, niente three.js);
+  - la proiezione 3D -> 2D e' calcolata a mano su un <canvas> 2D;
+  - i tre vettori di partenza v1, v2, v3 sono TRASCINABILI con dito/mouse;
+  - la vista si ruota (orbita) trascinando lo sfondo vuoto;
+  - "Mostra costruzione" anima i tre passi; al terzo passo le DUE proiezioni
+    (su u1 e su u2) compaiono in sequenza.
+
+  Le formule sono renderizzate qui nel frontmatter con KaTeX (a build-time):
+  nessun costo JavaScript a runtime per la matematica. Richiede il pacchetto
+  "katex" (gia' presente se usi rehype-katex). Il CSS di KaTeX e' gia'
+  caricato a livello di sito su MathGround.
+--------------------------------------------------------------------------*/
+import katex from 'katex';
+
+const tex = (s: string) =>
+  katex.renderToString(s, { displayMode: true, throwOnError: false });
+
+// le tre formule dei passi (vec = freccia, lVert..rVert = norma)
+const F1 = tex(String.raw`\vec u_1=\dfrac{\vec v_1}{\lVert \vec v_1\rVert}`);
+const F2 = tex(String.raw`\vec w_2=\vec v_2-(\vec v_2\!\cdot\!\vec u_1)\,\vec u_1,\qquad \vec u_2=\dfrac{\vec w_2}{\lVert \vec w_2\rVert}`);
+const F3 = tex(String.raw`\vec w_3=\vec v_3-(\vec v_3\!\cdot\!\vec u_1)\,\vec u_1-(\vec v_3\!\cdot\!\vec u_2)\,\vec u_2,\qquad \vec u_3=\dfrac{\vec w_3}{\lVert \vec w_3\rVert}`);
+
+// id unico: cosi' il componente puo' comparire piu' volte nella stessa pagina
+const uid = 'gs3d-' + Math.random().toString(36).slice(2, 9);
+
+// --- lingua: prop esplicita, altrimenti locale della pagina, altrimenti italiano ---
+interface Props { lang?: 'it' | 'en'; }
+const { lang: langProp } = Astro.props;
+const locale = String(langProp ?? Astro.currentLocale ?? 'it');
+const lang: 'it' | 'en' = locale.startsWith('en') ? 'en' : 'it';
+
+const STR = {
+  it: {
+    aria: 'Ortonormalizzazione di Gram-Schmidt in 3D',
+    compute: '▶ Calcola e mantieni',
+    edit: '✋ Modifica v₁ v₂ v₃',
+    reset: '↺ Reset',
+    hintEdit: 'Trascina le punte di <b>v₁, v₂, v₃</b> · sfondo = ruota · rotella o pinch = zoom',
+    hintExplore: 'Ruota: trascina · Zoom: rotella o pinch · «Modifica» per spostare i vettori',
+  },
+  en: {
+    aria: 'Gram-Schmidt orthonormalization in 3D',
+    compute: '▶ Compute & keep',
+    edit: '✋ Edit v₁ v₂ v₃',
+    reset: '↺ Reset',
+    hintEdit: 'Drag the tips of <b>v₁, v₂, v₃</b> · background = rotate · wheel or pinch = zoom',
+    hintExplore: 'Rotate: drag · Zoom: wheel or pinch · “Edit” to move the vectors',
+  },
+}[lang];
+---
+
+<figure class="gs3d" data-gs3d data-uid={uid}
+  data-hint-edit={STR.hintEdit} data-hint-explore={STR.hintExplore}>
+  <div class="gs3d__stage">
+    <canvas class="gs3d__canvas" aria-label={STR.aria}></canvas>
+    <div class="gs3d__hint"></div>
+  </div>
+
+  <div class="gs3d__side">
+    <div class="gs3d__controls">
+      <button class="gs3d__btn gs3d__mode gs3d__compute active" type="button" aria-pressed="true">{STR.compute}</button>
+      <button class="gs3d__btn gs3d__mode gs3d__edit" type="button" aria-pressed="false">{STR.edit}</button>
+      <button class="gs3d__btn gs3d__reset" type="button">{STR.reset}</button>
+    </div>
+
+    <ol class="gs3d__steps">
+      <li data-step="1"><span class="gs3d__dot" style="--c:#3b82f6"></span><div set:html={F1} /></li>
+      <li data-step="2"><span class="gs3d__dot" style="--c:#10b981"></span><div set:html={F2} /></li>
+      <li data-step="3"><span class="gs3d__dot" style="--c:#f59e0b"></span><div set:html={F3} /></li>
+    </ol>
+
+    <div class="gs3d__check">
+      <span class="gs3d__cell">‖u₁‖,‖u₂‖,‖u₃‖ = <b class="gs3d__norms">—</b></span>
+      <span class="gs3d__cell">u₁·u₂, u₁·u₃, u₂·u₃ = <b class="gs3d__dots">—</b></span>
+    </div>
+  </div>
+</figure>
+
+<script>
+  // ===================== ALGEBRA VETTORIALE DI BASE =====================
+  type V3 = [number, number, number];
+  const dot = (a: V3, b: V3) => a[0]*b[0] + a[1]*b[1] + a[2]*b[2];
+  const sub = (a: V3, b: V3): V3 => [a[0]-b[0], a[1]-b[1], a[2]-b[2]];
+  const add = (a: V3, b: V3): V3 => [a[0]+b[0], a[1]+b[1], a[2]+b[2]];
+  const scl = (a: V3, k: number): V3 => [a[0]*k, a[1]*k, a[2]*k];
+  const len = (a: V3) => Math.hypot(a[0], a[1], a[2]);
+  const norm = (a: V3): V3 => { const n = len(a) || 1; return scl(a, 1/n); };
+  const cross = (a: V3, b: V3): V3 => [
+    a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0],
+  ];
+  const lerp3 = (a: V3, b: V3, t: number): V3 =>
+    [a[0]+(b[0]-a[0])*t, a[1]+(b[1]-a[1])*t, a[2]+(b[2]-a[2])*t];
+
+  // Gram-Schmidt su tre vettori: restituisce versori e quantita' intermedie
+  function gramSchmidt(v1: V3, v2: V3, v3: V3) {
+    const u1 = norm(v1);
+    const p2 = scl(u1, dot(v2, u1));          // proiezione di v2 su u1
+    const w2 = sub(v2, p2);                    // componente ortogonale
+    const u2 = norm(w2);
+    const p3a = scl(u1, dot(v3, u1));          // proiezione di v3 su u1
+    const p3b = scl(u2, dot(v3, u2));          // proiezione di v3 su u2
+    const w3 = sub(sub(v3, p3a), p3b);         // tolgo ENTRAMBE le proiezioni
+    const u3 = norm(w3);
+    return { u1, u2, u3, p2, w2, p3a, p3b, w3 };
+  }
+
+  // base ortonormale della telecamera a partire da azimut/elevazione
+  function camera(az: number, el: number) {
+    const ce = Math.cos(el), se = Math.sin(el), ca = Math.cos(az), sa = Math.sin(az);
+    const dir: V3 = [ce*ca, ce*sa, se];        // dal bersaglio verso l'occhio
+    const right = norm(cross([0, 0, 1], dir)); // "destra" sullo schermo
+    const up = cross(dir, right);              // "alto" sullo schermo (gia' unitario)
+    return { dir, right, up };
+  }
+
+  const easeInOut = (t: number) => t < 0.5 ? 4*t*t*t : 1 - Math.pow(-2*t+2, 3)/2;
+
+  // ============================ UNA ISTANZA ============================
+  function initInstance(root: HTMLElement) {
+    const canvas = root.querySelector('.gs3d__canvas') as HTMLCanvasElement;
+    const ctx = canvas.getContext('2d')!;
+    const normsEl = root.querySelector('.gs3d__norms') as HTMLElement;
+    const dotsEl  = root.querySelector('.gs3d__dots') as HTMLElement;
+    const computeBtn = root.querySelector('.gs3d__compute') as HTMLButtonElement;
+    const editBtn = root.querySelector('.gs3d__edit') as HTMLButtonElement;
+    const resetBtn = root.querySelector('.gs3d__reset') as HTMLButtonElement;
+    const hintEl = root.querySelector('.gs3d__hint') as HTMLElement;
+    const stepEls = Array.from(root.querySelectorAll('.gs3d__steps li')) as HTMLElement[];
+
+    // stato iniziale: vettori "storti" vicini agli assi, cosi' l'effetto si vede
+    const V0: V3[] = [[2.0, 0.6, 0.4], [0.5, 2.0, 0.3], [0.4, 0.5, 2.0]];
+    let v: V3[] = V0.map(a => [...a] as V3);
+    let az = 0.7, el = 0.5;            // angoli della telecamera
+    let zoom = 1;                      // fattore di zoom (rotella / pinch)
+    let mode: 'explore' | 'edit' = 'explore'; // a riposo: vettori BLOCCATI
+    let geom = gramSchmidt(v[0], v[1], v[2]);
+
+    // colori fissi (leggibili su tema chiaro e scuro)
+    const COL = {
+      v: ['#7aa2f7', '#5fd0a0', '#f0bd6a'], // input (tinte tenui)
+      u: ['#3b82f6', '#10b981', '#f59e0b'], // versori (vivi)
+      proj: '#eab308',                       // proiezioni
+      w: '#a855f7',                          // resto ortogonale
+    };
+    // colori dipendenti dal tema (assi, tratteggi, testo): letti dal CSS
+    let ink = 'rgba(128,128,128,0.9)';
+    function refreshThemeColors() {
+      const c = getComputedStyle(canvas).color || 'rgb(128,128,128)';
+      ink = c;
+    }
+
+    // ---------- dimensionamento responsivo (con devicePixelRatio) ----------
+    let W = 0, H = 0, baseScale = 80, scale = 80, cx = 0, cy = 0;
+    function applyScale() { scale = baseScale * zoom; } // scala effettiva = base * zoom
+    function resize() {
+      const cssW = canvas.clientWidth || 600;
+      const cssH = Math.max(320, Math.min(cssW * 0.72, 460));
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      canvas.style.height = cssH + 'px';
+      canvas.width = Math.round(cssW * dpr);
+      canvas.height = Math.round(cssH * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0); // lavoro in pixel CSS
+      W = cssW; H = cssH;
+      baseScale = Math.min(W, H) / 6.2;       // pixel per unita' (prima dello zoom)
+      applyScale();
+      cx = W / 2; cy = H / 2;
+      draw();
+    }
+
+    // proiezione 3D -> pixel schermo (ortografica)
+    let cam = camera(az, el);
+    const project = (p: V3): [number, number] =>
+      [cx + dot(p, cam.right) * scale, cy - dot(p, cam.up) * scale];
+
+    // ---------- primitive di disegno ----------
+    function line(a: V3, b: V3, color: string, width: number, alpha = 1, dash: number[] = []) {
+      const A = project(a), B = project(b);
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = width;
+      ctx.setLineDash(dash);
+      ctx.beginPath();
+      ctx.moveTo(A[0], A[1]); ctx.lineTo(B[0], B[1]);
+      ctx.stroke();
+      ctx.restore();
+    }
+    function arrow(vec: V3, color: string, width: number, alpha = 1, label?: string) {
+      const A = project([0, 0, 0]), B = project(vec);
+      const dx = B[0]-A[0], dy = B[1]-A[1], L = Math.hypot(dx, dy);
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.strokeStyle = color; ctx.fillStyle = color;
+      ctx.lineWidth = width; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(A[0], A[1]); ctx.lineTo(B[0], B[1]); ctx.stroke();
+      if (L > 6) { // punta della freccia
+        const ux = dx/L, uy = dy/L, h = 11, w = 6;
+        const bx = B[0]-ux*h, by = B[1]-uy*h, px = -uy, py = ux;
+        ctx.beginPath();
+        ctx.moveTo(B[0], B[1]);
+        ctx.lineTo(bx + px*w, by + py*w);
+        ctx.lineTo(bx - px*w, by - py*w);
+        ctx.closePath(); ctx.fill();
+      }
+      if (label) {
+        ctx.globalAlpha = Math.min(1, alpha + 0.2);
+        ctx.font = '600 14px system-ui, sans-serif';
+        ctx.fillText(label, B[0] + 8, B[1] - 6);
+      }
+      ctx.restore();
+    }
+    function axes() {
+      const ax: [V3, string][] = [
+        [[3, 0, 0], 'x'], [[0, 3, 0], 'y'], [[0, 0, 3], 'z'],
+      ];
+      for (const [a, lab] of ax) {
+        line(scl(a, -1) as V3, a, ink, 1, 0.18);
+        const P = project(a);
+        ctx.save();
+        ctx.globalAlpha = 0.35; ctx.fillStyle = ink;
+        ctx.font = '12px system-ui, sans-serif';
+        ctx.fillText(lab, P[0] + 4, P[1] - 4);
+        ctx.restore();
+      }
+    }
+
+    // ---------- stato della "vista costruzione" ----------
+    // ogni campo, se presente, dice cosa disegnare e con quanta intensita'/lunghezza
+    type View = {
+      u1?: { vec: V3; a: number }; u2?: { vec: V3; a: number }; u3?: { vec: V3; a: number };
+      p2?: number; p3a?: number; p3b?: number;     // frazione di lunghezza
+      w2?: number; w3?: number;                    // frazione di lunghezza
+      drop2?: number; drop3a?: number; drop3b?: number; // opacita' tratteggi
+      label?: number;                              // passo evidenziato (1,2,3,0)
+    };
+    let view: View = {};
+    function staticView() {
+      // vista a riposo / durante il trascinamento: input tenui + base viva
+      view = {
+        u1: { vec: geom.u1, a: 1 },
+        u2: { vec: geom.u2, a: 1 },
+        u3: { vec: geom.u3, a: 1 },
+        label: 0,
+      };
+    }
+
+    function highlightStep(n: number) {
+      stepEls.forEach(li => li.classList.toggle('active', +li.dataset.step! === n));
+    }
+
+    function draw() {
+      cam = camera(az, el);
+      ctx.clearRect(0, 0, W, H);
+      axes();
+
+      // vettori di input (sempre visibili: sono le maniglie da trascinare)
+      for (let i = 0; i < 3; i++)
+        arrow(v[i], COL.v[i], 2.5, 0.55, ['v₁', 'v₂', 'v₃'][i]);
+
+      // proiezioni (giallo) e tratteggi
+      if (view.p2)  arrow(scl(geom.u1, dot(v[1], geom.u1) * view.p2), COL.proj, 3, 0.95);
+      if (view.drop2) line(geom.p2, v[1], ink, 1.5, 0.5 * view.drop2, [5, 4]);
+      if (view.p3a) arrow(scl(geom.u1, dot(v[2], geom.u1) * view.p3a), COL.proj, 3, 0.95);
+      if (view.drop3a) line(geom.p3a, v[2], ink, 1.5, 0.5 * view.drop3a, [5, 4]);
+      if (view.p3b) arrow(scl(geom.u2, dot(v[2], geom.u2) * view.p3b), COL.proj, 3, 0.95);
+      if (view.drop3b) line(add(geom.p3a, geom.p3b), v[2], ink, 1.5, 0.5 * view.drop3b, [5, 4]);
+
+      // resto ortogonale w (viola), in crescita dall'origine
+      if (view.w2) arrow(scl(geom.w2, view.w2), COL.w, 3, 0.9, view.w2 > 0.95 ? 'w₂' : undefined);
+      if (view.w3) arrow(scl(geom.w3, view.w3), COL.w, 3, 0.9, view.w3 > 0.95 ? 'w₃' : undefined);
+
+      // versori finali (vivi)
+      if (view.u1) arrow(view.u1.vec, COL.u[0], 3.5, view.u1.a, view.u1.a > 0.8 ? 'u₁' : undefined);
+      if (view.u2) arrow(view.u2.vec, COL.u[1], 3.5, view.u2.a, view.u2.a > 0.8 ? 'u₂' : undefined);
+      if (view.u3) arrow(view.u3.vec, COL.u[2], 3.5, view.u3.a, view.u3.a > 0.8 ? 'u₃' : undefined);
+    }
+
+    function updateReadout() {
+      const { u1, u2, u3 } = geom;
+      normsEl.textContent = [u1, u2, u3].map(u => len(u).toFixed(2)).join(', ');
+      dotsEl.textContent = [dot(u1, u2), dot(u1, u3), dot(u2, u3)]
+        .map(x => (Math.abs(x) < 5e-3 ? '0.00' : x.toFixed(2))).join(', ');
+    }
+
+    // ---------- animazione a fasi (tween awaitable) ----------
+    let animToken = 0;   // annulla il singolo tween in corso
+    let runId = 0;       // annulla l'INTERA sequenza play()
+    const aborted = (my: number) => my !== runId;
+    function tween(ms: number, cb: (t: number) => void) {
+      return new Promise<void>(res => {
+        const tok = ++animToken, start = performance.now();
+        const frame = (now: number) => {
+          if (tok !== animToken) { res(); return; }   // annullata
+          const t = Math.min(1, (now - start) / ms);
+          cb(easeInOut(t)); draw();
+          if (t < 1) requestAnimationFrame(frame); else res();
+        };
+        requestAnimationFrame(frame);
+      });
+    }
+    const wait = (ms: number) => new Promise<void>(r => {
+      const tok = animToken; setTimeout(() => { if (tok === animToken) r(); else r(); }, ms);
+    });
+
+    async function play() {
+      const my = ++runId;                   // identita' di questa esecuzione
+      geom = gramSchmidt(v[0], v[1], v[2]); // congelo la geometria corrente
+      view = {}; animToken++;               // azzero ed escludo tween precedenti
+      computeBtn.disabled = true;
+      const stop = () => { computeBtn.disabled = false; };
+
+      // PASSO 1: normalizzo v1 -> u1 (la freccia si "accorcia" al versore)
+      highlightStep(1);
+      await tween(700, t => { view.u1 = { vec: lerp3(v[0], geom.u1, t), a: 1 }; });
+      if (aborted(my)) return stop();
+      view.u1 = { vec: geom.u1, a: 1 };
+      await wait(250); if (aborted(my)) return stop();
+
+      // PASSO 2: proietto v2 su u1, sottraggo, normalizzo
+      highlightStep(2);
+      await tween(650, t => { view.p2 = t; view.drop2 = t; }); if (aborted(my)) return stop();
+      await tween(600, t => { view.w2 = t; }); if (aborted(my)) return stop();
+      await tween(650, t => {                       // w2 -> u2, sfumo proiezione/tratteggio
+        view.u2 = { vec: lerp3(geom.w2, geom.u2, t), a: 1 };
+        view.w2 = 1 - t; view.p2 = 1 - t; view.drop2 = 1 - t;
+      }); if (aborted(my)) return stop();
+      view.u2 = { vec: geom.u2, a: 1 }; view.w2 = view.p2 = view.drop2 = 0;
+      await wait(250); if (aborted(my)) return stop();
+
+      // PASSO 3: DUE proiezioni in SEQUENZA (su u1, poi su u2), poi sottraggo e normalizzo
+      highlightStep(3);
+      await tween(650, t => { view.p3a = t; view.drop3a = t; }); if (aborted(my)) return stop();
+      await wait(180); if (aborted(my)) return stop();
+      await tween(650, t => { view.p3b = t; view.drop3b = t; }); if (aborted(my)) return stop();
+      await tween(600, t => { view.w3 = t; }); if (aborted(my)) return stop();
+      await tween(650, t => {                       // w3 -> u3, sfumo tutto il resto
+        view.u3 = { vec: lerp3(geom.w3, geom.u3, t), a: 1 };
+        view.w3 = 1 - t;
+        view.p3a = view.p3b = view.drop3a = view.drop3b = 1 - t;
+      }); if (aborted(my)) return stop();
+
+      // chiusura: resta la base ortonormale
+      staticView();
+      highlightStep(0);
+      draw();
+      computeBtn.disabled = false;
+    }
+
+    // ---------- modalita': "explore" (vettori bloccati) vs "edit" ----------
+    const HINT = {
+      edit: root.dataset.hintEdit ?? '',
+      explore: root.dataset.hintExplore ?? '',
+    };
+    function setMode(m: 'explore' | 'edit') {
+      mode = m;
+      computeBtn.classList.toggle('active', m === 'explore');
+      editBtn.classList.toggle('active', m === 'edit');
+      computeBtn.setAttribute('aria-pressed', String(m === 'explore'));
+      editBtn.setAttribute('aria-pressed', String(m === 'edit'));
+      hintEl.innerHTML = m === 'edit' ? HINT.edit : HINT.explore;
+      canvas.style.cursor = 'default';
+    }
+
+    // ---------- zoom (rotella) ----------
+    canvas.addEventListener('wheel', e => {
+      e.preventDefault();
+      zoom = Math.max(0.4, Math.min(4, zoom * Math.exp(-e.deltaY * 0.0015)));
+      applyScale(); draw();
+    }, { passive: false });
+
+    // ---------- interazione a puntatori (mouse + touch + pinch) ----------
+    let drag: { kind: 'orbit' } | { kind: 'tip'; i: number } | null = null;
+    let last = { x: 0, y: 0 };
+    const pts = new Map<number, { x: number; y: number }>();   // puntatori attivi
+    let pinch: { dist: number; zoom: number } | null = null;   // stato del pinch
+
+    function pointerPos(e: PointerEvent) {
+      const r = canvas.getBoundingClientRect();
+      return { x: e.clientX - r.left, y: e.clientY - r.top };
+    }
+    function hitTip(px: number, py: number) {
+      for (let i = 0; i < 3; i++) {
+        const P = project(v[i]);
+        if (Math.hypot(P[0]-px, P[1]-py) < 16) return i;
+      }
+      return -1;
+    }
+    const twoDist = () => {
+      const [a, b] = [...pts.values()];
+      return Math.hypot(a.x-b.x, a.y-b.y);
+    };
+
+    canvas.addEventListener('pointerdown', e => {
+      animToken++; runId++;             // ogni interazione interrompe l'animazione
+      computeBtn.disabled = false;
+      canvas.setPointerCapture(e.pointerId);
+      const p = pointerPos(e);
+      pts.set(e.pointerId, p);
+
+      if (pts.size === 2) {             // due dita: zoom pinch, niente orbita/modifica
+        drag = null;
+        pinch = { dist: twoDist(), zoom };
+        return;
+      }
+      // un solo puntatore
+      if (mode === 'edit') {            // i vettori si spostano SOLO in modalita' Modifica
+        const i = hitTip(p.x, p.y);
+        drag = i >= 0 ? { kind: 'tip', i } : { kind: 'orbit' };
+        canvas.style.cursor = i >= 0 ? 'grabbing' : 'move';
+      } else {                          // explore: solo orbita, punte ignorate
+        drag = { kind: 'orbit' };
+        canvas.style.cursor = 'move';
+      }
+      last = p;
+    });
+
+    canvas.addEventListener('pointermove', e => {
+      if (pts.has(e.pointerId)) pts.set(e.pointerId, pointerPos(e));
+
+      if (pinch && pts.size >= 2) {     // zoom con due dita
+        e.preventDefault();
+        zoom = Math.max(0.4, Math.min(4, pinch.zoom * (twoDist() / pinch.dist)));
+        applyScale(); draw();
+        return;
+      }
+      if (!drag) {                      // cursore "afferrabile" solo in Modifica
+        if (mode === 'edit') {
+          const p = pointerPos(e);
+          canvas.style.cursor = hitTip(p.x, p.y) >= 0 ? 'grab' : 'default';
+        }
+        return;
+      }
+      e.preventDefault();
+      const p = pointerPos(e);
+      const dx = p.x - last.x, dy = p.y - last.y;
+      last = p;
+      if (drag.kind === 'orbit') {      // ruota la vista, NON ricalcola nulla
+        az -= dx * 0.01;
+        el = Math.max(-1.45, Math.min(1.45, el + dy * 0.01));
+      } else {                          // sposta la punta nel piano dello schermo
+        const world = add(scl(cam.right, dx / scale), scl(cam.up, -dy / scale));
+        v[drag.i] = add(v[drag.i], world);
+        geom = gramSchmidt(v[0], v[1], v[2]);   // ricalcolo solo qui
+        staticView(); updateReadout();
+      }
+      draw();
+    });
+
+    const endPointer = (e: PointerEvent) => {
+      pts.delete(e.pointerId);
+      try { canvas.releasePointerCapture(e.pointerId); } catch {}
+      if (pts.size < 2) pinch = null;
+      if (pts.size === 0) { drag = null; canvas.style.cursor = 'default'; }
+      else { drag = null; last = [...pts.values()][0]; } // dopo il pinch evito salti
+    };
+    canvas.addEventListener('pointerup', endPointer);
+    canvas.addEventListener('pointercancel', endPointer);
+
+    // ---------- pulsanti (le due modalita' si escludono a vicenda) ----------
+    computeBtn.addEventListener('click', () => { setMode('explore'); play(); });
+    editBtn.addEventListener('click', () => {
+      animToken++; runId++; computeBtn.disabled = false;
+      setMode('edit'); staticView(); highlightStep(0); draw();
+    });
+    resetBtn.addEventListener('click', () => {
+      animToken++; runId++; computeBtn.disabled = false;
+      v = V0.map(a => [...a] as V3);
+      az = 0.7; el = 0.5; zoom = 1; applyScale();
+      geom = gramSchmidt(v[0], v[1], v[2]);
+      setMode('explore'); staticView(); highlightStep(0); updateReadout(); draw();
+    });
+
+    // ---------- avvio ----------
+    refreshThemeColors();
+    setMode('explore');               // a riposo i vettori sono bloccati
+    staticView();
+    updateReadout();
+    new ResizeObserver(resize).observe(canvas);
+    // ricalcolo i colori quando l'utente cambia tema (Starlight cambia data-theme)
+    new MutationObserver(() => { refreshThemeColors(); draw(); })
+      .observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'class'] });
+    resize();
+  }
+
+  document.querySelectorAll<HTMLElement>('[data-gs3d]').forEach(initInstance);
+</script>
+
+<style>
+  .gs3d {
+    margin: 1.5rem 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+    gap: 1rem;
+    align-items: start;
+  }
+  @media (max-width: 720px) { .gs3d { grid-template-columns: 1fr; } }
+
+  .gs3d__stage {
+    border: 1px solid var(--sl-color-gray-5, #3a3a3a);
+    border-radius: 10px;
+    overflow: hidden;
+    background: var(--sl-color-bg, #1b1b1f);
+  }
+  .gs3d__canvas {
+    display: block;
+    width: 100%;
+    touch-action: none;        /* evita lo scroll mentre si trascina */
+    color: var(--sl-color-text, #c9c9d2); /* da qui leggo il colore "ink" */
+  }
+  .gs3d__hint {
+    font-size: 0.78rem;
+    padding: 0.4rem 0.7rem;
+    color: var(--sl-color-gray-3, #9b9ba6);
+    border-top: 1px solid var(--sl-color-gray-5, #3a3a3a);
+  }
+
+  .gs3d__side { display: flex; flex-direction: column; gap: 0.8rem; }
+  .gs3d__controls { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+  .gs3d__btn {
+    font: inherit;
+    font-size: 0.85rem;
+    padding: 0.4rem 0.8rem;
+    border-radius: 8px;
+    border: 1px solid var(--sl-color-gray-5, #3a3a3a);
+    background: var(--sl-color-gray-6, #222);
+    color: var(--sl-color-white, #fff);
+    cursor: pointer;
+  }
+  .gs3d__btn:hover { border-color: var(--sl-color-accent, #5b8def); }
+  .gs3d__btn:disabled { opacity: 0.5; cursor: default; }
+  .gs3d__mode.active {
+    background: var(--sl-color-accent, #5b8def);
+    border-color: var(--sl-color-accent, #5b8def);
+    color: var(--sl-color-black, #fff);
+  }
+
+  .gs3d__steps {
+    list-style: none;
+    margin: 0; padding: 0;
+    display: flex; flex-direction: column; gap: 0.55rem;
+  }
+  .gs3d__steps li {
+    position: relative;
+    padding: 0.4rem 0.55rem 0.4rem 1.4rem;
+    border-radius: 8px;
+    border: 1px solid transparent;
+    font-size: 0.92rem;
+    transition: background 0.2s, border-color 0.2s;
+    overflow-x: auto;
+  }
+  .gs3d__steps li.active {
+    background: color-mix(in srgb, var(--sl-color-accent, #5b8def) 14%, transparent);
+    border-color: var(--sl-color-accent, #5b8def);
+  }
+  .gs3d__dot {
+    position: absolute; left: 0.5rem; top: 0.72rem;
+    width: 0.55rem; height: 0.55rem; border-radius: 50%;
+    background: var(--c);
+  }
+
+  .gs3d__check {
+    display: flex; flex-direction: column; gap: 0.3rem;
+    font-size: 0.82rem;
+    color: var(--sl-color-gray-2, #b8b8c4);
+    border-top: 1px solid var(--sl-color-gray-5, #3a3a3a);
+    padding-top: 0.6rem;
+  }
+  .gs3d__check b { color: var(--sl-color-white, #fff); font-variant-numeric: tabular-nums; }
+
+  /* le formule KaTeX non devono sforare su mobile */
+  .gs3d__steps :global(.katex) { font-size: 0.95em; }
+  .gs3d__steps :global(.katex-display) { margin: 0; }
+</style>

@@ -1,0 +1,38 @@
+---
+title: Gram-Schmidt senza normalizzazione
+description: Risolutore online di ortogonalizzazione di Gram-Schmidt senza normalizzazione, base ortogonale a coordinate intere, passo-passo.
+sidebar:
+  hidden: false
+  label: Gram-Schmidt senza normalizzazione
+  order: 5
+tableOfContents: false
+---
+
+import GramSchmidtSoloOrto from '@components/GramSchmidtSoloOrto.astro';
+
+Questo strumento applica il **procedimento di Gram-Schmidt** a un insieme di
+vettori di $\mathbb{R}^n$ e restituisce una **base ortogonale** (non
+normalizzata) dello spazio generato.
+
+È la versione da usare quando interessa solo l'**ortogonalità** tra i vettori
+e non la loro lunghezza: ad ogni passo lo strumento tiene il rappresentante a
+**coordinate intere ridotte**, evitando radici quadrate e numeri decimali in
+ogni fase del calcolo.
+
+Inserisci i vettori come colonne (numeri interi o frazioni, es. `1/2`, `-3`),
+scegli quanti sono ($k$) e in quale spazio vivono ($n$), poi premi
+**RISULTATO SINTETICO** per la sola base finale oppure **SVOLGIMENTO
+PASSO-PASSO** per vedere tutti i calcoli intermedi: proiezioni, parti
+ortogonali e il fattore comune evidenziato ogni volta che si sceglie un
+rappresentante a coordinate più semplici.
+
+Se uno dei vettori inseriti risulta **linearmente dipendente** dai precedenti,
+lo strumento lo segnala e lo scarta automaticamente: la base ortogonale finale
+avrà quindi meno di $k$ elementi.
+
+**Non usarlo per**: insiemi con più di 8 vettori o in dimensione superiore a
+8 (limite dello strumento), né per ottenere direttamente una base
+*ortonormale* (con versori di lunghezza 1) — per quello c'è il
+[risolutore Gram-Schmidt completo](/it/risolutori/gram-schmidt/).
+
+<GramSchmidtSoloOrto />

@@ -1,0 +1,46 @@
+---
+title: Polynomial division
+description: Interactive tool to divide one polynomial by another, with exact rational coefficients and a literal parameter. Quotient and remainder, quick result and a step-by-step long-division layout.
+sidebar:
+  hidden: false
+  label: Polynomial division
+  order: 6
+tableOfContents: false
+---
+
+{/* Adjust the import path to your project structure
+    (e.g. a ~/components alias or a relative path from the page folder). */}
+import DivisionePolinomiale from "@components/DivisionePolinomiale.astro";
+
+An algebraic fraction is called **improper** when the degree of the numerator is
+greater than or equal to that of the denominator. In that case it can always be
+rewritten as the sum of a polynomial (the **quotient**) and a **proper**
+fraction, whose numerator is the **remainder** of the division:
+
+$$
+\frac{N(x)}{D(x)} = Q(x) + \frac{R(x)}{D(x)}, \qquad \deg R < \deg D.
+$$
+
+The tool performs this division keeping the coefficients as exact rational
+numbers, with no rounding. A literal parameter `a` is allowed (linear in the
+values you type): the only constraint is that the leading coefficient of the
+denominator be a number, not an expression containing `a`.
+
+<DivisionePolinomiale />
+
+## How to use the tool
+
+- **Coefficient boxes.** In each box enter an integer, a fraction (for example
+  `3/4`) or a linear expression in the parameter (for example `2a-1`). The sign
+  goes inside the box.
+- **Maximum degree.** The selector sets the maximum degree, the same for
+  numerator and denominator. Changing it clears the coefficients.
+- **Use the monic denominator.** Divides the denominator by its own leading
+  coefficient; the result is shown by factoring out $\frac{1}{k}$.
+- **Random values.** Generates a purely numerical, ready-to-run division.
+- **Quick result.** Shows the complete table with quotient and remainder
+  highlighted, without the explanation.
+- **Step-by-step solution.** Rebuilds the division one term at a time, with the
+  long-division layout and an explicit vertical subtraction.
+- **Analyse the parameter a.** When the parameter is present, it reports for
+  which values of `a` the remainder vanishes and for which its degree drops.

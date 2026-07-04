@@ -1,0 +1,31 @@
+---
+title: Forma esponenziale dei numeri complessi
+description: "Simulatore interattivo della formula di Eulero: la forma esponenziale dei numeri complessi e^(iθ) come limite di un poligono che diventa un cerchio."
+sidebar:
+  hidden: false
+  label: Forma esponenziale dei numeri complessi
+  order: 2
+tableOfContents: false
+---
+
+import PoligonoEsponenziale from '@components/PoligonoEsponenziale.astro';
+
+Scrivere un numero complesso come $z = \rho e^{i\theta}$ sembra solo una notazione comoda. In realtà nasconde una domanda che vale la pena sciogliere: perché $e^{i\theta}$ è un numero complesso, e da dove salta fuori l'esponenziale?
+
+L'idea è guardare una rotazione come una somma di tanti piccoli passi. Ruotare di un angolo $\theta$ equivale a moltiplicare per il fattore $\left(1 + \dfrac{i\theta}{n}\right)$ ripetuto $n$ volte: ogni passo è uno spostamento piccolo e **perpendicolare** alla posizione attuale, perché moltiplicare per $i$ ruota di $90°$. Partendo dal numero $1$ e applicando $n$ volte questo fattore si ottiene il poligono
+
+$$
+\left(1 + \frac{i\theta}{n}\right)^n.
+$$
+
+Al crescere di $n$ il poligono si infittisce e si appoggia all'arco di circonferenza di raggio $1$: il modulo finale tende a $1$ e l'angolo accumulato tende a $\theta$. Quel limite è, per definizione, $e^{i\theta}$ — un numero complesso, ottenuto come limite di numeri complessi — e il suo valore è
+
+$$
+e^{i\theta} = \cos\theta + i\sin\theta.
+$$
+
+È la formula di Eulero, che qui non si assume ma *emerge*.
+
+<PoligonoEsponenziale />
+
+Muovi i due cursori: con pochi passi il poligono è spigoloso e il suo vertice finale cade fuori dal cerchio, con modulo $|z_n| > 1$ e argomento $< \theta$. Aumentando $n$ i due numeri in basso convergono a $1$ e a $\theta$, e il vertice si posa sul punto $e^{i\theta}$. Per un numero qualsiasi $z = \rho e^{i\theta}$ basta poi scalare il cerchio del modulo $\rho$.

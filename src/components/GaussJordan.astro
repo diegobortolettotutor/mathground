@@ -1,0 +1,1281 @@
+---
+/**
+ * GaussJordan.astro — Risolutore Gauss-Jordan nativo, responsive, bilingue (it/en).
+ *
+ * Dipendenze (una sola volta nel progetto):
+ *   npm install nerdamer katex
+ *
+ * Uso in una pagina .mdx di Starlight:
+ *   import GaussJordan from '../../../components/GaussJordan.astro';
+ *   <GaussJordan />
+ *
+ * Note:
+ *  - Il rendering matematico usa KaTeX (niente MathJax, niente conflitti col sito).
+ *  - nerdamer resta il motore simbolico (frazioni esatte, celle con lettere).
+ *  - Pensato per UNA istanza per pagina (nerdamer tiene le matrici in variabili globali).
+ */
+
+// Il CSS di KaTeX: se il sito lo carica già via rehype-katex puoi togliere questa riga.
+import 'katex/dist/katex.min.css';
+
+// Rilevo la lingua come negli altri tuoi componenti bilingui.
+const lang = (Astro.currentLocale ?? 'it').toLowerCase().startsWith('en') ? 'en' : 'it';
+
+// Etichette statiche dell'interfaccia (lato server).
+const UI = {
+  it: {
+    title: 'Algoritmo di Gauss-Jordan',
+    subtitle: 'Riduzione (semplice/ridotta) di una matrice in forma a scala',
+    step1: 'Step 1 — IMPOSTA LE DIMENSIONI DELLA MATRICE',
+    rowsLabel: 'Righe \\(\\left(\\mathscr{R}\\right)\\)',
+    colsLabel: 'Colonne \\(\\left(\\mathscr{C}\\right)\\)',
+    step2: 'Step 2 — IMPOSTA IL CONTENUTO DELLE CELLE',
+    btnReset: 'AZZERA VALORI',
+    btnRandom: 'VALORI CASUALI',
+    btnQuick: 'RISULTATO SINTETICO',
+    btnStep: 'SVOLGIMENTO PASSO-PASSO',
+    togglePivot: 'Mostra i pivot nello svolgimento',
+    toggleRC: 'Mostra \\(\\mathscr{R}_m\\) e \\(\\mathscr{C}_n\\) nello svolgimento',
+    toggleConti: 'Mostra i conti sulle righe nello svolgimento',
+  },
+  en: {
+    title: 'Gauss-Jordan Algorithm',
+    subtitle: 'Row reduction (echelon / reduced echelon) of a matrix',
+    step1: 'Step 1 — SET THE MATRIX DIMENSIONS',
+    rowsLabel: 'Rows \\(\\left(\\mathscr{R}\\right)\\)',
+    colsLabel: 'Columns \\(\\left(\\mathscr{C}\\right)\\)',
+    step2: 'Step 2 — SET THE MATRIX CELL CONTENTS',
+    btnReset: 'RESET VALUES',
+    btnRandom: 'RANDOM VALUES',
+    btnQuick: 'QUICK RESULT',
+    btnStep: 'STEP-BY-STEP SOLUTION',
+    togglePivot: 'Show pivots in the solution',
+    toggleRC: 'Show \\(\\mathscr{R}_m\\) and \\(\\mathscr{C}_n\\) in the solution',
+    toggleConti: 'Show row computations in the solution',
+  },
+}[lang];
+---
+
+<div class="gj-root" data-lang={lang}>
+  <!-- Step 1: dimensioni -->
+  <section class="gj-panel">
+    <h3 class="gj-steplabel">{UI.step1}</h3>
+    <div class="gj-dims" id="gjDims">
+      <label for="gjRows" set:html={UI.rowsLabel}></label>
+      <input id="gjRows" type="number" min="1" max="6" value="3" />
+      <span class="gj-times">\(\large\times\)</span>
+      <input id="gjCols" type="number" min="1" max="12" value="4" />
+      <label for="gjCols" set:html={UI.colsLabel}></label>
+    </div>
+  </section>
+
+  <!-- Step 2: contenuto celle -->
+  <section class="gj-panel">
+    <h3 class="gj-steplabel">{UI.step2}</h3>
+    <div class="gj-matrixwrap" id="gjMatrixWrap">
+      <div class="gj-matrix">
+        <span id="gjThA" class="gj-a">\(A=\)</span>
+        <span class="gj-paren gj-paren-l" aria-hidden="true"></span>
+        <div id="gjTd" class="gj-gridhost"></div>
+        <span class="gj-paren gj-paren-r" aria-hidden="true"></span>
+      </div>
+    </div>
+    <div id="gjStatus" class="gj-status" role="alert" aria-live="polite"></div>
+  </section>
+
+  <!-- Azioni -->
+  <div class="gj-actions">
+    <button id="gjBtnReset" class="gj-btn gj-btn-ghost" type="button">{UI.btnReset}</button>
+    <button id="gjBtnRandom" class="gj-btn gj-btn-ghost" type="button">{UI.btnRandom}</button>
+    <button id="gjBtnQuick" class="gj-btn gj-btn-ghost" type="button">{UI.btnQuick}</button>
+  </div>
+
+  <div class="gj-secondary">
+    <button id="gjBtnStep" class="gj-btn gj-btn-ghost gj-btn-wide" type="button">{UI.btnStep}</button>
+    <ul class="gj-toggles">
+      <li>
+        <label class="gj-switch">
+          <input type="checkbox" id="gjPivot" checked />
+          <span class="gj-slider"></span>
+        </label>
+        <span set:html={UI.togglePivot}></span>
+      </li>
+      <li>
+        <label class="gj-switch">
+          <input type="checkbox" id="gjRC" checked />
+          <span class="gj-slider"></span>
+        </label>
+        <span set:html={UI.toggleRC}></span>
+      </li>
+      <li>
+        <label class="gj-switch">
+          <input type="checkbox" id="gjConti" />
+          <span class="gj-slider"></span>
+        </label>
+        <span set:html={UI.toggleConti}></span>
+      </li>
+    </ul>
+  </div>
+
+  <!-- Output -->
+  <section id="gjQuick" class="gj-result" hidden></section>
+  <section id="gjFull" class="gj-result" hidden></section>
+</div>
+
+<style is:global>
+  .gj-root {
+    --gj-radius: 12px;
+    --gj-surface: var(--sl-color-gray-6, #1a1a1a);
+    --gj-border: var(--sl-color-gray-5, #383838);
+    --gj-accent: var(--sl-color-accent, #4f7cff);
+    --gj-accent-hi: var(--sl-color-accent-high, #b8c8ff);
+    --gj-red: #d11111;
+    font-size: 1rem;
+    line-height: 1.5;
+    color: var(--sl-color-text, inherit);
+    width: 100%;
+    min-width: 330px;
+    margin: 1.5rem 0;
+    text-align: center;
+  }
+  .gj-root *,
+  .gj-root *::before,
+  .gj-root *::after { box-sizing: border-box; }
+
+  .gj-panel {
+    background: var(--gj-surface);
+    border: 1px solid var(--gj-border);
+    border-radius: var(--gj-radius);
+    padding: 1.25rem 1rem;
+    margin: 1.25rem 0;
+  }
+  .gj-steplabel {
+    margin: 0 0 1rem;
+    font-size: clamp(0.85rem, 2.4vw, 1rem);
+    letter-spacing: 0.02em;
+    color: var(--sl-color-text-accent, var(--gj-accent-hi));
+  }
+
+  /* dimensioni */
+  .gj-dims { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 1.2rem; }
+  .gj-dims label { font-size: 1rem; }
+  .gj-dims input,
+  .gj-matrix-cell {
+    background: var(--sl-color-bg, #000);
+    color: var(--sl-color-text, #fff);
+    border: 1.5px solid var(--gj-border);
+    border-radius: 6px;
+    text-align: center;
+    padding: 0.35rem;
+    font: inherit;
+  }
+  .gj-dims input { width: 4rem; }
+  .gj-dims input:hover {
+    border-color: var(--gj-accent);
+    background: color-mix(in srgb, var(--gj-accent) 10%, var(--sl-color-bg, #000));
+  }
+  .gj-dims input:focus,
+  .gj-matrix-cell:focus { border-color: var(--gj-accent); outline: none; }
+  .gj-dims input { transition: background-color 0.15s ease, border-color 0.15s ease; }
+  .gj-times { font-size: 1.3rem; }
+
+  /* matrice di input */
+  .gj-matrixwrap { overflow-x: auto; padding: 0.5rem 0.25rem; }
+  .gj-matrix { display: inline-flex; align-items: center; justify-content: center; gap: 0.15rem; min-width: 100%; }
+  .gj-gridhost { display: inline-block; }
+
+  /* A = e parentesi */
+  .gj-a { display: inline-flex; align-items: center; padding-right: 0.3rem; }
+  .gj-paren { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; line-height: 0; color: var(--sl-color-text, inherit); }
+  .gj-paren svg { display: block; }
+
+  /* azzero gli stili tabella iniettati da Starlight (bordi/righe grigie/zebra) */
+  .gj-root .gj-grid {
+    display: table !important;
+    width: auto !important;
+    margin: 0;
+    border: 0 !important;
+    border-collapse: collapse;
+    background: transparent !important;
+    box-shadow: none !important;
+  }
+  .gj-root .gj-grid :is(thead, tbody, tr, th, td) {
+    border: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+  }
+  .gj-root .gj-grid td { padding: 2px 3px; text-align: center; vertical-align: middle; }
+  .gj-root .gj-grid th.gj-colhead {
+    padding: 0 0 0.15rem; font-size: 0.75rem; font-weight: 400;
+    text-align: center; vertical-align: bottom;
+    color: var(--sl-color-text-accent, var(--gj-accent-hi));
+    min-width: 3.25rem;
+    transition: min-width 0.35s ease-in-out;
+  }
+  .gj-root .gj-grid th.gj-colhead.gj-col-wide { min-width: 7rem; }
+  .gj-root .gj-grid th.gj-rowhead {
+    padding: 0 0.4rem; font-size: 0.75rem; font-weight: 400;
+    text-align: center; vertical-align: middle;
+    color: var(--sl-color-text-accent, var(--gj-accent-hi));
+  }
+
+  /* celle: compatte, evidenziate all'hover, allargate per l'intera colonna attiva */
+  .gj-matrix-cell {
+    width: 3.25rem; padding: 0.18rem 0.3rem; margin: 0;
+    transition: width 0.35s ease-in-out, background-color 0.15s ease, border-color 0.15s ease;
+  }
+  .gj-matrix-cell:hover {
+    border-color: var(--gj-accent);
+    background: color-mix(in srgb, var(--gj-accent) 10%, var(--sl-color-bg, #000));
+  }
+  .gj-matrix-cell:focus {
+    border-color: var(--gj-accent);
+    background: color-mix(in srgb, var(--gj-accent) 16%, var(--sl-color-bg, #000));
+  }
+  .gj-matrix-cell.gj-cell-wide { width: 7rem; }
+
+  .gj-status { margin: 0.5rem 0; font-size: 0.95rem; }
+  .gj-status.gj-error {
+    padding: 0.6rem 0.8rem;
+    border-left: 4px solid var(--gj-red);
+    background: color-mix(in srgb, var(--gj-red) 8%, transparent);
+    border-radius: 4px;
+  }
+
+  /* pulsanti */
+  .gj-actions {
+    display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.75rem; align-items: stretch; margin: 1.25rem auto; max-width: 48rem;
+  }
+  .gj-actions .gj-btn {
+    box-sizing: border-box; width: 100%; margin: 0;
+    height: 3.6rem; padding: 0 1rem; line-height: 1.2;
+    display: inline-flex; align-items: center; justify-content: center; text-align: center;
+  }
+  .gj-secondary { margin-top: 1.25rem; }
+  .gj-btn {
+    font: inherit; font-weight: 600; cursor: pointer;
+    border-radius: 999px; padding: 0.7rem 1.4rem; border: 1.5px solid transparent;
+    transition: transform 0.1s ease, background 0.2s ease, border-color 0.2s ease;
+  }
+  .gj-btn:active { transform: scale(0.96); }
+  .gj-btn-primary, .gj-btn-accent { background: var(--gj-accent); color: var(--sl-color-white, #fff); }
+  .gj-btn-primary:hover, .gj-btn-accent:hover { background: var(--sl-color-accent-high, var(--gj-accent)); }
+  .gj-btn-ghost { background: transparent; color: var(--sl-color-text, inherit); border-color: var(--gj-border); }
+  .gj-btn-ghost:hover { border-color: var(--gj-accent); color: var(--gj-accent); }
+  .gj-btn-wide { padding: 0.9rem 1.4rem; width: 100%; margin: 0 0 1rem; }
+
+  /* toggle switch */
+  .gj-toggles { list-style: none; margin: 1.5rem auto 0; padding: 0; max-width: 28rem; }
+  .gj-toggles li { display: flex; align-items: center; gap: 0.8rem; text-align: left; padding: 0.5rem 0; }
+  .gj-switch { position: relative; display: inline-block; width: 46px; height: 26px; flex: 0 0 auto; }
+  .gj-switch input { opacity: 0; width: 0; height: 0; }
+  .gj-slider {
+    position: absolute; inset: 0; cursor: pointer; border-radius: 26px;
+    background: transparent; border: 1.5px solid var(--gj-border); transition: 0.3s;
+  }
+  .gj-slider::before {
+    content: ''; position: absolute; height: 18px; width: 18px; left: 2px; top: 50%;
+    background: var(--gj-border); border-radius: 50%; transition: 0.3s; transform: translateY(-50%);
+  }
+  .gj-switch input:checked + .gj-slider { background: transparent; border-color: var(--sl-color-text, #888); }
+  .gj-switch input:checked + .gj-slider::before { transform: translate(20px, -50%); background: var(--sl-color-text, #888); }
+
+  /* output */
+  .gj-result {
+    background: var(--gj-surface); border: 1px solid var(--gj-border);
+    border-radius: var(--gj-radius); margin-top: 1.5rem; padding: 1.5rem 1rem;
+    opacity: 0; transition: opacity 0.3s ease; text-align: left;
+  }
+  .gj-result.gj-visible { opacity: 1; }
+  .gj-result h2 { text-align: center; }
+  .gj-result h3 { margin-top: 2.5rem; color: var(--gj-accent); }
+  .gj-result h4 { margin-top: 0.25rem; }
+  .gj-result h5 {
+    margin: 2.5rem 0 1rem; padding-top: 1rem;
+    font-size: 0.95rem; letter-spacing: 0.03em; color: var(--sl-color-text-accent, var(--gj-accent-hi));
+  }
+  .gj-result ul { margin: 1.25rem 0; padding-left: 1.4rem; }
+  .gj-result li { margin: 0.4rem 0; }
+  .gj-tip {
+    background: var(--sl-color-gray-6, rgba(255,255,255,0.04));
+    border-left: 4px solid var(--gj-accent);
+    border-radius: 6px; padding: 0.9rem 1rem; margin: 1.5rem 0;
+  }
+  .gj-katex { overflow-x: auto; overflow-y: hidden; padding: 0.75rem 0.25rem; margin: 1.5rem 0; }
+  .gj-katex .katex-display { margin: 0; }
+  .gj-conti { overflow-x: auto; padding: 0.5rem 0.25rem; margin: 0.5rem 0 1.5rem; opacity: 0.95; }
+
+  @media (max-width: 600px) {
+    .gj-root { font-size: 0.95rem; }
+    .gj-actions { grid-template-columns: 1fr; }
+    .gj-actions .gj-btn, .gj-btn-wide { width: 100%; }
+    .gj-result { padding: 1rem 0.5rem; }
+
+    .gj-dims {
+      display: grid;
+      grid-template-columns: 4rem auto 4rem;
+      column-gap: 1.2rem;
+      row-gap: 0.4rem;
+      justify-content: center;
+      align-items: center;
+    }
+    .gj-dims input { grid-row: 1; width: 100%; }
+    #gjRows { grid-column: 1; }
+    .gj-times { grid-row: 1; grid-column: 2; justify-self: center; }
+    #gjCols { grid-column: 3; }
+    .gj-dims label {
+      grid-row: 2;
+      width: max-content;
+      white-space: nowrap;
+    }
+    label[for="gjRows"] { grid-column: 1; justify-self: center; }
+    label[for="gjCols"] { grid-column: 3; justify-self: center; }
+  }
+</style>
+
+<script>
+  import nerdamer from 'nerdamer';
+  import 'nerdamer/Algebra.js';
+  import 'nerdamer/Calculus.js';
+  import 'nerdamer/Solve.js';
+  import 'nerdamer/Extra.js';
+  import katex from 'katex';
+  import renderMathInElement from 'katex/contrib/auto-render';
+
+  const root = document.querySelector('.gj-root');
+  if (root) initGaussJordan(root);
+
+  function initGaussJordan(root) {
+    const LANG = (root.dataset.lang || document.documentElement.lang || 'it')
+      .toLowerCase().startsWith('en') ? 'en' : 'it';
+
+    // ----------------------------------------------------------------- i18n
+    const D = {
+      it: {
+        before: 'prima', after: 'dopo',
+        arrowBA: '\\impliedby prima \\quad \\quad dopo\\implies',
+        aRef: 'A_{\\text{REF}}', aRref: 'A_{\\text{RREF}}',
+        titleQuick: 'Risultato sintetico', titleStep: 'Svolgimento passo-passo',
+        inputIs: 'La matrice immessa è',
+        errTooLong: (n) => `Troppo lungo: riprova usando meno di ${n} caratteri.`,
+        errForbidden: "Caratteri non ammessi. Usa solo numeri, lettere (tranne 'i' ed 'e') minuscole o maiuscole, un punto o una virgola, le parentesi tonde e gli operatori + - / * ^",
+        nullMatrix: '<p>La matrice immessa è nulla, quindi si trova già nella sua forma a scala per righe (REF), che coincide con la sua forma a scala per righe ridotta (RREF). Non vi sono pivot (scalini).</p>',
+        refResult: '<p>La matrice nella sua forma a scala per righe (REF) risulta:</p>',
+        rrefResult: '<p>La matrice nella sua forma a scala per righe ridotta (RREF) risulta:</p>',
+        splitIntro: '<p>Divideremo il processo (l\'algoritmo di Gauss-Jordan) in due parti.<br>Nella prima parte porteremo la matrice in forma a scala per righe (REF) e chiameremo questo processo "Parte Gauss".<br>Nella seconda parte porteremo successivamente la matrice in forma a scala per righe ridotta (RREF) e chiameremo questo processo "Parte Jordan".</p>',
+        gaussHead: '<h3>Parte Gauss</h3>',
+        gaussSub: '<h4>Portiamo la matrice in forma a scala per righe (REF)</h4>',
+        jordanHead: '<h3>Parte Jordan</h3>',
+        jordanSub: '<h4>Portiamo la matrice in forma a scala per righe ridotta (RREF)</h4>',
+        movesIntro: '<p>L\'obiettivo è annullare la parte inferiore della matrice sfruttando solo <i>mosse di Gauss</i> sulle righe. Le ricordiamo qui di seguito e, fra parentesi, riportiamo come le indicheremo nei passaggi:</p>',
+        moveSwap: '<li>scambiare di posto tra loro le righe \\( \\mathscr{R}_{i} \\) ed \\( \\mathscr{R}_{j} \\quad \\left( \\; \\mathscr{R}_{i} \\; \\rightleftharpoons \\; \\mathscr{R}_{j} \\; \\right) \\)</li>',
+        moveMult: '<li>moltiplicare una riga \\( \\mathscr{R}_{i} \\) per uno scalare \\( K\\in\\mathbb{R} \\quad \\left( \\; \\mathscr{R}_{i} \\; = \\; K \\mspace{-2mu}\\cdot \\mathscr{R}_{i} \\; \\right) \\)</li>',
+        moveAdd: '<li>sommare ad una riga \\( \\mathscr{R}_{i} \\) un\'altra riga \\( \\mathscr{R}_{j} \\quad \\left( \\; \\mathscr{R}_{i} \\; = \\; \\mathscr{R}_{i} + \\mathscr{R}_{j} \\; \\right) \\)</li>',
+        gcTip1: '<p>Un suggerimento pratico che in queste soluzioni useremo sempre:</p>',
+        gcTipBox: '<p class="gj-tip">Quando si effettua la semplice riduzione a gradini di una matrice (la "Parte Gauss") e si lavora con matrici con più di una riga e più di una colonna, è buona abitudine evitare la mossa che consente di moltiplicare una riga per uno scalare. Adottare sempre questo accorgimento porta benefici con le <i>matrici quadrate</i>, perché nei vari passaggi mantiene inalterato il valore del determinante, risparmiando tempo negli esercizi in cui se ne richiede il calcolo.</p>',
+        gcTip2: '<p>Spesso nei conti, al posto di evitare la regola precedente, si preferisce usare la combinazione:</p>',
+        gcTip2move: '<ul><li>sommare ad una riga \\( \\mathscr{R}_{i} \\) un\'altra riga \\( \\mathscr{R}_{j} \\) opportunamente moltiplicata per uno scalare \\( K\\in\\mathbb{R} \\quad \\left( \\; \\mathscr{R}_{i} \\; = \\; \\mathscr{R}_{i} + K \\mspace{-2mu}\\cdot \\mathscr{R}_{j} \\; \\right) \\)</li></ul>',
+        jordanFree: '<p class="gj-tip">Diversamente dalla parte Gauss, ora siamo liberi di usare qualunque delle tre <i>mosse di Gauss</i>.</p>',
+        jordanGoal: '<p>Rendiamo unitari tutti i pivot trovati nella parte Gauss e annulliamo tutte le eventuali celle sopra di essi, iniziando dal pivot nella colonna più a destra.</p>',
+        analyzeCol: (c) => `<h5>ANALIZZIAMO LA COLONNA \\( \\mathscr{C}_{${c + 1}} \\)</h5>`,
+        zeroBelow: '<p>Annulliamo gli elementi sotto di esso.</p>',
+        srIntro: (e, pc) => `<p>Ogni matrice con una sola riga non nulla è già nella sua forma a scala per righe (REF) e l'unico pivot (scalino) è il primo elemento non nullo della riga.<br>In questo caso vale \\(${e}\\) e si trova nell'unica riga \\( \\mathscr{R}_{1} \\) alla colonna \\( \\mathscr{C}_{${pc + 1}} \\).</p>`,
+        srNorm: (k) => `<p>Per ottenere la forma a scala per righe ridotta (RREF) basta rendere unitario l'unico pivot, moltiplicando tutta la riga \\( \\mathscr{R}_{1} \\) per il reciproco del suo valore, ossia per \\(${k}\\).</p>`,
+        srAfterNorm: (pc) => `<p>La matrice è ora nella sua forma a scala per righe ridotta (RREF) e presenta un pivot unitario nell'unica riga \\( \\mathscr{R}_{1} \\) alla colonna \\( \\mathscr{C}_{${pc + 1}} \\).</p>`,
+        srAlready: (pc) => `<p>La matrice è anche già nella sua forma a scala per righe ridotta (RREF) e presenta il pivot unitario nell'unica riga \\( \\mathscr{R}_{1} \\) alla colonna \\( \\mathscr{C}_{${pc + 1}} \\).</p>`,
+        srQuick: (pc) => `<p>La matrice, nella sua forma a scala per righe ridotta (RREF), presenta un pivot unitario nell'unica riga \\( \\mathscr{R}_{1} \\) alla colonna \\( \\mathscr{C}_{${pc + 1}} \\).</p>`,
+        scOnlySwap: '<p>Avendo un\'unica colonna non nulla, in generale si distinguono due possibilità. La prima è quando l\'elemento nella prima riga è diverso da zero, in tal caso esso sarà direttamente il pivot. La seconda è quando invece l\'elemento nella prima riga risulta nullo, in tal caso l\'unica mossa utile sarebbe:</p>',
+        scReason: '<p>Infatti, quando l\'elemento della prima riga è nullo, l\'idea è quella di far salire al suo posto, in testa alla colonna, la prima cella non nulla sotto alla prima. Una volta salita essa sarà l\'unico pivot.</p><p>Successivamente, in entrambi i casi, si devono annullare eventuali termini sottostanti al pivot, formalmente moltiplicando le righe per lo stesso coefficiente: zero (di fatto, semplicemente si impongono a zero tutti i termini sotto al pivot).</p>',
+        scSwapDo: (sup, inf) => `<p>Scambio di posto le righe \\( \\mathscr{R}_{${sup + 1}} \\) ed \\( \\mathscr{R}_{${inf + 1}} \\).</p>`,
+        scNoSwapLower: '<p>In questo esercizio non serve scambiare alcuna coppia di righe: tutte le celle nulle si trovano già nella sola parte inferiore della colonna.</p>',
+        scNoSwapAllNz: '<p>In questo esercizio non serve scambiare alcuna coppia di righe: tutte le celle hanno valore non nullo.</p>',
+        scPivotHere: (e) => `<p>La matrice presenta già un pivot di valore \\(${e}\\) nell'unica colonna \\( \\mathscr{C}_{1} \\) alla riga \\( \\mathscr{R}_{1} \\).</p>`,
+        scFirstIsZero: '<p>La matrice presenta il primo elemento nullo nell\'unica colonna \\( \\mathscr{C}_{1} \\).</p>',
+        scPivotNow: (e) => `<p>La matrice ora presenta un pivot di valore \\(${e}\\) nell'unica colonna \\( \\mathscr{C}_{1} \\) alla riga \\( \\mathscr{R}_{1} \\).</p>`,
+        scAlready: 'La matrice perciò risulta già ',
+        scNow: 'La matrice risulta ora ',
+        scAlready2: 'La matrice risulta già ',
+        scEchelon: (e, pr) => `ridotta a scala per righe (REF) e presenta un pivot di valore \\(${e}\\) nell'unica colonna \\( \\mathscr{C}_{1} \\) alla riga \\( \\mathscr{R}_{${pr + 1}} \\).</p>`,
+        scQuickEch: (e, pr) => `<p>La matrice ridotta a scala per righe (REF) presenta un pivot di valore \\(${e}\\) nell'unica colonna \\( \\mathscr{C}_{1} \\) alla riga \\( \\mathscr{R}_{${pr + 1}} \\).</p>`,
+        scNormFirst: '<p>Per prima cosa rendiamo unitario il pivot trovato.<br>',
+        scNormMult: (k, pr) => `Moltiplichiamo quindi la riga \\( \\mathscr{R}_{${pr + 1}} \\) per il reciproco del valore del pivot, ossia per \\(${k}\\).</p>`,
+        scAlreadyUnit: '<p>Notiamo subito che il pivot è già unitario.</p>',
+        scNoRowsAbove: '<p>Non ci sono righe da annullare sopra di esso.</p>',
+        scShortcut2: '<p>Poiché la matrice ha una sola colonna usiamo una scorciatoia: per annullare le celle sopra il pivot unitario assegniamo loro semplicemente il valore \\( 0 \\), qui alla sola riga \\( \\mathscr{R}_{1} \\).</p>',
+        scShortcutN: (pr) => `<p>Poiché la matrice ha una sola colonna usiamo una scorciatoia: assegniamo semplicemente il valore \\( 0 \\) a ogni termine sopra il pivot unitario, qui dalla riga \\( \\mathscr{R}_{1} \\) alla riga \\( \\mathscr{R}_{${pr}} \\).</p>`,
+        scFinAlready: '<p>La matrice è già nella sua forma a scala per righe ridotta (RREF) e presenta il pivot unitario nell\'unica colonna \\( \\mathscr{C}_{1} \\) alla riga \\( \\mathscr{R}_{1} \\).</p>',
+        scFinMade: '<p>La matrice è ora nella sua forma a scala per righe ridotta (RREF) e presenta il pivot unitario nell\'unica colonna \\( \\mathscr{C}_{1} \\) alla riga \\( \\mathscr{R}_{1} \\).</p>',
+        scFinGen: (pr) => `<p>La matrice è ora nella sua forma a scala per righe ridotta (RREF) e presenta il pivot unitario nell'unica colonna \\( \\mathscr{C}_{1} \\) alla riga \\( \\mathscr{R}_{${pr + 1}} \\).</p>`,
+        scQuickFin: (pr) => `<p>La matrice, nella sua forma a scala per righe ridotta (RREF), presenta il pivot unitario nell'unica colonna \\( \\mathscr{C}_{1} \\) alla riga \\( \\mathscr{R}_{${pr + 1}} \\).</p>`,
+        gcNoPivAllNull: '<p>Non ci sono pivot in questa colonna: è tutta nulla.</p>',
+        gcNoPivBelow: '<p>Non ci sono pivot in questa colonna: ha elementi tutti nulli al di sotto della riga del precedente pivot.</p>',
+        gcSwap0: (e, pr, pv) => `<p>In questa colonna il primo elemento non nullo vale \\(${e}\\) e si trova nella riga \\( \\mathscr{R}_{${pr + 1}} \\). Lo scambio con la riga \\( \\mathscr{R}_{${pv + 1}} \\) per ottenere un pivot in tale riga.</p>`,
+        gcSwapBelow: (e, pr, pv) => `<p>In questa colonna il primo elemento non nullo e al di sotto della riga del precedente pivot vale \\(${e}\\) e si trova nella riga \\( \\mathscr{R}_{${pr + 1}} \\). Lo scambio con la riga \\( \\mathscr{R}_{${pv + 1}} \\) per ottenere un pivot in tale riga.</p>`,
+        gcHere0: (e, pv) => `<p>In questa colonna il primo elemento non nullo vale \\(${e}\\) e si trova già nella riga \\( \\mathscr{R}_{${pv + 1}} \\).</p>`,
+        gcHereBelow: (e, pv) => `<p>In questa colonna il primo elemento non nullo e al di sotto della riga del precedente pivot vale \\(${e}\\) e si trova nella riga \\( \\mathscr{R}_{${pv + 1}} \\).</p>`,
+        gcZeroElem: (e, pr, pc, pv, k) => `<p>Si può annullare l'elemento \\(${e}\\) di coordinate \\( \\mathscr{R}_{${pr + 1}}\\mathscr{C}_{${pc + 1}} \\) sommando alla riga \\( \\mathscr{R}_{${pr + 1}} \\) la riga del pivot \\( \\mathscr{R}_{${pv + 1}} \\) moltiplicata per \\(${k}\\).</p>`,
+        gcNormPivot: (pc, k, pv) => `<p>Normalizziamo (rendiamo unitario) il pivot della colonna \\( \\mathscr{C}_{${pc + 1}} \\) moltiplicando per \\(${k}\\), cioè per il reciproco del pivot, tutta la riga \\( \\mathscr{R}_{${pv + 1}} \\).</p>`,
+        gcZeroAboveOpp: (e, pr, pc, pv, opp) => `<p>Per annullare l'elemento \\(${e}\\) in posizione \\( \\mathscr{R}_{${pr + 1}} \\, \\mathscr{C}_{${pc + 1}} \\) sfruttiamo il suo opposto: sommiamo alla riga \\( \\mathscr{R}_{${pr + 1}} \\) la riga del pivot \\( \\mathscr{R}_{${pv + 1}} \\) moltiplicata per \\(${opp}\\).</p>`,
+        gcZeroAboveSimple: (e, pr, pc, pv) => `<p>Per annullare l'elemento \\(${e}\\) in posizione \\( \\mathscr{R}_{${pr + 1}} \\, \\mathscr{C}_{${pc + 1}} \\) sfruttiamo il suo opposto: sommiamo alla riga \\( \\mathscr{R}_{${pr + 1}} \\) la riga del pivot \\( \\mathscr{R}_{${pv + 1}} \\).</p>`,
+      },
+      en: {
+        before: 'before', after: 'after',
+        arrowBA: '\\impliedby before \\quad \\quad after\\implies',
+        aRef: 'A_{\\text{REF}}', aRref: 'A_{\\text{RREF}}',
+        titleQuick: 'Quick result', titleStep: 'Step-by-step solution',
+        inputIs: 'The entered matrix is',
+        errTooLong: (n) => `Too long: please try again using fewer than ${n} characters.`,
+        errForbidden: "Forbidden characters. Use only numbers, letters (except 'i' and 'e') lower- or upper-case, a dot or a comma, round brackets, and the operators + - / * ^",
+        nullMatrix: '<p>The entered matrix is the zero matrix, so it is already in row echelon form (REF), which coincides with its reduced row echelon form (RREF). There are no pivots (steps).</p>',
+        refResult: '<p>The matrix in row echelon form (REF) is:</p>',
+        rrefResult: '<p>The matrix in reduced row echelon form (RREF) is:</p>',
+        splitIntro: '<p>We split the process (the Gauss-Jordan algorithm) into two parts.<br>In the first part we bring the matrix to row echelon form (REF); we call this the "Gauss Part".<br>In the second part we then bring it to reduced row echelon form (RREF); we call this the "Jordan Part".</p>',
+        gaussHead: '<h3>Gauss Part</h3>',
+        gaussSub: '<h4>Bringing the matrix to row echelon form (REF)</h4>',
+        jordanHead: '<h3>Jordan Part</h3>',
+        jordanSub: '<h4>Bringing the matrix to reduced row echelon form (RREF)</h4>',
+        movesIntro: '<p>The goal is to zero out the lower part of the matrix using only <i>Gaussian row moves</i>. We recall them below and, in parentheses, how we will denote them in the steps:</p>',
+        moveSwap: '<li>swap rows \\( \\mathscr{R}_{i} \\) and \\( \\mathscr{R}_{j} \\quad \\left( \\; \\mathscr{R}_{i} \\; \\rightleftharpoons \\; \\mathscr{R}_{j} \\; \\right) \\)</li>',
+        moveMult: '<li>multiply a row \\( \\mathscr{R}_{i} \\) by a scalar \\( K\\in\\mathbb{R} \\quad \\left( \\; \\mathscr{R}_{i} \\; = \\; K \\mspace{-2mu}\\cdot \\mathscr{R}_{i} \\; \\right) \\)</li>',
+        moveAdd: '<li>add another row \\( \\mathscr{R}_{j} \\) to a row \\( \\mathscr{R}_{i} \\quad \\left( \\; \\mathscr{R}_{i} \\; = \\; \\mathscr{R}_{i} + \\mathscr{R}_{j} \\; \\right) \\)</li>',
+        gcTip1: '<p>A practical tip we will always use in these solutions:</p>',
+        gcTipBox: '<p class="gj-tip">When performing the plain echelon reduction of a matrix (the "Gauss Part") on matrices with more than one row and one column, it is good practice to avoid the move that multiplies a row by a scalar. Always following this guideline pays off for <i>square matrices</i>, because throughout the steps it keeps the determinant unchanged, saving time in exercises where the determinant must be computed.</p>',
+        gcTip2: '<p>Often in practice, instead of avoiding the rule above, one prefers the combined move:</p>',
+        gcTip2move: '<ul><li>add to a row \\( \\mathscr{R}_{i} \\) another row \\( \\mathscr{R}_{j} \\) suitably multiplied by a scalar \\( K\\in\\mathbb{R} \\quad \\left( \\; \\mathscr{R}_{i} \\; = \\; \\mathscr{R}_{i} + K \\mspace{-2mu}\\cdot \\mathscr{R}_{j} \\; \\right) \\)</li></ul>',
+        jordanFree: '<p class="gj-tip">Unlike the Gauss part, we are now free to use any of the three <i>Gaussian moves</i>.</p>',
+        jordanGoal: '<p>We make all the pivots found in the Gauss part equal to 1 and zero out any non-zero cells above them, starting from the pivot in the rightmost column.</p>',
+        analyzeCol: (c) => `<h5>LET'S ANALYZE COLUMN \\( \\mathscr{C}_{${c + 1}} \\)</h5>`,
+        zeroBelow: '<p>We zero out the entries below it.</p>',
+        srIntro: (e, pc) => `<p>Any matrix with a single non-zero row is already in row echelon form (REF), and its only pivot (step) is the first non-zero entry of the row.<br>Here it equals \\(${e}\\) and sits in the only row \\( \\mathscr{R}_{1} \\), column \\( \\mathscr{C}_{${pc + 1}} \\).</p>`,
+        srNorm: (k) => `<p>To get the reduced row echelon form (RREF) we just make the single pivot equal to 1 by multiplying the whole row \\( \\mathscr{R}_{1} \\) by the reciprocal of its value, i.e. by \\(${k}\\).</p>`,
+        srAfterNorm: (pc) => `<p>The matrix is now in its reduced row echelon form (RREF) and shows a unit pivot in the only row \\( \\mathscr{R}_{1} \\), column \\( \\mathscr{C}_{${pc + 1}} \\).</p>`,
+        srAlready: (pc) => `<p>The matrix is also already in its reduced row echelon form (RREF) and shows the unit pivot in the only row \\( \\mathscr{R}_{1} \\), column \\( \\mathscr{C}_{${pc + 1}} \\).</p>`,
+        srQuick: (pc) => `<p>The matrix, in its reduced row echelon form (RREF), shows a unit pivot in the only row \\( \\mathscr{R}_{1} \\), column \\( \\mathscr{C}_{${pc + 1}} \\).</p>`,
+        scOnlySwap: '<p>With a single non-zero column, there are in general two cases. The first is when the entry in the first row is non-zero: it is directly the pivot. The second is when the first-row entry is zero; in that case the only useful move would be:</p>',
+        scReason: '<p>When the first-row entry is zero, the idea is to bring the first non-zero entry below the first row up to its place at the top of the column. Once there, it becomes the only pivot.</p><p>Subsequently, in both cases, any terms below the pivot must be zeroed out — formally by multiplying each such row by the same coefficient: zero (in practice, all terms below the pivot are simply set to zero).</p>',
+        scSwapDo: (sup, inf) => `<p>I swap rows \\( \\mathscr{R}_{${sup + 1}} \\) and \\( \\mathscr{R}_{${inf + 1}} \\).</p>`,
+        scNoSwapLower: '<p>In this exercise no rows need swapping: all the zero cells already lie only in the lower part of the column.</p>',
+        scNoSwapAllNz: '<p>In this exercise no rows need swapping: all cells have non-zero value.</p>',
+        scPivotHere: (e) => `<p>The matrix already has a pivot of value \\(${e}\\) in the only column \\( \\mathscr{C}_{1} \\), row \\( \\mathscr{R}_{1} \\).</p>`,
+        scFirstIsZero: '<p>The matrix has a zero entry in the first row of the only column \\( \\mathscr{C}_{1} \\).</p>',
+        scPivotNow: (e) => `<p>The matrix now has a pivot of value \\(${e}\\) in the only column \\( \\mathscr{C}_{1} \\), row \\( \\mathscr{R}_{1} \\).</p>`,
+        scAlready: 'Therefore the matrix is already ',
+        scNow: 'The matrix is now ',
+        scAlready2: 'The matrix is already ',
+        scEchelon: (e, pr) => `in row echelon form (REF), with a pivot of value \\(${e}\\) in the only column \\( \\mathscr{C}_{1} \\), row \\( \\mathscr{R}_{${pr + 1}} \\).</p>`,
+        scQuickEch: (e, pr) => `<p>The matrix in row echelon form (REF) shows a pivot of value \\(${e}\\) in the only column \\( \\mathscr{C}_{1} \\), row \\( \\mathscr{R}_{${pr + 1}} \\).</p>`,
+        scNormFirst: '<p>First we make the pivot we found equal to 1.<br>',
+        scNormMult: (k, pr) => `So we multiply row \\( \\mathscr{R}_{${pr + 1}} \\) by the reciprocal of the pivot value, i.e. by \\(${k}\\).</p>`,
+        scAlreadyUnit: '<p>We immediately notice that the pivot is already 1.</p>',
+        scNoRowsAbove: '<p>There are no rows above it to zero out.</p>',
+        scShortcut2: '<p>Since the matrix has a single column, we use a shortcut: to zero the cells above the unit pivot we simply assign them the value \\( 0 \\), here only row \\( \\mathscr{R}_{1} \\).</p>',
+        scShortcutN: (pr) => `<p>Since the matrix has a single column, we use a shortcut: we simply assign the value \\( 0 \\) to each term above the unit pivot, here from row \\( \\mathscr{R}_{1} \\) to row \\( \\mathscr{R}_{${pr}} \\).</p>`,
+        scFinAlready: '<p>The matrix is already in its reduced row echelon form (RREF) and shows the unit pivot in the only column \\( \\mathscr{C}_{1} \\), row \\( \\mathscr{R}_{1} \\).</p>',
+        scFinMade: '<p>The matrix is now in its reduced row echelon form (RREF) and shows the unit pivot in the only column \\( \\mathscr{C}_{1} \\), row \\( \\mathscr{R}_{1} \\).</p>',
+        scFinGen: (pr) => `<p>The matrix is now in its reduced row echelon form (RREF) and shows the unit pivot in the only column \\( \\mathscr{C}_{1} \\), row \\( \\mathscr{R}_{${pr + 1}} \\).</p>`,
+        scQuickFin: (pr) => `<p>The matrix, in its reduced row echelon form (RREF), shows the unit pivot in the only column \\( \\mathscr{C}_{1} \\), row \\( \\mathscr{R}_{${pr + 1}} \\).</p>`,
+        gcNoPivAllNull: '<p>There are no pivots in this column: it is entirely zero.</p>',
+        gcNoPivBelow: '<p>There are no pivots in this column: all entries below the previous pivot\'s row are zero.</p>',
+        gcSwap0: (e, pr, pv) => `<p>In this column the first non-zero entry equals \\(${e}\\) and lies in row \\( \\mathscr{R}_{${pr + 1}} \\). I swap it with row \\( \\mathscr{R}_{${pv + 1}} \\) to get a pivot in that row.</p>`,
+        gcSwapBelow: (e, pr, pv) => `<p>In this column the first entry that is non-zero and below the previous pivot's row equals \\(${e}\\) and lies in row \\( \\mathscr{R}_{${pr + 1}} \\). I swap it with row \\( \\mathscr{R}_{${pv + 1}} \\) to get a pivot in that row.</p>`,
+        gcHere0: (e, pv) => `<p>In this column the first non-zero entry equals \\(${e}\\) and is already in row \\( \\mathscr{R}_{${pv + 1}} \\).</p>`,
+        gcHereBelow: (e, pv) => `<p>In this column the first entry that is non-zero and below the previous pivot's row equals \\(${e}\\) and lies in row \\( \\mathscr{R}_{${pv + 1}} \\).</p>`,
+        gcZeroElem: (e, pr, pc, pv, k) => `<p>We can zero the entry \\(${e}\\) at coordinates \\( \\mathscr{R}_{${pr + 1}}\\mathscr{C}_{${pc + 1}} \\) by adding to row \\( \\mathscr{R}_{${pr + 1}} \\) the pivot row \\( \\mathscr{R}_{${pv + 1}} \\) multiplied by \\(${k}\\).</p>`,
+        gcNormPivot: (pc, k, pv) => `<p>We normalize (make equal to 1) the pivot of column \\( \\mathscr{C}_{${pc + 1}} \\) by multiplying the whole row \\( \\mathscr{R}_{${pv + 1}} \\) by \\(${k}\\), i.e. by the reciprocal of the pivot.</p>`,
+        gcZeroAboveOpp: (e, pr, pc, pv, opp) => `<p>To zero the entry \\(${e}\\) at position \\( \\mathscr{R}_{${pr + 1}} \\, \\mathscr{C}_{${pc + 1}} \\) we use its opposite: we add to row \\( \\mathscr{R}_{${pr + 1}} \\) the pivot row \\( \\mathscr{R}_{${pv + 1}} \\) multiplied by \\(${opp}\\).</p>`,
+        gcZeroAboveSimple: (e, pr, pc, pv) => `<p>To zero the entry \\(${e}\\) at position \\( \\mathscr{R}_{${pr + 1}} \\, \\mathscr{C}_{${pc + 1}} \\) we use its opposite: we add to row \\( \\mathscr{R}_{${pr + 1}} \\) the pivot row \\( \\mathscr{R}_{${pv + 1}} \\).</p>`,
+      },
+    };
+    const L = D[LANG];
+    const SB = L.before, SA = L.after;
+
+    // ---------------------------------------------------------- riferimenti DOM
+    const inRows = root.querySelector('#gjRows');
+    const inCols = root.querySelector('#gjCols');
+    const tdTabea = root.querySelector('#gjTd');
+    const thA = root.querySelector('#gjThA');
+    const dimsEl = root.querySelector('#gjDims');
+    const statusEl = root.querySelector('#gjStatus');
+    const vuiPivot = root.querySelector('#gjPivot');
+    const vuiRC = root.querySelector('#gjRC');
+    const vuiConti = root.querySelector('#gjConti');
+    const robe = root.querySelector('#gjFull');
+    const robeSvelte = root.querySelector('#gjQuick');
+
+    // ------------------------------------------------------- variabili generali
+    let rows, cols;
+    let daidai = false;
+    let strLatex = '';
+    let strLatexPost = '';
+    let strHTML = '';
+    let strSotto = '';
+    let strTemp1, strTemp2, strTemp4;
+
+    nerdamer.setVar('valsMAT', 'matrix([0,0],[0,0])');
+    nerdamer.setVar('pivsMAT', 'matrix([0,0],[0,0])');
+    nerdamer.setVar('valsMATcopy', 'matrix([0,0],[0,0])');
+    nerdamer.setVar('pivsMATcopy', 'matrix([0,0],[0,0])');
+
+    // --------------------------------------------------------- helper rendering
+    const KOPTS = { throwOnError: false, displayMode: true };
+    const RMOPTS = {
+      throwOnError: false,
+      delimiters: [
+        { left: '\\(', right: '\\)', display: false },
+        { left: '\\[', right: '\\]', display: true },
+      ],
+    };
+    function renderKatexBlock(tex) {
+      // KaTeX vuole l'argomento opzionale di \xrightarrow non vuoto;
+      // KaTeX 0.17 non conosce \mspace ma supporta l'equivalente \mkern.
+      const safe = tex
+        .replace(/\\xrightarrow\[\]/g, '\\xrightarrow[\\,]')
+        .replace(/\\mspace/g, '\\mkern');
+      try { return katex.renderToString(safe, KOPTS); }
+      catch (e) { return '<span style="color:#e55">[KaTeX error]</span>'; }
+    }
+    function renderInline(el) { try { renderMathInElement(el, RMOPTS); } catch (e) {} }
+    function reveal(el) {
+      el.hidden = false;
+      el.style.display = 'block';
+      requestAnimationFrame(() => el.classList.add('gj-visible'));
+    }
+    function hide(el) {
+      el.classList.remove('gj-visible');
+      el.style.display = 'none';
+      el.hidden = true;
+    }
+    function tip(msg) { statusEl.textContent = msg; statusEl.className = 'gj-status gj-error'; }
+    function unTip() { statusEl.textContent = ''; statusEl.className = 'gj-status'; }
+
+    // ----------------------------------------------------------- tabella input
+    function showTabea() {
+      rows = inRows.value;
+      cols = inCols.value;
+      let zeroMAT = 'matrix(';
+      for (let r = 0; r < rows - 1; r++) {
+        zeroMAT += '[';
+        for (let c = 0; c < cols - 1; c++) zeroMAT += '0,';
+        zeroMAT += '0],';
+      }
+      zeroMAT += '[';
+      for (let c = 0; c < cols - 1; c++) zeroMAT += '0,';
+      zeroMAT += '0])';
+      nerdamer.setVar('valsMAT', zeroMAT);
+      nerdamer.setVar('pivsMAT', zeroMAT);
+      nerdamer.setVar('valsMATcopy', zeroMAT);
+      nerdamer.setVar('pivsMATcopy', zeroMAT);
+
+      let table = '<table class="gj-grid"><thead><tr><th class="gj-colhead"></th>';
+      for (let c = 0; c < cols; c++) table += `<th class="gj-colhead" data-col="${c}">\\( \\mathscr{C}_{${c + 1}} \\)</th>`;
+      table += '</tr></thead><tbody>';
+      for (let r = 0; r < rows; r++) {
+        table += `<tr><th class="gj-rowhead">\\( \\mathscr{R}_{${r + 1}} \\)</th>`;
+        for (let c = 0; c < cols; c++) {
+          const rStr = String(r).padStart(2, '0');
+          const cStr = String(c).padStart(2, '0');
+          const idInput = 'campoR' + rStr + 'C' + cStr;
+          table += `<td><input class="gj-matrix-cell" type="text" id="${idInput}" data-col="${c}" value="0"></td>`;
+        }
+        table += '</tr>';
+      }
+      table += '</tbody></table>';
+      tdTabea.innerHTML = table;
+
+      thA.style.fontSize = (rows < 5) ? '20px' : (20 * rows / 4) + 'px';
+
+      tdTabea.querySelectorAll('input').forEach((inp) => {
+        inp.addEventListener('change', () => lisoform(inp.id));
+      });
+      renderInline(tdTabea);
+      fitBrackets();
+    }
+
+    // Parentesi disegnate con il path matematico REALE di KaTeX (funzione
+    // tallDelim in src/svgGeometry.ts, caso "lparen"/"rparen"): non è un'imitazione,
+    // è la stessa identica formula che KaTeX usa per i propri delimitatori grandi
+    // (verificato per sovrapposizione pixel-perfetta con un vero render KaTeX).
+    // La disegniamo noi in un <svg> a dimensioni assolute in px, agganciato
+    // all'altezza reale della griglia. Eliminato così il meccanismo precedente
+    // (misurare un \rule KaTeX e correggere iterativamente l'errore), che era
+    // fragile perché si appoggiava alla vlist interna di KaTeX — a position:absolute
+    // con offset in em annidati — il vero punto debole su WebKit/iOS, non il
+    // disegno della parentesi in sé.
+    const PAREN_VBW = 875;          // larghezza fissa del viewBox KaTeX (= 0.875em)
+    const PAREN_CAP_HEIGHT = 3600;  // altezza minima (punte sup+inf), unità viewBox
+
+    function gjLparenPath(midHeight) {
+      return `M863,9c0,-2,-2,-5,-6,-9c0,0,-17,0,-17,0c-12.7,0,-19.3,0.3,-20,1
+c-5.3,5.3,-10.3,11,-15,17c-242.7,294.7,-395.3,682,-458,1162c-21.3,163.3,-33.3,349,
+-36,557 l0,${midHeight + 84}c0.2,6,0,26,0,60c2,159.3,10,310.7,24,454c53.3,528,210,
+949.7,470,1265c4.7,6,9.7,11.7,15,17c0.7,0.7,7,1,19,1c0,0,18,0,18,0c4,-4,6,-7,6,-9
+c0,-2.7,-3.3,-8.7,-10,-18c-135.3,-192.7,-235.5,-414.3,-300.5,-665c-65,-250.7,-102.5,
+-544.7,-112.5,-882c-2,-104,-3,-167,-3,-189
+l0,-${midHeight + 92}c0,-162.7,5.7,-314,17,-454c20.7,-272,63.7,-513,129,-723c65.3,
+-210,155.3,-396.3,270,-559c6.7,-9.3,10,-15.3,10,-18z`;
+    }
+    function gjRparenPath(midHeight) {
+      return `M76,0c-16.7,0,-25,3,-25,9c0,2,2,6.3,6,13c21.3,28.7,42.3,60.3,
+63,95c96.7,156.7,172.8,332.5,228.5,527.5c55.7,195,92.8,416.5,111.5,664.5
+c11.3,139.3,17,290.7,17,454c0,28,1.7,43,3.3,45l0,${midHeight + 9}
+c-3,4,-3.3,16.7,-3.3,38c0,162,-5.7,313.7,-17,455c-18.7,248,-55.8,469.3,-111.5,664
+c-55.7,194.7,-131.8,370.3,-228.5,527c-20.7,34.7,-41.7,66.3,-63,95c-2,3.3,-4,7,-6,11
+c0,7.3,5.7,11,17,11c0,0,11,0,11,0c9.3,0,14.3,-0.3,15,-1c5.3,-5.3,10.3,-11,15,-17
+c242.7,-294.7,395.3,-681.7,458,-1161c21.3,-164.7,33.3,-350.7,36,-558
+l0,-${midHeight + 144}c-2,-159.3,-10,-310.7,-24,-454c-53.3,-528,-210,-949.7,
+-470,-1265c-4.7,-6,-9.7,-11.7,-15,-17c-0.7,-0.7,-6.7,-1,-18,-1z`;
+    }
+    // heightPx: altezza reale che la parentesi deve coprire (l'altezza della griglia).
+    // widthPx: spessore della parentesi, legato al font-size (non all'altezza), come
+    // fa KaTeX stesso (0.875em fisso) — così resta sottile anche su matrici molto alte.
+    function gjParenSvg(side, heightPx, widthPx) {
+      const k = widthPx / PAREN_VBW; // px per unità viewBox
+      let viewBoxHeight = Math.round(heightPx / k);
+      let midHeight = viewBoxHeight - PAREN_CAP_HEIGHT;
+      if (midHeight < 0) midHeight = 0; // griglia più bassa del minimo: parentesi minima
+      viewBoxHeight = PAREN_CAP_HEIGHT + midHeight;
+      const renderedHeight = viewBoxHeight * k;
+      const d = side === 'l' ? gjLparenPath(midHeight) : gjRparenPath(midHeight);
+      const w = widthPx.toFixed(2), h = renderedHeight.toFixed(2);
+      // WebKit/iOS: quando un <svg> è figlio di un contenitore flex (qui .gj-paren
+      // è inline-flex), Safari ne calcola la larghezza intrinseca a 0px se le
+      // dimensioni arrivano SOLO dagli attributi di presentazione, e la parentesi
+      // non viene disegnata affatto (problema documentato, es. CSS-Tricks "6 Common
+      // SVG Fails"). Rimedio: ribadiamo width/height anche via style inline e
+      // fissiamo flex:0 0 auto perché il flexbox non possa comprimerla a zero.
+      // L'!important sulle dimensioni inline serve a battere eventuali regole CSS
+      // globali del tema (Starlight applica stili al contenuto, p.es. su 'svg'):
+      // lo style inline con !important ha precedenza su qualunque foglio di stile.
+      // preserveAspectRatio="none" è sicuro qui: l'aspetto del viewBox combacia
+      // per costruzione con quello del box (entrambi derivati da k), quindi non
+      // introduce alcuna distorsione, ma garantisce il riempimento esatto.
+      const style = `display:block !important;flex:0 0 auto;`
+        + `width:${w}px !important;height:${h}px !important;`
+        + `max-width:none !important;opacity:1 !important;visibility:visible !important`;
+      return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${PAREN_VBW} ${viewBoxHeight}" width="${w}" height="${h}" preserveAspectRatio="none" style="${style}" aria-hidden="true"><path d="${d}" fill="currentColor"/></svg>`;
+    }
+
+    const parenL = root.querySelector('.gj-paren-l');
+    const parenR = root.querySelector('.gj-paren-r');
+    function fitBrackets(tries) {
+      tries = tries || 0;
+      requestAnimationFrame(() => {
+        const grid = tdTabea.querySelector('.gj-grid');
+        // Se la griglia non è ancora misurabile (KaTeX delle intestazioni ancora in
+        // rendering, layout non assestato) la sua altezza può valere 0 al primo
+        // frame: in quel caso riproviamo al frame successivo invece di rinunciare
+        // in silenzio lasciando le parentesi vuote.
+        if (!grid || grid.getBoundingClientRect().height <= 0) {
+          if (tries < 12) fitBrackets(tries + 1);
+          return;
+        }
+        const G = grid.getBoundingClientRect().height;
+        // Larghezza: stessa convenzione di KaTeX, 0.875em, dove "em" è il
+        // font-size ereditato da .gj-paren — così la parentesi resta coerente
+        // con le altre parentesi KaTeX della pagina (risultati, label).
+        const fontSizePx = parseFloat(getComputedStyle(parenL).fontSize) || 16;
+        const widthPx = fontSizePx * 0.875;
+        parenL.innerHTML = gjParenSvg('l', G, widthPx);
+        parenR.innerHTML = gjParenSvg('r', G, widthPx);
+      });
+    }
+
+    function lisoform(IDcella) {
+      const r = parseInt(IDcella.slice(6, 8));
+      const c = parseInt(IDcella.slice(9, 11));
+      const limiteCar = 15;
+      const elem = root.querySelector('#' + IDcella);
+      if (elem.value.length >= limiteCar) {
+        elem.value = '0';
+        nerdamer.setVar('valsMAT', 'matset(valsMAT,' + r + ',' + c + ',0)');
+        tip(L.errTooLong(limiteCar));
+      } else if (!vaBen(elem)) {
+        elem.value = '0';
+        nerdamer.setVar('valsMAT', 'matset(valsMAT,' + r + ',' + c + ',0)');
+        tip(L.errForbidden);
+      } else {
+        try {
+          const espressione = nerdamer.simplify(elem.value);
+          nerdamer.setVar('valsMAT', 'matset(valsMAT,' + r + ',' + c + ',' + espressione.expand() + ')');
+          elem.value = espressione.expand();
+          unTip();
+        } catch (err) {
+          elem.value = '0';
+          tip(err.toString());
+        }
+      }
+    }
+
+    function vaBen(elem) {
+      const str = elem.value;
+      if (str === '') return false;
+      let tmp = 0, strMejo = '', verdetto = true;
+      for (let i = 0; i < str.length; i++) {
+        tmp = str.charCodeAt(i);
+        if (((tmp > 39) & (tmp < 58)) | ((tmp > 64) & (tmp < 69)) | ((tmp > 69) & (tmp < 73)) | ((tmp > 73) & (tmp < 91)) | ((tmp > 96) & (tmp < 101)) | ((tmp > 101) & (tmp < 105)) | ((tmp > 105) & (tmp < 123)) | ((tmp == 94) | (tmp == 32))) {
+          if (tmp == 44) strMejo += '.';
+          else strMejo += String.fromCharCode(tmp);
+        } else verdetto = false;
+      }
+      elem.value = strMejo;
+      return verdetto;
+    }
+
+    function buildRandMat() {
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          const rStr = String(r).padStart(2, '0');
+          const cStr = String(c).padStart(2, '0');
+          const idInput = 'campoR' + rStr + 'C' + cStr;
+          const node = buildRandNum();
+          nerdamer.setVar('valsMAT', 'matset(valsMAT,' + r + ',' + c + ',' + node.expand() + ')');
+          root.querySelector('#' + idInput).value = node.text('fractions');
+        }
+      }
+    }
+    function buildRandNum() {
+      const sign = '((-1)^' + (Math.floor(Math.random() * 10) + 1) + ')';
+      const temp = sign + Math.floor(Math.random() * 15);
+      let randNUM = nerdamer.simplify(temp);
+      if ((randNUM >= 10) | (randNUM <= -10)) randNUM = nerdamer(0);
+      return randNUM;
+    }
+
+    // ---------------------------------------------------- matrice -> LaTeX
+    function mat2Tex() {
+      strLatex += '\\begin{pmatrix}';
+      if (vuiRC.checked) strLatex += '&';
+      if (vuiRC.checked) {
+        for (let c = 0; c < cols - 1; c++) strLatex += '\\small \\mathscr{C}_{' + (c + 1) + '}&';
+        strLatex += '\\small \\mathscr{C}_{' + cols + '}\\\\[9pt]';
+      }
+      for (let r = 0; r < rows - 1; r++) {
+        if (vuiRC.checked) strLatex += '\\small \\mathscr{R}_{' + (r + 1) + '}&';
+        for (let c = 0; c < cols - 1; c++) {
+          strTemp1 = 'matget(pivsMATcopy,' + r + ',' + c + ')';
+          strTemp2 = 'matget(valsMATcopy,' + r + ',' + c + ')';
+          strTemp4 = '{\\displaystyle ' + neta(nerdamer(strTemp2).toTeX()) + '}';
+          if ((nerdamer(strTemp1).toString() == 1) && vuiPivot.checked) strLatex += '\\boxed{' + strTemp4 + '} &';
+          else strLatex += strTemp4 + '&';
+        }
+        strTemp1 = 'matget(pivsMATcopy,' + r + ',' + (cols - 1) + ')';
+        strTemp2 = 'matget(valsMATcopy,' + r + ',' + (cols - 1) + ')';
+        strTemp4 = '{\\displaystyle ' + neta(nerdamer(strTemp2).toTeX()) + '}';
+        if ((nerdamer(strTemp1).toString() == 1) && vuiPivot.checked) strLatex += '\\boxed{' + strTemp4 + '} \\\\[9pt]';
+        else strLatex += strTemp4 + '\\\\[9pt]';
+      }
+      if (vuiRC.checked) strLatex += '\\small \\mathscr{R}_{' + rows + '}&';
+      for (let c = 0; c < cols - 1; c++) {
+        strTemp1 = 'matget(pivsMATcopy,' + (rows - 1) + ',' + c + ')';
+        strTemp2 = 'matget(valsMATcopy,' + (rows - 1) + ',' + c + ')';
+        strTemp4 = '{\\displaystyle ' + neta(nerdamer(strTemp2).toTeX()) + '}';
+        if ((nerdamer(strTemp1).toString() == 1) && vuiPivot.checked) strLatex += '\\boxed{' + strTemp4 + '} &';
+        else strLatex += strTemp4 + '&';
+      }
+      strTemp1 = 'matget(pivsMATcopy,' + (rows - 1) + ',' + (cols - 1) + ')';
+      strTemp2 = 'matget(valsMATcopy,' + (rows - 1) + ',' + (cols - 1) + ')';
+      strTemp4 = '{\\displaystyle ' + neta(nerdamer(strTemp2).toTeX()) + '}';
+      if ((nerdamer(strTemp1).toString() == 1) && vuiPivot.checked) strLatex += '\\boxed{' + strTemp4 + '} \\end{pmatrix}';
+      else strLatex += strTemp4 + '\\end{pmatrix}';
+    }
+
+    function mat2TexPost_KRpre(Ktex, riga) {
+      strLatexPost += '\\begin{matrix} ';
+      strLatexPost += '\\left(' + neta(Ktex) + '\\right) \\cdot \\mspace{3mu} \\mathscr{R}_{' + (riga + 1) + '_{' + SB + '}} \\quad & = & \\quad ';
+      for (let c = 0; c < cols; c++) {
+        strTemp4 = neta(nerdamer('matget(valsMATcopy,' + riga + ',' + c + ')').toTeX());
+        if (c < cols - 1) strLatexPost += strTemp4 + '\\cdot \\left(' + neta(Ktex) + '\\right)&\\quad ';
+        else strLatexPost += '\\mspace{17mu}' + strTemp4 + '\\cdot \\left(' + neta(Ktex) + '\\right)\\quad\\\\';
+      }
+      strLatexPost += '&&';
+      for (let c = 0; c < cols; c++) strLatexPost += (c < cols - 1) ? ' \\mspace{13mu}\\downarrow&' : '\\mspace{13mu}\\downarrow\\\\';
+    }
+    function mat2TexPost_KRpost(Ktex, riga) {
+      strLatexPost += '\\mathscr{R}_{' + (riga + 1) + '_{' + SA + '}} \\; = \\enspace \\left(' + neta(Ktex) + '\\right) \\cdot \\mspace{3mu} \\mathscr{R}_{' + (riga + 1) + '_{' + SB + '}} \\quad & = & \\quad ';
+      for (let c = 0; c < cols; c++) {
+        strTemp4 = neta(nerdamer('matget(valsMATcopy,' + riga + ',' + c + ')').toTeX());
+        if (c < cols - 1) strLatexPost += strTemp4 + '&\\quad ';
+        else strLatexPost += strTemp4 + '\\end{matrix}';
+      }
+    }
+    function mat2TexPost_R1KR2pre(Ktex, riga1, riga2) {
+      strLatexPost += '\\begin{matrix} ';
+      strLatexPost += '\\mathscr{R}_{' + (riga1 + 1) + '_{' + SB + '}} \\quad & = & \\quad ';
+      for (let c = 0; c < cols; c++) {
+        strTemp4 = neta(nerdamer('matget(valsMATcopy,' + riga1 + ',' + c + ')').toTeX());
+        strLatexPost += (c < cols - 1) ? strTemp4 + '&\\quad ' : strTemp4 + '\\\\';
+      }
+      strLatexPost += '+&&';
+      for (let c = 0; c < cols; c++) strLatexPost += (c < cols - 1) ? ' \\mspace{17mu}+&' : '\\mspace{17mu}+\\\\';
+      strLatexPost += '\\left(' + neta(Ktex) + '\\right) \\cdot \\mspace{3mu} \\mathscr{R}_{' + (riga2 + 1) + '_{' + SB + '}} \\quad & = & \\quad ';
+      for (let c = 0; c < cols; c++) {
+        strTemp4 = neta(nerdamer('matget(valsMATcopy,' + riga2 + ',' + c + ')').toTeX());
+        if (c < cols - 1) strLatexPost += strTemp4 + '\\cdot\\left(' + neta(Ktex) + '\\right)&\\quad ';
+        else strLatexPost += '\\mspace{17mu}' + strTemp4 + '\\cdot\\left(' + neta(Ktex) + '\\right)\\quad\\\\';
+      }
+      strLatexPost += '\\downarrow&&';
+      for (let c = 0; c < cols; c++) strLatexPost += (c < cols - 1) ? ' \\mspace{13mu}\\downarrow&' : '\\mspace{13mu}\\downarrow\\\\';
+    }
+    function mat2TexPost_R1KR2post(Ktex, riga1, riga2) {
+      strLatexPost += '\\mathscr{R}_{' + (riga1 + 1) + '_{' + SA + '}} \\; = \\enspace \\left(\\mathscr{R}_{' + (riga1 + 1) + '_{' + SB + '}} + \\left(' + neta(Ktex) + '\\right) \\cdot \\mspace{3mu} \\mathscr{R}_{' + (riga2 + 1) + '_{' + SB + '}}\\right) \\quad & = & \\quad ';
+      for (let c = 0; c < cols; c++) {
+        strTemp4 = neta(nerdamer('matget(valsMATcopy,' + riga1 + ',' + c + ')').toTeX());
+        if (c < cols - 1) strLatexPost += strTemp4 + '&\\quad ';
+        else strLatexPost += strTemp4 + '\\end{matrix}';
+      }
+    }
+    function mat2TexPost_R1R2pre(riga1, riga2) {
+      strLatexPost += '\\begin{matrix} ';
+      strLatexPost += '\\mathscr{R}_{' + (riga1 + 1) + '_{' + SB + '}} \\quad & = & \\quad ';
+      for (let c = 0; c < cols; c++) {
+        strTemp4 = neta(nerdamer('matget(valsMATcopy,' + riga1 + ',' + c + ')').toTeX());
+        strLatexPost += (c < cols - 1) ? strTemp4 + '&\\quad ' : strTemp4 + '\\\\';
+      }
+      strLatexPost += '+&&';
+      for (let c = 0; c < cols; c++) strLatexPost += (c < cols - 1) ? ' \\mspace{17mu}+&' : '\\mspace{17mu}+\\\\';
+      strLatexPost += '\\mathscr{R}_{' + (riga2 + 1) + '_{' + SB + '}} \\quad & = & \\quad ';
+      for (let c = 0; c < cols; c++) {
+        strTemp4 = neta(nerdamer('matget(valsMATcopy,' + riga2 + ',' + c + ')').toTeX());
+        if (c < cols - 1) strLatexPost += strTemp4 + '&\\quad ';
+        else strLatexPost += '\\mspace{17mu}' + strTemp4 + '\\quad\\\\';
+      }
+      strLatexPost += '\\downarrow&&';
+      for (let c = 0; c < cols; c++) strLatexPost += (c < cols - 1) ? ' \\mspace{13mu}\\downarrow&' : '\\mspace{13mu}\\downarrow\\\\';
+    }
+    function mat2TexPost_R1R2post(riga1, riga2) {
+      strLatexPost += '\\mathscr{R}_{' + (riga1 + 1) + '_{' + SA + '}} \\; = \\enspace \\left(\\mathscr{R}_{' + (riga1 + 1) + '_{' + SB + '}} + \\mathscr{R}_{' + (riga2 + 1) + '_{' + SB + '}}\\right) \\quad & = & \\quad ';
+      for (let c = 0; c < cols; c++) {
+        strTemp4 = neta(nerdamer('matget(valsMATcopy,' + riga1 + ',' + c + ')').toTeX());
+        if (c < cols - 1) strLatexPost += strTemp4 + '&\\quad ';
+        else strLatexPost += strTemp4 + '\\end{matrix}';
+      }
+    }
+
+    function neta(s) { return s.replace(/\\cdot/g, '\\mspace{2mu}'); }
+
+    // ----------------------------------------------------------- visualizzazione
+    function pushView(target) {
+      const parag = document.createElement('div');
+      parag.className = 'gj-text';
+      parag.innerHTML = strHTML.replace(/\\mspace/g, '\\mkern');
+      target.appendChild(parag);
+      renderInline(parag);
+      if (strLatex !== '') {
+        const wrap = document.createElement('div');
+        wrap.className = 'gj-katex';
+        wrap.innerHTML = renderKatexBlock(strLatex);
+        target.appendChild(wrap);
+        strLatex = '';
+        if (strLatexPost !== '') {
+          const conti = document.createElement('div');
+          conti.className = 'gj-conti';
+          conti.innerHTML = renderKatexBlock(strLatexPost);
+          target.appendChild(conti);
+          strLatexPost = '';
+        }
+      }
+      strHTML = '';
+    }
+    function showMat() { pushView(robe); }
+    function showMatSvelto() { pushView(robeSvelte); strLatexPost = ''; }
+
+    // ------------------------------------------------------------ utilità nerdamer
+    function annotaPivot(r, c) { nerdamer.setVar('pivsMATcopy', 'matset(pivsMATcopy,' + r + ',' + c + ',1)'); }
+    function matriceNulla() {
+      for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++)
+        if (!nerdamer('matget(valsMATcopy,' + r + ',' + c + ')').eq(0)) return false;
+      return true;
+    }
+    function subRigaNulla(nRiga, ci, cf) {
+      for (let c = ci; c <= cf; c++) if (!nerdamer('matget(valsMATcopy,' + nRiga + ',' + c + ')').eq(0)) return false;
+      return true;
+    }
+    function subColonnaNulla(nCol, ri, rf) {
+      for (let r = ri; r <= rf; r++) if (!nerdamer('matget(valsMATcopy,' + r + ',' + nCol + ')').eq(0)) return false;
+      return true;
+    }
+    function elemNullo(r, c) { return nerdamer('matget(valsMATcopy,' + r + ',' + c + ')').eq(0); }
+    function elemNormalizzato(r, c) { return nerdamer('matget(valsMATcopy,' + r + ',' + c + ')').eq(1); }
+    function elemAntiNormalizzato(r, c) { return nerdamer('matget(valsMATcopy,' + r + ',' + c + ')').eq(-1); }
+    function sumRowsByK(riga1, kappa, riga2, colPiv) {
+      for (let c = colPiv; c < cols; c++) {
+        const a = nerdamer('matget(valsMATcopy,' + riga1 + ',' + c + ')');
+        const b = nerdamer('matget(valsMATcopy,' + riga2 + ',' + c + ')');
+        const prod = nerdamer.simplify(nerdamer.simplify(kappa).multiply(nerdamer.simplify(b)));
+        const res = nerdamer.simplify(prod.add(nerdamer.simplify(a)));
+        nerdamer.setVar('valsMATcopy', 'matset(valsMATcopy,' + riga1 + ',' + c + ',' + res + ')');
+      }
+    }
+    function switchRows(riga1, riga2) {
+      for (let c = 0; c < cols; c++) {
+        const a = nerdamer('matget(valsMATcopy,' + riga1 + ',' + c + ')');
+        const b = nerdamer('matget(valsMATcopy,' + riga2 + ',' + c + ')');
+        nerdamer.setVar('valsMATcopy', 'matset(valsMATcopy,' + riga1 + ',' + c + ',' + b + ')');
+        nerdamer.setVar('valsMATcopy', 'matset(valsMATcopy,' + riga2 + ',' + c + ',' + a + ')');
+      }
+    }
+    function rowMultK(riga, kappa) {
+      for (let c = 0; c < cols; c++) {
+        const a = nerdamer('matget(valsMATcopy,' + riga + ',' + c + ')');
+        if (!a.eq(0)) {
+          const res = nerdamer.simplify(a).multiply(nerdamer.simplify(kappa));
+          nerdamer.setVar('valsMATcopy', 'matset(valsMATcopy,' + riga + ',' + c + ',' + res + ')');
+        }
+      }
+    }
+    function rowNorm(rigaPiv, colPiv) { rowMultK(rigaPiv, creaKappaNorm(rigaPiv, colPiv)); }
+    function copiaMat() {
+      for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+        nerdamer.setVar('valsMATcopy', 'matset(valsMATcopy,' + r + ',' + c + ',' + nerdamer('matget(valsMAT,' + r + ',' + c + ')') + ')');
+        nerdamer.setVar('pivsMATcopy', 'matset(pivsMATcopy,' + r + ',' + c + ',' + nerdamer('matget(pivsMAT,' + r + ',' + c + ')') + ')');
+      }
+    }
+    function creaKappa(riga, rigaPiv, colP) {
+      const a = nerdamer('matget(valsMATcopy,' + riga + ',' + colP + ')');
+      const b = nerdamer('matget(valsMATcopy,' + rigaPiv + ',' + colP + ')');
+      return nerdamer.simplify(a.divide(b).multiply(-1)).text('fractions');
+    }
+    function creaKappaTex(riga, rigaPiv, colP) {
+      const a = nerdamer('matget(valsMATcopy,' + riga + ',' + colP + ')');
+      const b = nerdamer('matget(valsMATcopy,' + rigaPiv + ',' + colP + ')');
+      return nerdamer.simplify(a.divide(b).multiply(-1)).toTeX();
+    }
+    function creaKappaNorm(rigaP, colP) {
+      const b = nerdamer('matget(valsMATcopy,' + rigaP + ',' + colP + ')');
+      return nerdamer.simplify(nerdamer('1').divide(b)).text('fractions');
+    }
+    function creaKappaNormTex(rigaP, colP) {
+      const b = nerdamer('matget(valsMATcopy,' + rigaP + ',' + colP + ')');
+      return nerdamer.simplify(nerdamer('1').divide(b)).toTeX();
+    }
+    function getMatElemTex(r, c) { return nerdamer('matget(valsMATcopy,' + r + ',' + c + ')').toTeX(); }
+    function getOppostoMatElemTex(r, c) { return nerdamer('matget(valsMATcopy,' + r + ',' + c + ')').multiply('-1').toTeX(); }
+
+    // ============================================================= Gauss-Jordan
+    function elabora() {
+      copiaMat();
+      strSotto = vuiConti.checked ? L.arrowBA : '';
+      strHTML = '<h2>' + (daidai ? L.titleQuick : L.titleStep) + '</h2>';
+      strHTML += '<p>' + L.inputIs + '</p>';
+      strLatex = 'A =';
+      mat2Tex();
+      daidai ? showMatSvelto() : showMat();
+
+      if (matriceNulla()) { // ---------------------------------- matrice nulla
+        strHTML = L.nullMatrix;
+        strLatex = L.aRef + ' \\; = \\; ' + L.aRref + ' \\; = \\;';
+        mat2Tex();
+        daidai ? showMatSvelto() : showMat();
+      }
+      else if (rows == 1) { // --------------------------------- una sola riga
+        let posPivC;
+        for (let c = 0; c < cols; c++) if (!elemNullo(0, c)) { posPivC = c; break; }
+        annotaPivot(0, posPivC);
+        strHTML = L.srIntro(getMatElemTex(0, posPivC), posPivC);
+        strLatex = L.aRef + ' =';
+        mat2Tex();
+        daidai ? showMatSvelto() : showMat();
+        if (!elemNormalizzato(0, posPivC)) {
+          strHTML = L.srNorm(creaKappaNormTex(0, posPivC));
+          mat2Tex();
+          let strTemp;
+          if (vuiConti.checked) { strTemp = creaKappaNormTex(0, posPivC); mat2TexPost_KRpre(strTemp, 0); }
+          strLatex += '\\xrightarrow[' + strSotto + ']{\\mathscr{R}_{1} \\; = \\; \\left(' + creaKappaNormTex(0, posPivC) + '\\right)  \\cdot  \\mspace{3mu} \\mathscr{R}_{1}}';
+          rowNorm(0, posPivC);
+          mat2Tex();
+          if (vuiConti.checked) mat2TexPost_KRpost(strTemp, 0);
+          showMat();
+          strHTML = L.srAfterNorm(posPivC);
+        } else {
+          strHTML = L.srAlready(posPivC);
+        }
+        strLatex = L.aRref + ' =';
+        mat2Tex();
+        if (daidai) { strHTML = L.srQuick(posPivC); showMatSvelto(); } else showMat();
+      }
+      else if (cols == 1) { // -------------------------------- una sola colonna
+        strHTML = L.splitIntro + L.gaussHead + L.gaussSub + L.movesIntro;
+        strHTML += '<ul>' + L.moveSwap + L.moveMult + L.moveAdd + '</ul>';
+        strHTML += L.scOnlySwap + '<ul>' + L.moveSwap + '</ul>' + L.scReason;
+
+        // Trova il primo elemento non nullo partendo dall'alto
+        let firstNzRow = 0;
+        for (let r = 0; r < rows; r++) { if (!elemNullo(r, 0)) { firstNzRow = r; break; } }
+
+        // Se la prima riga è nulla, scambia con la prima riga non nulla trovata
+        let scambioFatto = false;
+        if (firstNzRow > 0) {
+          strHTML += L.scFirstIsZero;
+          mat2Tex();
+          strLatex += '\\xrightarrow[' + strSotto + ']{\\mathscr{R}_{' + (firstNzRow + 1) + '} \\; \\rightleftharpoons \\; \\mathscr{R}_{1}}';
+          strHTML += L.scSwapDo(firstNzRow, 0);
+          switchRows(0, firstNzRow);
+          mat2Tex();
+          showMat(); // resetta strHTML e strLatex
+          scambioFatto = true;
+        }
+        // Il pivot è ora sempre in riga 0
+        annotaPivot(0, 0);
+        // Annunciamo il pivot: "già" se non c'è stato scambio, "ora" dopo lo swap
+        if (!scambioFatto) strHTML += L.scPivotHere(getMatElemTex(0, 0));
+        else strHTML += L.scPivotNow(getMatElemTex(0, 0));
+
+        // Azzera tutte le righe sotto il pivot con R_i = 0 * R_i
+        // (incondizionato: non si verifica se siano già nulle)
+        let zerataFatto = false;
+        if (rows > 1) {
+          const anyNzBelow = (() => { for (let r = 1; r < rows; r++) if (!elemNullo(r, 0)) return true; return false; })();
+          if (anyNzBelow) {
+            strHTML += L.zeroBelow;
+            mat2Tex();
+            if (rows === 2) {
+              strLatex += '\\xrightarrow[' + strSotto + ']{\\mathscr{R}_{2} \\; = \\; 0 \\cdot \\mathscr{R}_{2}}';
+            } else {
+              strLatex += '\\xrightarrow[' + strSotto + ']{\\mathscr{R}_{2, \\mspace{3mu} \\ldots \\mspace{3mu} , \\mspace{1mu}' + rows + '} \\; = \\; 0}';
+            }
+            zerataFatto = true;
+          }
+          for (let r = 1; r < rows; r++) rowMultK(r, 0);
+          if (zerataFatto) { mat2Tex(); showMat(); }
+        }
+
+        // Annuncio conclusione Gauss (REF)
+        if (scambioFatto || zerataFatto) {
+          strHTML += '<p>' + L.scNow;
+        } else if (rows === 1) {
+          strHTML += '<p>' + L.scAlready2;
+        } else {
+          // nessuno scambio e nessun azzeramento: primo elem non nullo, resto già zero
+          strHTML += L.scNoSwapLower + '<p>' + L.scAlready;
+        }
+        strHTML += L.scEchelon(getMatElemTex(0, 0), 0);
+        strLatex = L.aRef + ' =';
+        mat2Tex();
+        if (daidai) { strHTML = L.scQuickEch(getMatElemTex(0, 0), 0); showMatSvelto(); } else showMat();
+
+        // ---- PARTE JORDAN (invariata, posPivR = 0 sempre) ----
+        const posPivR = 0;
+        strHTML = L.jordanHead + L.jordanSub;
+        let pivUnitario = false, pivPolePos = false;
+        if (!elemNormalizzato(posPivR, 0)) {
+          strHTML += L.scNormFirst + L.scNormMult(creaKappaNormTex(posPivR, 0), posPivR);
+          mat2Tex();
+          let strTemp;
+          if (vuiConti.checked) { strTemp = creaKappaNormTex(posPivR, 0); mat2TexPost_KRpre(strTemp, posPivR); }
+          strLatex += '\\xrightarrow[' + strSotto + ']{\\mathscr{R}_{' + (posPivR + 1) + '} \\; = \\; \\left(' + creaKappaNormTex(posPivR, 0) + '\\right) \\cdot \\mspace{3mu} \\mathscr{R}_{' + (posPivR + 1) + '}}';
+          rowMultK(posPivR, creaKappaNorm(posPivR, 0));
+          mat2Tex();
+          if (vuiConti.checked) { strTemp = creaKappaNormTex(posPivR, 0); mat2TexPost_KRpost(strTemp, posPivR); }
+          showMat();
+        } else {
+          strHTML += L.scAlreadyUnit;
+          pivUnitario = true;
+        }
+        // posPivR == 0 sempre: non ci sono righe sopra da azzerare
+        strHTML += L.scNoRowsAbove;
+        pivPolePos = true;
+        if (pivUnitario) {
+          strHTML += L.scFinAlready;
+        } else {
+          strHTML += L.scFinMade;
+        }
+        strLatex = L.aRref + ' =';
+        mat2Tex();
+        if (daidai) { strHTML = L.scQuickFin(posPivR); showMatSvelto(); } else showMat();
+      }
+      else { // ---------------------- più di una riga e più di una colonna
+        strHTML = L.splitIntro + L.gaussHead + L.gaussSub + L.movesIntro;
+        strHTML += '<ul>' + L.moveSwap + L.moveMult + L.moveAdd + '</ul>';
+        strHTML += L.gcTip1 + L.gcTipBox + L.gcTip2 + L.gcTip2move;
+        let lastRow = rows - 1, lastCol = cols - 1, procRow = 0, procCol = 0, pivRow = 0;
+        while ((procCol <= lastCol) & (pivRow <= lastRow)) {
+          if (pivRow <= lastRow) {
+            strHTML += L.analyzeCol(procCol);
+            if (subColonnaNulla(procCol, pivRow, lastRow)) {
+              strHTML += (pivRow == 0) ? L.gcNoPivAllNull : L.gcNoPivBelow;
+              pivRow--;
+            } else if (elemNullo(pivRow, procCol)) {
+              for (procRow = pivRow + 1; procRow <= lastRow; procRow++) {
+                if (!elemNullo(procRow, procCol)) {
+                  strHTML += (pivRow == 0)
+                    ? L.gcSwap0(getMatElemTex(procRow, procCol), procRow, pivRow)
+                    : L.gcSwapBelow(getMatElemTex(procRow, procCol), procRow, pivRow);
+                  mat2Tex();
+                  switchRows(pivRow, procRow);
+                  strLatex += '\\xrightarrow{\\mathscr{R}_{' + (procRow + 1) + '} \\; \\rightleftharpoons \\; \\mathscr{R}_{' + (pivRow + 1) + '}}';
+                  annotaPivot(pivRow, procCol);
+                  mat2Tex();
+                  showMat();
+                  break;
+                }
+              }
+            } else {
+              annotaPivot(pivRow, procCol);
+              strHTML += (pivRow == 0)
+                ? L.gcHere0(getMatElemTex(pivRow, procCol), pivRow)
+                : L.gcHereBelow(getMatElemTex(pivRow, procCol), pivRow);
+            }
+          }
+          let almenoUno = 0;
+          for (procRow = pivRow + 1; procRow < lastRow + 1; procRow++) {
+            if (!elemNullo(procRow, procCol)) {
+              almenoUno++;
+              if (almenoUno == 1) strHTML += L.zeroBelow;
+              mat2Tex();
+              const strTemp = creaKappaTex(procRow, pivRow, procCol);
+              if (vuiConti.checked) mat2TexPost_R1KR2pre(strTemp, procRow, pivRow);
+              strHTML += L.gcZeroElem(getMatElemTex(procRow, procCol), procRow, procCol, pivRow, creaKappaTex(procRow, pivRow, procCol));
+              strLatex += '\\xrightarrow[' + strSotto + ']{\\mathscr{R}_{' + (procRow + 1) + '} \\; = \\; \\mathscr{R}_{' + (procRow + 1) + '} \\mspace{2mu} + \\mspace{3mu} \\left(' + creaKappaTex(procRow, pivRow, procCol) + '\\right) \\cdot \\mspace{3mu} \\mathscr{R}_{' + (pivRow + 1) + '}}';
+              sumRowsByK(procRow, creaKappa(procRow, pivRow, procCol), pivRow, procCol);
+              mat2Tex();
+              if (vuiConti.checked) mat2TexPost_R1KR2post(strTemp, procRow, pivRow);
+              showMat();
+            }
+          }
+          procCol++; pivRow++;
+          if (strHTML != '') { mat2Tex(); showMat(); }
+        }
+        strLatex = L.aRef + ' =';
+        mat2Tex();
+        strHTML = L.refResult;
+        daidai ? showMatSvelto() : showMat();
+
+        strHTML = L.jordanHead + L.jordanSub + L.jordanFree + L.jordanGoal;
+        procCol = cols - 1;
+        pivRow = pivRow - 1;
+        while (pivRow > -1) {
+          if ((pivRow == 0) & (!elemNullo(0, 0))) {
+            procCol = 0;
+          } else {
+            for (let i = procCol - 1; i > -1; i--) {
+              if (subRigaNulla(pivRow, 0, i)) { procCol = i + 1; break; }
+            }
+          }
+          strHTML += L.analyzeCol(procCol);
+          let strTemp = 1;
+          if (!elemNormalizzato(pivRow, procCol)) {
+            mat2Tex();
+            if (vuiConti.checked) { strTemp = creaKappaNormTex(pivRow, procCol); mat2TexPost_KRpre(strTemp, pivRow); }
+            strHTML += L.gcNormPivot(procCol, creaKappaNormTex(pivRow, procCol), pivRow);
+            strLatex += '\\xrightarrow[' + strSotto + ']{\\mathscr{R}_{' + (pivRow + 1) + '} \\; = \\; \\left(' + creaKappaNormTex(pivRow, procCol) + '\\right) \\cdot \\mspace{3mu} \\mathscr{R}_{' + (pivRow + 1) + '}}';
+            rowNorm(pivRow, procCol);
+          }
+          mat2Tex();
+          if (vuiConti.checked && strTemp != 1) mat2TexPost_KRpost(strTemp, pivRow);
+          showMat();
+          if (pivRow > 0) {
+            for (let procRow2 = pivRow - 1; procRow2 > -1; procRow2--) {
+              if (!elemNullo(procRow2, procCol)) {
+                mat2Tex();
+                if (!elemAntiNormalizzato(procRow2, procCol)) {
+                  if (vuiConti.checked) { strTemp = creaKappaTex(procRow2, pivRow, procCol); mat2TexPost_R1KR2pre(strTemp, procRow2, pivRow); strSotto = L.arrowBA; }
+                  strHTML = L.gcZeroAboveOpp(getMatElemTex(procRow2, procCol), procRow2, procCol, pivRow, getOppostoMatElemTex(procRow2, procCol));
+                  strLatex += '\\xrightarrow[' + strSotto + ']{\\mathscr{R}_{' + (procRow2 + 1) + '} \\; = \\; \\mathscr{R}_{' + (procRow2 + 1) + '} \\mspace{2mu} + \\mspace{3mu} \\left(' + getOppostoMatElemTex(procRow2, procCol) + '\\right) \\cdot \\mspace{3mu} \\mathscr{R}_{' + (pivRow + 1) + '}}';
+                  sumRowsByK(procRow2, creaKappa(procRow2, pivRow, procCol), pivRow, procCol);
+                  mat2Tex();
+                  if (vuiConti.checked) mat2TexPost_R1KR2post(strTemp, procRow2, pivRow);
+                } else {
+                  if (vuiConti.checked) { strTemp = creaKappaTex(procRow2, pivRow, procCol); mat2TexPost_R1R2pre(procRow2, pivRow); strSotto = L.arrowBA; }
+                  strHTML = L.gcZeroAboveSimple(getMatElemTex(procRow2, procCol), procRow2, procCol, pivRow);
+                  strLatex += '\\xrightarrow[' + strSotto + ']{\\mathscr{R}_{' + (procRow2 + 1) + '} \\; = \\; \\mathscr{R}_{' + (procRow2 + 1) + '} \\mspace{2mu} + \\mspace{3mu} \\mathscr{R}_{' + (pivRow + 1) + '}}';
+                  sumRowsByK(procRow2, creaKappa(procRow2, pivRow, procCol), pivRow, procCol);
+                  mat2Tex();
+                  if (vuiConti.checked) mat2TexPost_R1R2post(procRow2, pivRow);
+                }
+                showMat();
+              }
+            }
+          }
+          pivRow--; procCol--;
+        }
+        strLatex = L.aRref + ' =';
+        mat2Tex();
+        strHTML = L.rrefResult;
+        daidai ? showMatSvelto() : showMat();
+      }
+
+      const active = daidai ? robeSvelte : robe;
+      const other = daidai ? robe : robeSvelte;
+      hide(other);
+      reveal(active);
+    }
+
+    // -------------------------------------------------------------- interazioni
+    let gjRandomUsed = false;
+    function gjParamsUsed() {
+      let found = false;
+      tdTabea.querySelectorAll('.gj-matrix-cell').forEach((el) => {
+        if (/[a-zA-Z]/.test(el.value)) found = true;
+      });
+      return found;
+    }
+    function gjTrack(mode) {
+      if (window.umami) {
+        umami.track('gaussjordan-solve', { mode, rows, cols, randomUsed: gjRandomUsed, paramsUsed: gjParamsUsed() });
+      }
+    }
+    function clearResults() {
+      robe.innerHTML = ''; robeSvelte.innerHTML = '';
+      hide(robe); hide(robeSvelte);
+    }
+    function rimodea() { showTabea(); clearResults(); gjRandomUsed = false; }
+    function tikigna() {
+      strSotto = vuiConti.checked ? L.arrowBA : '';
+      if (robe.innerHTML !== '' || robeSvelte.innerHTML !== '') {
+        robe.innerHTML = ''; robeSvelte.innerHTML = '';
+        elabora();
+      }
+    }
+
+    inRows.addEventListener('input', rimodea);
+    inCols.addEventListener('input', rimodea);
+    vuiPivot.addEventListener('change', tikigna);
+    vuiRC.addEventListener('change', tikigna);
+    vuiConti.addEventListener('change', tikigna);
+
+    // Si allarga solo la cella in focus; le altre della colonna restano strette e
+    // si ANIMANO (allargamento/restringimento) entrando/uscendo dal focus.
+    // La larghezza della COLONNA e ancorata dall'intestazione (gj-col-wide, min-width
+    // fissa): mentre le celle si animano, la colonna NON si muove. Il focusout e
+    // rimandato e annullato dal focusin successivo, cosi cambiando cella nella stessa
+    // colonna l'intestazione non si disancora mai (niente accenno di restringimento).
+    let blurTimer = null;
+    function setFocus(cell) {
+      const col = cell ? cell.dataset.col : null;
+      tdTabea.querySelectorAll('.gj-matrix-cell').forEach((el) => {
+        el.classList.toggle('gj-cell-wide', el === cell);
+      });
+      tdTabea.querySelectorAll('.gj-colhead[data-col]').forEach((th) => {
+        th.classList.toggle('gj-col-wide', col !== null && th.dataset.col === col);
+      });
+    }
+    tdTabea.addEventListener('focusin', (e) => {
+      if (e.target.classList && e.target.classList.contains('gj-matrix-cell')) {
+        if (blurTimer) { clearTimeout(blurTimer); blurTimer = null; }
+        setFocus(e.target);
+      }
+    });
+    tdTabea.addEventListener('focusout', () => {
+      // rimando: se subito dopo arriva un focusin nella griglia (cambio cella),
+      // il timer viene annullato e la colonna non si restringe nemmeno per un istante.
+      if (blurTimer) clearTimeout(blurTimer);
+      blurTimer = setTimeout(() => { setFocus(null); blurTimer = null; }, 0);
+    });
+
+    root.querySelector('#gjBtnReset').addEventListener('click', () => { showTabea(); clearResults(); unTip(); gjRandomUsed = false; });
+    root.querySelector('#gjBtnRandom').addEventListener('click', () => { buildRandMat(); clearResults(); unTip(); gjRandomUsed = true; });
+    root.querySelector('#gjBtnQuick').addEventListener('click', () => {
+      clearResults(); daidai = true; elabora(); gjTrack('quick');
+    });
+    root.querySelector('#gjBtnStep').addEventListener('click', () => {
+      clearResults(); daidai = false; elabora(); gjTrack('steps');
+    });
+
+    // ------------------------------------------------------------- avvio
+    showTabea();              // crea e renderizza la griglia delle celle
+    renderInline(root);       // renderizza tutto il math statico restante (label, toggle, A=)
+    fitBrackets();            // riadatta le parentesi a layout assestato
+    window.addEventListener('resize', fitBrackets);
+  }
+</script>

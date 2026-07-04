@@ -1,0 +1,31 @@
+---
+title: The exponential form of complex numbers
+description: "Interactive simulator of Euler's formula: the exponential form of complex numbers e^(iθ) as the limit of a polygon converging to a circle."
+sidebar:
+  hidden: false
+  label: The exponential form of complex numbers
+  order: 3
+tableOfContents: false
+---
+
+import PoligonoEsponenziale from '@components/PoligonoEsponenziale.astro';
+
+Writing a complex number as $z = \rho e^{i\theta}$ looks like a mere convenient notation. In fact it hides a question worth untangling: why is $e^{i\theta}$ a complex number, and where does the exponential come from?
+
+The idea is to see a rotation as a sum of many small steps. Rotating by an angle $\theta$ amounts to multiplying by the factor $\left(1 + \dfrac{i\theta}{n}\right)$ repeated $n$ times: each step is a small displacement **perpendicular** to the current position, because multiplying by $i$ rotates by $90°$. Starting from the number $1$ and applying this factor $n$ times gives the polygon
+
+$$
+\left(1 + \frac{i\theta}{n}\right)^n.
+$$
+
+As $n$ grows, the polygon gets finer and settles onto the arc of the unit circle: its final modulus tends to $1$ and the accumulated angle tends to $\theta$. That limit is, by definition, $e^{i\theta}$ — a complex number, obtained as a limit of complex numbers — and its value is
+
+$$
+e^{i\theta} = \cos\theta + i\sin\theta.
+$$
+
+This is Euler's formula, which here is not assumed but *emerges*.
+
+<PoligonoEsponenziale />
+
+Move the two sliders: with only a few steps the polygon is jagged and its final vertex lands outside the circle, with modulus $|z_n| > 1$ and angle smaller than $\theta$. As you increase $n$, the two numbers below converge to $1$ and $\theta$, and the vertex settles onto the point $e^{i\theta}$. For an arbitrary number $z = \rho e^{i\theta}$ you then just scale the circle by the modulus $\rho$.

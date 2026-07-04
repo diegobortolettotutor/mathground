@@ -1,0 +1,63 @@
+---
+const isEN = Astro.url.pathname.startsWith('/en/');
+const t = isEN
+  ? { title: 'Section under construction', sub: "This section's content is being prepared. Check back soon!" }
+  : { title: 'Sezione in costruzione', sub: 'I contenuti di questa sezione sono in preparazione. Torna presto!' };
+---
+<div class="ic-box">
+  <svg viewBox="0 0 200 110" xmlns="http://www.w3.org/2000/svg" role="img" aria-label={t.title}>
+    <g class="ic-gear ic-gear-a">
+      <rect x="60.5" y="24" width="11" height="13" rx="2" transform="rotate(0 66 60)"/>
+      <rect x="60.5" y="24" width="11" height="13" rx="2" transform="rotate(45 66 60)"/>
+      <rect x="60.5" y="24" width="11" height="13" rx="2" transform="rotate(90 66 60)"/>
+      <rect x="60.5" y="24" width="11" height="13" rx="2" transform="rotate(135 66 60)"/>
+      <rect x="60.5" y="24" width="11" height="13" rx="2" transform="rotate(180 66 60)"/>
+      <rect x="60.5" y="24" width="11" height="13" rx="2" transform="rotate(225 66 60)"/>
+      <rect x="60.5" y="24" width="11" height="13" rx="2" transform="rotate(270 66 60)"/>
+      <rect x="60.5" y="24" width="11" height="13" rx="2" transform="rotate(315 66 60)"/>
+      <circle cx="66" cy="60" r="26"/>
+      <circle class="ic-axle" cx="66" cy="60" r="9"/>
+    </g>
+    <g class="ic-gear ic-gear-b">
+      <rect x="123.5" y="20" width="9" height="11" rx="2" transform="rotate(22.5 128 50)"/>
+      <rect x="123.5" y="20" width="9" height="11" rx="2" transform="rotate(67.5 128 50)"/>
+      <rect x="123.5" y="20" width="9" height="11" rx="2" transform="rotate(112.5 128 50)"/>
+      <rect x="123.5" y="20" width="9" height="11" rx="2" transform="rotate(157.5 128 50)"/>
+      <rect x="123.5" y="20" width="9" height="11" rx="2" transform="rotate(202.5 128 50)"/>
+      <rect x="123.5" y="20" width="9" height="11" rx="2" transform="rotate(247.5 128 50)"/>
+      <rect x="123.5" y="20" width="9" height="11" rx="2" transform="rotate(292.5 128 50)"/>
+      <rect x="123.5" y="20" width="9" height="11" rx="2" transform="rotate(337.5 128 50)"/>
+      <circle cx="128" cy="50" r="19"/>
+      <circle class="ic-axle" cx="128" cy="50" r="7"/>
+    </g>
+  </svg>
+  <div class="ic-title">{t.title}</div>
+  <p class="ic-sub">{t.sub}</p>
+</div>
+
+<style>
+  .ic-box {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 0.6rem;
+    padding: 2.2rem 1.5rem;
+    margin: 1.5rem 0;
+    border: 1px dashed var(--sl-color-gray-4);
+    border-radius: 12px;
+    background: var(--sl-color-gray-6);
+  }
+  .ic-box svg { width: 170px; height: auto; }
+  .ic-title { font-size: 1.35rem; font-weight: 700; color: var(--sl-color-white); }
+  .ic-sub { margin: 0; color: var(--sl-color-gray-2); font-size: 0.95rem; max-width: 34ch; }
+  .ic-gear-a { fill: var(--sl-color-text-accent); }
+  .ic-gear-b { fill: var(--sl-color-gray-2); }
+  .ic-axle { fill: var(--sl-color-gray-6); }
+  .ic-gear { transform-box: fill-box; transform-origin: center; }
+  .ic-gear-a { animation: ic-spin 9s linear infinite; }
+  .ic-gear-b { animation: ic-spin-rev 6.5s linear infinite; }
+  @keyframes ic-spin { to { transform: rotate(360deg); } }
+  @keyframes ic-spin-rev { to { transform: rotate(-360deg); } }
+  @media (prefers-reduced-motion: reduce) { .ic-gear { animation: none; } }
+</style>

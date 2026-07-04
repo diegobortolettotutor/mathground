@@ -1,0 +1,26 @@
+---
+title: Linear systems
+description: Online solver for linear systems (including non-homogeneous ones), with Rouché-Capelli, exact arithmetic and parameters, step by step.
+sidebar:
+  hidden: false
+  label: Linear system
+  order: 7
+tableOfContents: false
+---
+
+import LinearSystemSolver from '@components/LinearSystemSolver.astro';
+
+Given a system $A \cdot \mathbf{x} = \mathbf{b}$, this simulator finds **all its solutions**:
+it first checks consistency and the number of solutions with the **Rouché-Capelli** theorem,
+then looks for shortcuts by eye (evident inconsistencies, immediate particular solutions,
+relations among the columns), and in any case solves it with **Gauss-Jordan** on the augmented
+matrix, all the way to the **parametric form** of the result. All computations use exact
+rational arithmetic; the cells of $A$ and $\mathbf{b}$ also accept **parameters** (for example
+`k` or `t`), with a case analysis on the critical values.
+
+<LinearSystemSolver />
+:::tip[See also]
+For the detailed, move-by-move row reduction of a matrix, use the
+[Gauss-Jordan](/en/risolutori/gauss-jordan/) solver. For the homogeneous system alone
+and the kernel computation, you can also use the [Kernel](/en/risolutori/kernel/) solver.
+:::

@@ -1,0 +1,1979 @@
+---
+// ============================================================================
+//  DivisionePolinomiale.astro
+//  Divisore di polinomi (fratto improprio) con:
+//   - coefficienti razionali esatti (BigInt) e parametro lineare "a"
+//   - selettore di grado (4..10), selettore "rendi monico"
+//   - risultato veloce, soluzione passo-passo a frame, analisi del parametro
+//  Dipendenze logiche: ./engine.ts e ./view.ts (stessa cartella).
+//  KaTeX e' importato nello <script> lato client.
+// ============================================================================
+const locale = Astro.currentLocale ?? "it";
+const lang = locale.startsWith("en") ? "en" : "it";
+---
+
+<div class="dp-root" data-locale={lang}>
+  <section class="dp-panel">
+    <div class="dp-controls">
+      <label class="dp-ctrl">
+        <span class="dp-ctrl-label" data-i18n="degLabel"></span>
+        <select class="dp-degree">
+          <option value="4" selected>4</option>
+          <option value="5">5</option>
+          <option value="6">6</option>
+          <option value="7">7</option>
+          <option value="8">8</option>
+          <option value="9">9</option>
+          <option value="10">10</option>
+        </select>
+      </label>
+      <label class="dp-ctrl dp-monic">
+        <input type="checkbox" class="dp-monic-cb" />
+        <span class="dp-ctrl-label" data-i18n="monicLabel"></span>
+      </label>
+    </div>
+  </section>
+
+  <section class="dp-panel">
+    <div class="dp-fraction">
+      <div class="dp-fraction-inner">
+        <div class="dp-row dp-num" aria-label="numeratore"></div>
+        <div class="dp-bar"></div>
+        <div class="dp-row dp-den" aria-label="denominatore"></div>
+      </div>
+    </div>
+
+    <p class="dp-hint" data-i18n="inputHint"></p>
+    <div class="dp-message" role="status"></div>
+  </section>
+
+  <div class="dp-buttons">
+    <button type="button" class="dp-btn dp-reset" data-i18n="reset"></button>
+    <button type="button" class="dp-btn dp-random" data-i18n="random"></button>
+    <button type="button" class="dp-btn dp-quick" data-i18n="quick"></button>
+  </div>
+  <button type="button" class="dp-btn dp-step-btn" data-i18n="stepByStep"></button>
+
+  <div class="dp-output"></div>
+</div>
+
+<script>
+  // KaTeX: serve solo l'API JS per il rendering dinamico a runtime.
+  // Il CSS e' gia' caricato globalmente dal sito (rehype-katex), non si importa qui.
+  import katex from "katex";
+
+  // ==========================================================================
+  // MOTORE MATEMATICO (ex engine.ts) — razionali esatti, polinomio nel
+  // parametro "a", parser, algoritmo di divisione, analisi del parametro.
+  // ==========================================================================
+// ============================================================================
+//  Motore per la divisione polinomiale con parametro "a"
+//  Self-contained: Frac (razionali BigInt) + PolyA (polinomio in "a") +
+//  parser + algoritmo di divisione con trace passo-passo + analisi del resto.
+//
+//  NOTA DI PROGETTO (importante):
+//  L'input dei coefficienti e' al piu' LINEARE in "a" (come deciso).
+//  Internamente pero' i coefficienti sono polinomi in "a" di grado QUALSIASI:
+//  questo perche' moltiplicare un termine simbolico del quoziente per un
+//  coefficiente simbolico del divisore puo' generare gradi in "a" > 1.
+//  Cosi' l'algoritmo resta SEMPRE esatto, anche con "a" al denominatore.
+// ============================================================================
+
+// ----------------------------------------------------------------------------
+//  Frac: razionale esatto su BigInt, sempre ridotto, denominatore > 0
+// ----------------------------------------------------------------------------
+function bgcd(a: bigint, b: bigint): bigint {
+  a = a < 0n ? -a : a;
+  b = b < 0n ? -b : b;
+  while (b) { [a, b] = [b, a % b]; }
+  return a;
+}
+
+class Frac {
+  readonly n: bigint;
+  readonly d: bigint;
+  constructor(n: bigint, d: bigint = 1n) {
+    if (d === 0n) throw new Error("Denominatore nullo in Frac");
+    if (d < 0n) { n = -n; d = -d; }
+    const g = bgcd(n, d) || 1n;
+    this.n = n / g;
+    this.d = d / g;
+  }
+  static zero = new Frac(0n);
+  static one = new Frac(1n);
+  static fromInt(k: number | bigint) { return new Frac(BigInt(k)); }
+
+  isZero() { return this.n === 0n; }
+  sign(): number { return this.n > 0n ? 1 : this.n < 0n ? -1 : 0; }
+  neg() { return new Frac(-this.n, this.d); }
+  add(o: Frac) { return new Frac(this.n * o.d + o.n * this.d, this.d * o.d); }
+  sub(o: Frac) { return new Frac(this.n * o.d - o.n * this.d, this.d * o.d); }
+  mul(o: Frac) { return new Frac(this.n * o.n, this.d * o.d); }
+  div(o: Frac) {
+    if (o.isZero()) throw new Error("Divisione per zero in Frac");
+    return new Frac(this.n * o.d, this.d * o.n);
+  }
+  equals(o: Frac) { return this.n === o.n && this.d === o.d; }
+
+  // LaTeX: intero o \frac{}{}; il segno e' incluso (utile per assorbimento)
+  toLatex(): string {
+    if (this.d === 1n) return this.n.toString();
+    const s = this.n < 0n ? "-" : "";
+    const an = this.n < 0n ? -this.n : this.n;
+    return `${s}\\frac{${an}}{${this.d}}`;
+  }
+}
+
+// ----------------------------------------------------------------------------
+//  PolyA: polinomio nel parametro "a".  c[i] = coefficiente di a^i
+// ----------------------------------------------------------------------------
+class PolyA {
+  readonly c: Frac[]; // lunghezza >= 1, trimmed (ultimo != 0 salvo il caso zero)
+  constructor(coeffs: Frac[]) {
+    let arr = coeffs.length ? coeffs.slice() : [Frac.zero];
+    while (arr.length > 1 && arr[arr.length - 1].isZero()) arr.pop();
+    this.c = arr;
+  }
+  static zero = new PolyA([Frac.zero]);
+  static fromFrac(f: Frac) { return new PolyA([f]); }
+  static constInt(k: number) { return new PolyA([Frac.fromInt(k)]); }
+
+  isZero() { return this.c.length === 1 && this.c[0].isZero(); }
+  // true se non contiene "a" (grado 0 in a)
+  isNumeric() { return this.c.length === 1; }
+  asFrac(): Frac { if (!this.isNumeric()) throw new Error("PolyA non numerico"); return this.c[0]; }
+  degA() { return this.c.length - 1; }
+
+  neg() { return new PolyA(this.c.map(x => x.neg())); }
+  add(o: PolyA) {
+    const n = Math.max(this.c.length, o.c.length);
+    const r: Frac[] = [];
+    for (let i = 0; i < n; i++) r.push((this.c[i] ?? Frac.zero).add(o.c[i] ?? Frac.zero));
+    return new PolyA(r);
+  }
+  sub(o: PolyA) {
+    const n = Math.max(this.c.length, o.c.length);
+    const r: Frac[] = [];
+    for (let i = 0; i < n; i++) r.push((this.c[i] ?? Frac.zero).sub(o.c[i] ?? Frac.zero));
+    return new PolyA(r);
+  }
+  mul(o: PolyA) {
+    const r: Frac[] = new Array(this.c.length + o.c.length - 1).fill(Frac.zero);
+    for (let i = 0; i < this.c.length; i++)
+      for (let j = 0; j < o.c.length; j++)
+        r[i + j] = r[i + j].add(this.c[i].mul(o.c[j]));
+    return new PolyA(r);
+  }
+  // divisione per uno scalare numerico (Frac): sempre lecita
+  divFrac(f: Frac) { return new PolyA(this.c.map(x => x.div(f))); }
+
+  equals(o: PolyA) {
+    if (this.c.length !== o.c.length) return false;
+    return this.c.every((x, i) => x.equals(o.c[i]));
+  }
+
+  // LaTeX del coefficiente. wrapParen: se true e il termine e' "ambiguo"
+  // (simbolico o somma) lo racchiude tra parentesi.
+  toLatex(wrapParen = false): string {
+    if (this.isZero()) return "0";
+    const parts: { s: string; neg: boolean }[] = [];
+    // termine di grado piu' alto in "a" per primo, poi giu' fino alla costante
+    for (let i = this.c.length - 1; i >= 0; i--) {
+      const f = this.c[i];
+      if (f.isZero()) continue;
+      const neg = f.sign() < 0;
+      const abs = neg ? f.neg() : f;
+      let body: string;
+      const aPow = i === 0 ? "" : i === 1 ? "a" : `a^{${i}}`;
+      if (i === 0) {
+        body = abs.toLatex();
+      } else if (abs.equals(Frac.one)) {
+        body = aPow;
+      } else {
+        body = `${abs.toLatex()}${aPow}`;
+      }
+      parts.push({ s: body, neg });
+    }
+    let out = "";
+    parts.forEach((p, idx) => {
+      if (idx === 0) out += (p.neg ? "-" : "") + p.s;
+      else out += (p.neg ? " - " : " + ") + p.s;
+    });
+    const ambiguous = parts.length > 1 || this.degA() > 0;
+    if (wrapParen && ambiguous) return `\\left(${out}\\right)`;
+    return out;
+  }
+}
+
+// ----------------------------------------------------------------------------
+//  Parser: testo -> PolyA (input limitato a grado <= 1 in "a")
+//  Accetta: interi, frazioni "p/q", "a", "-a", "2a", "a/3", "3a-2", "2-a/2"...
+//  Grammatica semplice: somma/differenza di termini; ogni termine e'
+//  [coeff][a] dove coeff e' un razionale opzionale e "a" e' opzionale.
+// ----------------------------------------------------------------------------
+class ParseError extends Error {}
+
+function parseCoeff(raw: string): PolyA {
+  const src = raw.trim();
+  if (src === "" ) return PolyA.zero;
+  let i = 0;
+  const s = src.replace(/\s+/g, "");
+  let result = PolyA.zero;
+  let sign = 1;
+
+  const readNumber = (): Frac | null => {
+    const start = i;
+    while (i < s.length && /[0-9]/.test(s[i])) i++;
+    let den: bigint | null = null;
+    let numStr = s.slice(start, i);
+    if (i < s.length && s[i] === "/") {
+      i++;
+      const ds = i;
+      while (i < s.length && /[0-9]/.test(s[i])) i++;
+      if (i === ds) throw new ParseError(`Denominatore mancante in "${raw}"`);
+      den = BigInt(s.slice(ds, i));
+      if (numStr === "") throw new ParseError(`Numeratore mancante in "${raw}"`);
+    }
+    if (numStr === "" && den === null) return null;
+    return new Frac(BigInt(numStr || "1"), den ?? 1n);
+  };
+
+  // leading sign
+  if (s[i] === "+" || s[i] === "-") { sign = s[i] === "-" ? -1 : 1; i++; }
+
+  let first = true;
+  while (i < s.length) {
+    if (!first) {
+      if (s[i] === "+") { sign = 1; i++; }
+      else if (s[i] === "-") { sign = -1; i++; }
+      else throw new ParseError(`Atteso + o - in "${raw}"`);
+    }
+    first = false;
+
+    let coeff = readNumber(); // puo' essere null se termine "a" puro
+    let hasA = false;
+    if (i < s.length && s[i] === "a") {
+      hasA = true; i++;
+      // possibile "/q" dopo la a, es. a/3
+      if (i < s.length && s[i] === "/") {
+        i++;
+        const ds = i;
+        while (i < s.length && /[0-9]/.test(s[i])) i++;
+        if (i === ds) throw new ParseError(`Denominatore mancante dopo a/ in "${raw}"`);
+        const q = new Frac(1n, BigInt(s.slice(ds, i)));
+        coeff = (coeff ?? Frac.one).mul(q);
+      }
+    }
+    if (coeff === null && !hasA) throw new ParseError(`Termine vuoto in "${raw}"`);
+    const c = coeff ?? Frac.one;
+    const signed = sign === -1 ? c.neg() : c;
+    const term = hasA ? new PolyA([Frac.zero, signed]) : new PolyA([signed]);
+    result = result.add(term);
+
+    if (i < s.length && s[i] !== "+" && s[i] !== "-")
+      throw new ParseError(`Carattere non valido "${s[i]}" in "${raw}"`);
+  }
+  if (result.degA() > 1) throw new ParseError(`Solo grado 1 in "a" ammesso in input: "${raw}"`);
+  return result;
+}
+
+// ----------------------------------------------------------------------------
+//  Polinomio in x: array di PolyA, indice = grado di x (ascendente).
+// ----------------------------------------------------------------------------
+type Poly = PolyA[]; // p[i] = coeff di x^i
+
+function polyDeg(p: Poly): number {
+  for (let i = p.length - 1; i >= 0; i--) if (!p[i].isZero()) return i;
+  return -1; // polinomio nullo
+}
+function polyIsZero(p: Poly): boolean { return polyDeg(p) === -1; }
+
+// ----------------------------------------------------------------------------
+//  Trace della divisione: dati neutri, la colorazione la fa il componente.
+// ----------------------------------------------------------------------------
+interface ProductRow {
+  // prodotto (termine quoziente) x (divisore), per ogni grado di x
+  coeffs: Poly;       // gia' allineato sull'asse delle potenze di x
+  shiftDeg: number;   // grado di x del termine quoziente che lo genera
+}
+interface DivStep {
+  qTermDeg: number;          // grado di x del termine di quoziente calcolato
+  qTerm: PolyA;              // coefficiente del termine di quoziente
+  leadRemDeg: number;        // grado direttore del resto corrente a inizio passo
+  remBefore: Poly;           // resto prima della sottrazione
+  product: Poly;             // riga prodotto (term quoziente x divisore)
+  remAfter: Poly;            // resto dopo la sottrazione
+  cancelDeg: number;         // grado di x in cui si ottiene lo zero (cancellazione)
+}
+interface DivResult {
+  ok: boolean;
+  error?: string;          // messaggio se non eseguibile
+  degenerateNote?: PolyA;  // se coeff direttore numeratore e' simbolico: valore di a che lo annulla
+  numerator: Poly;         // numeratore come inserito (per richiamare il fratto iniziale per esteso)
+  quotient: Poly;
+  remainder: Poly;
+  steps: DivStep[];
+  // monico
+  monic: boolean;
+  k?: Frac;                // coeff direttore del divisore originale (se monico)
+  divisorUsed: Poly;       // divisore effettivamente usato (monico o no)
+  divisorOriginal: Poly;
+}
+
+// risolve coeff direttore del numeratore simbolico -> valore di a che lo annulla
+function rootOfLinear(p: PolyA): PolyA | null {
+  // p = c0 + c1 a ; annulla per a = -c0/c1  (se c1 != 0)
+  if (p.degA() === 1 && !p.c[1].isZero()) {
+    return PolyA.fromFrac(p.c[0].neg().div(p.c[1]));
+  }
+  return null;
+}
+
+function divide(
+  numerator: Poly,
+  denominator: Poly,
+  makeMonic: boolean,
+): DivResult {
+  const degN = polyDeg(numerator);
+  const degDorig = polyDeg(denominator);
+
+  const base: DivResult = {
+    ok: false, numerator, quotient: [], remainder: [], steps: [],
+    monic: false, divisorUsed: denominator, divisorOriginal: denominator,
+  };
+
+  if (degDorig < 0) return { ...base, error: "DENOM_ZERO" };
+  if (degN < 0)    return { ...base, error: "NUM_ZERO" };
+  if (degN < degDorig) return { ...base, error: "DEG_LOW" };
+
+  // coeff direttore del denominatore: deve essere numerico (vincolo gia' validato a monte)
+  const kPoly = denominator[degDorig];
+  if (!kPoly.isNumeric())
+    return { ...base, error: "DENOM_LEAD_SYMBOLIC" };
+  const k = kPoly.asFrac();
+
+  // nota sul caso degenere: coeff direttore del numeratore simbolico
+  const degenerateNote = rootOfLinear(numerator[degN]) ?? undefined;
+
+  // costruzione divisore usato (monico opzionale)
+  let divisor = denominator.map(x => x); // copia
+  let monic = false;
+  if (makeMonic && !k.equals(Frac.one)) {
+    divisor = denominator.map(x => x.divFrac(k));
+    monic = true;
+  }
+  const degD = polyDeg(divisor);
+  const leadD = divisor[degD]; // PolyA numerico
+
+  // algoritmo
+  let rem: Poly = numerator.map(x => x);
+  const quotient: PolyA[] = new Array(degN - degD + 1).fill(PolyA.zero);
+  const steps: DivStep[] = [];
+
+  let curDeg = polyDeg(rem);
+  while (curDeg >= degD) {
+    const qDeg = curDeg - degD;
+    const qTerm = rem[curDeg].divFrac(leadD.asFrac()); // leadD numerico
+    quotient[qDeg] = qTerm;
+
+    // riga prodotto: qTerm * divisor, shiftata di qDeg
+    const product: Poly = new Array(curDeg + 1).fill(PolyA.zero);
+    for (let i = 0; i <= degD; i++) product[i + qDeg] = divisor[i].mul(qTerm);
+
+    const remBefore = rem.map(x => x);
+    const remAfter: Poly = new Array(rem.length).fill(PolyA.zero);
+    for (let i = 0; i < rem.length; i++)
+      remAfter[i] = (rem[i] ?? PolyA.zero).sub(product[i] ?? PolyA.zero);
+
+    steps.push({
+      qTermDeg: qDeg, qTerm, leadRemDeg: curDeg,
+      remBefore, product, remAfter, cancelDeg: curDeg,
+    });
+
+    rem = remAfter;
+    const newDeg = polyDeg(rem);
+    if (newDeg >= curDeg) break; // salvaguardia anti-loop (non dovrebbe accadere)
+    curDeg = newDeg;
+  }
+
+  return {
+    ok: true,
+    degenerateNote,
+    numerator,
+    quotient,
+    remainder: rem,
+    steps,
+    monic,
+    k: monic ? k : undefined,
+    divisorUsed: divisor,
+    divisorOriginal: denominator,
+  };
+}
+
+// ----------------------------------------------------------------------------
+//  Analisi del parametro: per quali "a" il resto si annulla / abbassa grado.
+//  remainder e' Poly (coeff PolyA in "a"). Resto nullo  <=>  ogni coeff = 0
+//  come polinomio in "a"  =>  intersezione delle radici.
+// ----------------------------------------------------------------------------
+interface ParamAnalysis {
+  hasParam: boolean;
+  vanishes: Frac[] | null; // valori di a per cui R(x) == 0 ; null = nessuno / indeterminato
+  vanishNote: string;      // chiave messaggio
+  degreeDrops: { aValue: Frac; newDeg: number }[]; // a che abbassano il grado del resto
+}
+
+// radici razionali di un PolyA (grado 0,1,2 gestiti; oltre: best effort vuoto)
+function rationalRoots(p: PolyA): { roots: Frac[]; all: boolean } {
+  if (p.isZero()) return { roots: [], all: true }; // sempre zero
+  const deg = p.degA();
+  if (deg === 0) return { roots: [], all: false }; // costante non nulla: mai zero
+  if (deg === 1) return { roots: [p.c[0].neg().div(p.c[1])], all: false };
+  if (deg === 2) {
+    const a = p.c[2], b = p.c[1], c = p.c[0];
+    const disc = b.mul(b).sub(Frac.fromInt(4).mul(a).mul(c));
+    if (disc.sign() < 0) return { roots: [], all: false };
+    // sqrt razionale?
+    const isqrt = (x: bigint) => { let r = 0n; while (r * r <= x) r++; return r - 1n; };
+    const sn = isqrt(disc.n < 0n ? -disc.n : disc.n);
+    const sd = isqrt(disc.d);
+    if (sn * sn === disc.n && sd * sd === disc.d) {
+      const sq = new Frac(sn, sd);
+      const r1 = b.neg().add(sq).div(Frac.fromInt(2).mul(a));
+      const r2 = b.neg().sub(sq).div(Frac.fromInt(2).mul(a));
+      return { roots: r1.equals(r2) ? [r1] : [r1, r2], all: false };
+    }
+    return { roots: [], all: false }; // radici irrazionali: non elencate
+  }
+  return { roots: [], all: false };
+}
+
+function fracIn(list: Frac[], f: Frac) { return list.some(x => x.equals(f)); }
+
+function analyzeParam(result: DivResult): ParamAnalysis {
+  const R = result.remainder;
+  const hasParam = R.some(p => !p.isNumeric());
+  const out: ParamAnalysis = { hasParam, vanishes: null, vanishNote: "", degreeDrops: [] };
+  if (!hasParam) { out.vanishNote = "NO_PARAM"; return out; }
+
+  // resto nullo: ogni coeff (PolyA) = 0 contemporaneamente
+  let candidate: Frac[] | null = null; // null = non ancora vincolato
+  let impossible = false;
+  let always = true;
+  for (const coeff of R) {
+    const { roots, all } = rationalRoots(coeff);
+    if (all) continue;          // questo coeff e' identicamente 0: nessun vincolo
+    always = false;
+    if (roots.length === 0) { impossible = true; break; } // costante non nulla o radici non razionali
+    if (candidate === null) candidate = roots;
+    else candidate = candidate.filter(r => fracIn(roots, r)); // intersezione
+  }
+  if (impossible || (candidate !== null && candidate.length === 0)) {
+    out.vanishes = []; out.vanishNote = "NONE";
+  } else if (always) {
+    out.vanishes = null; out.vanishNote = "ALWAYS"; // resto gia' identicamente nullo
+  } else {
+    out.vanishes = candidate ?? [];
+    out.vanishNote = "SOME";
+  }
+
+  // abbassamento di grado: per quali a il coeff direttore del resto si annulla
+  const dR = polyDeg(R);
+  if (dR >= 0) {
+    const lead = R[dR];
+    const { roots, all } = rationalRoots(lead);
+    if (!all) {
+      for (const r of roots) {
+        // valuta il nuovo grado sostituendo a = r
+        const newDeg = polyDeg(R.map(p => evalA(p, r)));
+        out.degreeDrops.push({ aValue: r, newDeg });
+      }
+    }
+  }
+  return out;
+}
+
+// valuta un PolyA in a = v -> PolyA numerico
+function evalA(p: PolyA, v: Frac): PolyA {
+  let acc = Frac.zero, pw = Frac.one;
+  for (let i = 0; i < p.c.length; i++) { acc = acc.add(p.c[i].mul(pw)); pw = pw.mul(v); }
+  return PolyA.fromFrac(acc);
+}
+
+  // ==========================================================================
+  // LOGICA DI PRESENTAZIONE (ex view.ts) — LaTeX di output e frame narrazione.
+  // ==========================================================================
+// ============================================================================
+//  view.ts — logica di presentazione PURA (niente DOM, niente KaTeX runtime).
+//  Produce stringhe LaTeX e il modello dei "frame" per la narrazione.
+// ============================================================================
+
+// --- LaTeX di un monomio  coeff · x^power  (per le CELLE della tabella) -------
+// Mostra sempre il coefficiente esplicito (anche 0 e 1) col punto di moltipl.
+function monomialTex(coeff: PolyA, power: number): string {
+  const c = coeff.toLatex(true); // simbolico -> tra parentesi
+  if (power === 0) return c;
+  const xp = power === 1 ? "x" : `x^{${power}}`;
+  return `${c} ${xp}`;
+}
+
+// --- LaTeX di un polinomio inline (quoziente, resto, divisore, risultato) -----
+// Termini nulli OMESSI. Segno assorbito nell'operatore per termini numerici;
+// termini simbolici racchiusi tra parentesi con operatore "+".
+function polyTex(p: Poly): string {
+  const deg = polyDeg(p);
+  if (deg < 0) return "0";
+  let out = "";
+  let first = true;
+  for (let pw = deg; pw >= 0; pw--) {
+    const coeff = p[pw];
+    if (coeff.isZero()) continue;
+    const xp = pw === 0 ? "" : pw === 1 ? "x" : `x^{${pw}}`;
+    const dot = pw === 0 ? "" : " ";
+
+    if (coeff.isNumeric()) {
+      const f = coeff.asFrac();
+      const neg = f.sign() < 0;
+      const abs = neg ? f.neg() : f;
+      const body = pw !== 0 && abs.equals(Frac.one) ? `${xp}` : `${abs.toLatex()}${dot}${xp}`;
+      out += first ? (neg ? "-" : "") + body : (neg ? " - " : " + ") + body;
+    } else {
+      // simbolico: parentesi, operatore "+" fisso
+      const body = `${coeff.toLatex(true)}${dot}${xp}`;
+      out += first ? body : " + " + body;
+    }
+    first = false;
+  }
+  return out || "0";
+}
+
+// risultato completo:  Q(x) + R(x)/D(x)  (con eventuale fattore 1/k se monico)
+function resultTex(r: DivResult): string {
+  const q = polyTex(r.quotient);
+  const remDeg = polyDeg(r.remainder);
+  let core: string;
+  if (remDeg < 0) {
+    core = q; // divisione esatta
+  } else {
+    const frac = `\\dfrac{${polyTex(r.remainder)}}{${polyTex(r.divisorUsed)}}`;
+    core = `${q} + ${frac}`;
+  }
+  if (r.monic && r.k) {
+    return `\\dfrac{1}{${r.k.toLatex()}} \\left[\\, ${core} \\,\\right]`;
+  }
+  return core;
+}
+
+// fratto iniziale per esteso: N(x)/D(x) con i polinomi effettivamente
+// inseriti. Quando e' stato richiesto il denominatore monico, il
+// denominatore e' mostrato "raccolto" — k volte la sua forma monica —
+// cosi' si vede da dove nasce il fattore 1/k che compare nel risultato.
+function initialFractionTex(r: DivResult): string {
+  const num = polyTex(r.numerator);
+  if (r.monic && r.k) {
+    return `\\dfrac{1}{${r.k.toLatex()}} \\dfrac{${num}}{${polyTex(r.divisorUsed)}}`;
+  }
+  return `\\dfrac{${num}}{${polyTex(r.divisorOriginal)}}`;
+}
+
+// riga 1 dell'introduzione — SOLO numerica: il fratto cosi' come inserito e,
+// se e' stato richiesto il monico, dopo l'uguale la sua versione con k
+// raccolto numericamente a denominatore (nessun simbolo astratto qui).
+function introNumericLineTex(r: DivResult): string {
+  const entered = `\\dfrac{${polyTex(r.numerator)}}{${polyTex(r.divisorOriginal)}}`;
+  if (r.monic && r.k) {
+    return `${entered} = ${initialFractionTex(r)}`;
+  }
+  return entered;
+}
+
+// riga 2 dell'introduzione — SOLO formale: i passaggi con simboli astratti
+// (nessun numero, tranne il valore di k). Nel caso monico usa simboli
+// primati D'(x)/Q'(x)/R'(x), per distinguere esplicitamente gli oggetti
+// della divisione "vera" — quella per il divisore reso monico — da quelli
+// del divisore originale.
+//
+// FONTE UNICA: questa stessa funzione alimenta anche la riga formale del
+// "Risultato" finale (vedi genericFormulaTex, sotto): cosi' inizio e fine
+// coincidono SEMPRE nella forma simbolica, per costruzione — non possono
+// piu' divergere.
+function introFormalLineTex(r: DivResult): string {
+  const remDeg = polyDeg(r.remainder);
+  if (r.monic && r.k) {
+    const kTex = r.k.toLatex();
+    const core = remDeg < 0 ? "Q'(x)" : "Q'(x) + \\dfrac{R'(x)}{D'(x)}";
+    return `\\dfrac{N(x)}{D(x)} = \\dfrac{1}{${kTex}} \\dfrac{N(x)}{D'(x)} = `
+      + `\\dfrac{1}{${kTex}} \\left[\\, ${core} \\,\\right]`;
+  }
+  const core = remDeg < 0 ? "Q(x)" : "Q(x) + \\dfrac{R(x)}{D(x)}";
+  return `\\dfrac{N(x)}{D(x)} = ${core}`;
+}
+
+// richiamo della formula generale per il "Risultato" finale: stessa identica
+// forma simbolica della riga formale dell'introduzione (vedi sopra).
+function genericFormulaTex(r: DivResult): string {
+  return introFormalLineTex(r);
+}
+
+// ============================================================================
+//  Modello dei frame per la narrazione passo-passo
+// ============================================================================
+interface Cell { tex: string; cls: string; }      // cls: "" | "hl" | "strike" | "zero"
+interface Row {
+  minus: boolean; arrow: boolean;       // marcatori rossi nel gutter sinistro
+  markerCls: string;                    // "" | "hl"
+  cells: (Cell | null)[];               // indicizzate per potenza 0..topDeg
+}
+interface Frame {
+  captionKey: string;
+  vars: Record<string, string>;
+  topDeg: number;
+  rows: Row[];
+  divisorTex: string;
+  divisorHl: boolean;
+  quotientTex: string;     // puo' contenere \textcolor per il termine nuovo
+  showRule: boolean;
+}
+
+const RED = "#d11111";
+function colorTex(tex: string) { return `\\textcolor{${RED}}{${tex}}`; }
+
+function emptyRow(topDeg: number): Row {
+  return { minus: false, arrow: false, markerCls: "", cells: new Array(topDeg + 1).fill(null) };
+}
+
+// riga numeratore: TUTTI i termini espliciti dal grado effettivo a 0.
+// I monomi a coefficiente nullo sono in grigio tenue e restano SEMPRE visibili
+// (servono a tenere allineate le colonne). monomialTex produce il monomio
+// completo "0 x^k", non il solo "0".
+function numeratorRow(num: Poly, topDeg: number, hlLead: boolean): Row {
+  const row = emptyRow(topDeg);
+  for (let pw = 0; pw <= topDeg; pw++) {
+    const coeff = num[pw] ?? PolyA.zero;
+    let cls = "";
+    if (hlLead && pw === topDeg) cls = "hl";
+    else if (coeff.isZero()) cls = "zero-faint";
+    row.cells[pw] = { tex: monomialTex(coeff, pw), cls };
+  }
+  return row;
+}
+
+// riga prodotto: dallo span [cancelDeg .. cancelDeg-degD].
+// I termini del prodotto a coefficiente nullo sono in grigio tenue (come i
+// monomi nulli del numeratore); spariranno dopo che si e' fatta la differenza.
+// Con fillZerosBelow anche le posizioni SOTTO lo span (sempre nulle per
+// costruzione) sono esplicitate come monomi completi grigi "0 x^k".
+function productRow(step: DivStep, topDeg: number, degD: number, opts: {strikeLead?: boolean; minusArrow?: boolean; markerHl?: boolean; fillZerosBelow?: boolean}): Row {
+  const row = emptyRow(topDeg);
+  const top = step.cancelDeg;
+  for (let pw = top; pw >= top - degD; pw--) {
+    if (pw < 0) break;
+    let cls = "";
+    if (step.product[pw].isZero()) cls = "zero-faint";
+    if (opts.strikeLead && pw === top) cls = "strike";
+    row.cells[pw] = { tex: monomialTex(step.product[pw], pw), cls };
+  }
+  if (opts.minusArrow) { row.minus = true; row.arrow = true; row.markerCls = opts.markerHl ? "hl" : ""; }
+  if (opts.fillZerosBelow) {
+    for (let pw = top - degD - 1; pw >= 0; pw--) {
+      row.cells[pw] = { tex: monomialTex(PolyA.zero, pw), cls: "zero-faint" };
+    }
+  }
+  return row;
+}
+
+// riga resto dopo sottrazione: da cancelDeg a 0.
+// - in cancelDeg: lo zero di cancellazione, monomio ROSSO "0 x^k" (solo se zeroRed)
+// - tra il nuovo termine direttore e cancelDeg (ESCLUSI): "zona vuota", sempre
+//   zero per costruzione (il grado e' sceso di piu' di 1). Stessa vita dello
+//   zero rosso: visibile (in grigio) SOLO nel frame che introduce la
+//   differenza, eliminata subito dopo — MAI con la vita lunga dei grigi
+//   interni (non e' un coefficiente del nuovo resto, e' un effetto collaterale
+//   della cancellazione, "a sinistra" del nuovo termine direttore).
+// - dal nuovo termine direttore in giu': i termini veri del resto; quelli a
+//   coefficiente nullo sono monomi grigi tenui PERSISTENTI, da eliminare al
+//   termine della differenza successiva (o prima della consegna, se e' il
+//   resto finale): con dropFaintZeros=true le posizioni nulle restano vuote.
+// - CASO SPECIALE — resto identicamente nullo (divisione esatta, l'ultimo
+//   passo): senza correzione, la versione consolidata (zeroRed=false)
+//   ricadrebbe TUTTA in "zona vuota" e la riga sparirebbe del tutto (nessuna
+//   cella). Forziamo invece uno zero NEUTRO (nessun colore) in colonna delle
+//   unita', cosi' resta un riferimento sia per il confronto dei gradi nel
+//   passo successivo, sia per la consegna finale (dove restera' semplicemente
+//   nero, non essendo mai colorato qui).
+function remainderRow(step: DivStep, topDeg: number, opts: {zeroRed?: boolean; hlLead?: boolean; dropFaintZeros?: boolean}): Row {
+  const row = emptyRow(topDeg);
+  const top = step.cancelDeg;
+  const newLeadDeg = polyDeg(step.remAfter);
+  for (let pw = top; pw >= 0; pw--) {
+    if (pw === top) {
+      // zero di cancellazione: monomio rosso, mostrato solo nel frame che lo introduce
+      if (opts.zeroRed) row.cells[pw] = { tex: monomialTex(PolyA.zero, pw), cls: "zero" };
+    } else if (pw > newLeadDeg) {
+      // zona vuota: stessa vita dello zero rosso, mai persistente
+      if (opts.zeroRed) row.cells[pw] = { tex: monomialTex(PolyA.zero, pw), cls: "zero-faint" };
+    } else {
+      const val = step.remAfter[pw] ?? PolyA.zero;
+      if (val.isZero()) {
+        // monomio nullo interno (sotto il nuovo direttore): grigio persistente,
+        // salvo che vada eliminato (dropFaintZeros)
+        if (!opts.dropFaintZeros) row.cells[pw] = { tex: monomialTex(val, pw), cls: "zero-faint" };
+      } else {
+        const cls = opts.hlLead && pw === newLeadDeg ? "hl" : "";
+        row.cells[pw] = { tex: monomialTex(val, pw), cls };
+      }
+    }
+  }
+  if (newLeadDeg < 0 && !opts.zeroRed) {
+    row.cells[0] = { tex: monomialTex(PolyA.zero, 0), cls: "" };
+  }
+  return row;
+}
+
+// termine del quoziente colorato in rosso (con operatore corretto)
+function colorWrapTerm(coeff: PolyA, pw: number, first: boolean): string {
+  const xp = pw === 0 ? "" : pw === 1 ? "x" : `x^{${pw}}`;
+  const dot = pw === 0 ? "" : " ";
+  let inner: string;
+  let op = "";
+  if (coeff.isNumeric()) {
+    const f = coeff.asFrac(); const neg = f.sign() < 0; const abs = neg ? f.neg() : f;
+    inner = pw !== 0 && abs.equals(Frac.one) ? xp : `${abs.toLatex()}${dot}${xp}`;
+    op = first ? (neg ? "-" : "") : (neg ? " - " : " + ");
+  } else {
+    inner = `${coeff.toLatex(true)}${dot}${xp}`;
+    op = first ? "" : " + ";
+  }
+  return colorTex(op + inner);
+}
+
+// quoziente "pulito" (senza colore) coi termini introdotti dai primi (count)
+// PASSI dell'algoritmo. Usa il grado REALE di ciascun passo (r.steps[i].qTermDeg),
+// MAI "qDegMax - i": i gradi del quoziente non sono necessariamente consecutivi
+// (un passo puo' saltare piu' di un grado se il resto scende di piu' di 1 — la
+// stessa "zona vuota" che si vede nella riga del resto). Se non c'e' ancora
+// nessun termine (count=0) resta VUOTO, non "0": stessa convenzione gia' usata
+// per le posizioni sotto il numeratore.
+function quotientClean(r: DivResult, count: number): string {
+  if (count === 0) return "";
+  const sub: Poly = new Array(r.quotient.length).fill(PolyA.zero);
+  for (let i = 0; i < count; i++) {
+    const pw = r.steps[i].qTermDeg;
+    sub[pw] = r.quotient[pw];
+  }
+  return polyTex(sub);
+}
+
+// quoziente coi termini dei primi (count) passi, l'ultimo (passo count-1) in
+// rosso. Stessa correzione: grado reale di ciascun passo, non "qDegMax - i".
+function quotientWithRed(r: DivResult, count: number): string {
+  let out = ""; let first = true;
+  for (let i = 0; i < count; i++) {
+    const pw = r.steps[i].qTermDeg;
+    const coeff = r.quotient[pw];
+    const isLast = i === count - 1;
+    out += isLast ? colorWrapTerm(coeff, pw, first) : plainTerm(coeff, pw, first);
+    first = false;
+  }
+  return out || "\\;";
+}
+function plainTerm(coeff: PolyA, pw: number, first: boolean): string {
+  const xp = pw === 0 ? "" : pw === 1 ? "x" : `x^{${pw}}`;
+  const dot = pw === 0 ? "" : " ";
+  if (coeff.isNumeric()) {
+    const f = coeff.asFrac(); const neg = f.sign() < 0; const abs = neg ? f.neg() : f;
+    const inner = pw !== 0 && abs.equals(Frac.one) ? xp : `${abs.toLatex()}${dot}${xp}`;
+    return (first ? (neg ? "-" : "") : (neg ? " - " : " + ")) + inner;
+  }
+  return (first ? "" : " + ") + `${coeff.toLatex(true)}${dot}${xp}`;
+}
+
+// LaTeX del divisore con SOLO il termine direttore in rosso (per il passo
+// "divido i due direttori": qui non deve essere rosso TUTTO il divisore,
+// solo il termine che entra davvero nel calcolo).
+function divisorTexLeadRed(p: Poly): string {
+  const deg = polyDeg(p);
+  if (deg < 0) return "0";
+  let out = ""; let first = true;
+  for (let pw = deg; pw >= 0; pw--) {
+    const coeff = p[pw];
+    if (coeff.isZero()) continue;
+    out += (pw === deg) ? colorWrapTerm(coeff, pw, first) : plainTerm(coeff, pw, first);
+    first = false;
+  }
+  return out || "0";
+}
+
+// ----------------------------------------------------------------------------
+//  buildFrames: genera l'intera sequenza dei frame della narrazione.
+//  Ogni ciclo del quoziente produce 4 frame (3 sotto-passi + confronto gradi).
+// ----------------------------------------------------------------------------
+function buildFrames(r: DivResult): Frame[] {
+  const frames: Frame[] = [];
+  const numerator = r.steps.length ? r.steps[0].remBefore : [];
+  const topDeg = polyDeg(numerator);
+  const divisor = r.divisorUsed;
+  const degD = polyDeg(divisor);
+  const divTex = polyTex(divisor);
+
+  // righe "consolidate" accumulate man mano. La riga del resto di ciascun
+  // ciclo conserva i suoi monomi nulli grigi per tutto il ciclo SUCCESSIVO
+  // (F1-F2-F3-F4), perche' resta il riferimento su cui si esegue quella
+  // differenza: vengono eliminati solo al "compimento" di quella differenza,
+  // cioe' nella consolidazione subito dopo F3 del ciclo successivo (o prima
+  // della consegna finale, se non c'e' un ciclo successivo). Teniamo quindi
+  // un riferimento all'ultima riga-resto consolidata per "ripulirla"
+  // (sostituirla con la versione senza grigi) al momento giusto.
+  const settled: Row[] = [numeratorRow(numerator, topDeg, false)];
+  let lastRemainderInfo: { index: number; step: DivStep } | null = null;
+
+  // ripulisce la riga-resto del ciclo precedente dai monomi nulli grigi
+  function dropPreviousRemainderFaints() {
+    if (!lastRemainderInfo) return;
+    settled[lastRemainderInfo.index] =
+      remainderRow(lastRemainderInfo.step, topDeg, { zeroRed: false, dropFaintZeros: true });
+    lastRemainderInfo = null;
+  }
+
+  r.steps.forEach((step, idx) => {
+    // F1: si divide il direttore del resto per quello del divisore e si
+    // scrive SUBITO il nuovo termine del quoziente, in nero (quotientClean
+    // con idx+1 include gia' il termine appena trovato, senza colore).
+    {
+      const rows = settled.map(cloneRow);
+      const last = rows[rows.length - 1];
+      last.cells[step.leadRemDeg] && (last.cells[step.leadRemDeg]!.cls = "hl");
+      frames.push({
+        captionKey: "f1_divide", vars: {
+          lead: monomialTex(step.remBefore[step.leadRemDeg], step.leadRemDeg),
+          dlead: monomialTex(divisor[degD], degD),
+          q: monomialTex(step.qTerm, step.qTermDeg),
+        },
+        topDeg, rows, divisorTex: divisorTexLeadRed(divisor), divisorHl: false,
+        quotientTex: quotientClean(r, idx + 1), showRule: true,
+      });
+    }
+
+    // F2: si moltiplica il quoziente per il divisore e si scrivono i prodotti
+    // sotto il resto corrente (riga prodotto mostrata qui). Il termine nuovo
+    // del quoziente e il divisore sono in rosso; i monomi nulli del prodotto
+    // sono grigi.
+    {
+      const rows = settled.map(cloneRow);
+      rows.push(productRow(step, topDeg, degD, { fillZerosBelow: true }));
+      frames.push({
+        captionKey: "f2_multiply", vars: { q: monomialTex(step.qTerm, step.qTermDeg) },
+        topDeg, rows, divisorTex: divTex, divisorHl: true,
+        quotientTex: quotientWithRed(r, idx + 1), showRule: true,
+      });
+    }
+
+    // F3: sottrazione colonna per colonna — minus+freccia rossi, direttori
+    // barrati, zero rosso. Quoziente di nuovo in nero.
+    {
+      const rows = settled.map(cloneRow);
+      const above = rows[rows.length - 1];
+      if (above.cells[step.cancelDeg]) above.cells[step.cancelDeg]!.cls = "strike";
+      rows.push(productRow(step, topDeg, degD, { strikeLead: true, minusArrow: true, markerHl: true, fillZerosBelow: true }));
+      rows.push(remainderRow(step, topDeg, { zeroRed: true }));
+      frames.push({
+        captionKey: "f3_subtract", vars: {},
+        topDeg, rows, divisorTex: divTex, divisorHl: false,
+        quotientTex: quotientClean(r, idx + 1), showRule: true,
+      });
+    }
+
+    // Consolidamento. A questo punto la differenza del ciclo corrente e'
+    // "compiuta" (F3 e' terminato): e' il momento giusto per eliminare i
+    // monomi nulli grigi della riga-resto del ciclo PRECEDENTE, che fino a
+    // qui sono rimasti visibili (servivano nei passaggi F1-F3 appena fatti).
+    dropPreviousRemainderFaints();
+
+    // La riga PRODOTTO, dopo la differenza, perde anch'essa i suoi monomi
+    // nulli grigi (niente fillZerosBelow, niente grigi nello span): restano
+    // solo i termini effettivi. La riga RESTO appena calcolata conserva i
+    // grigi (verranno tolti dal ciclo successivo, o prima della consegna
+    // se e' l'ultima).
+    const prodSettled = productRow(step, topDeg, degD, {});
+    // il prodotto consolidato NON mostra i termini nulli (i grigi spariscono
+    // dopo la differenza): le relative celle tornano vuote.
+    prodSettled.cells = prodSettled.cells.map(c => (c && c.cls === "zero-faint") ? null : c);
+    settled.push(prodSettled);
+
+    const remRow = remainderRow(step, topDeg, { zeroRed: false });
+    settled.push(remRow);
+    lastRemainderInfo = { index: settled.length - 1, step };
+
+    // F5: confronto gradi — direttore nuovo resto in rosso, confrontato col
+    // SOLO direttore del divisore (non tutto il divisore: e' un confronto di
+    // gradi, stessa natura di F1, non una moltiplicazione per l'intero divisore)
+    {
+      const rows = settled.map(cloneRow);
+      const last = rows[rows.length - 1];
+      const newDeg = polyDeg(step.remAfter);
+      if (newDeg >= 0 && last.cells[newDeg]) {
+        last.cells[newDeg]!.cls = "hl";
+      } else if (newDeg < 0 && last.cells[0]) {
+        // resto identicamente nullo: lo zero forzato (gia' presente in colonna
+        // delle unita' grazie a remainderRow) fa da "direttore" per il confronto
+        last.cells[0]!.cls = "hl";
+      }
+      const continues = newDeg >= degD && idx < r.steps.length - 1;
+      frames.push({
+        captionKey: continues ? "f5_continue" : "f5_stop", vars: {
+          rdeg: String(Math.max(newDeg, 0)), ddeg: String(degD),
+        },
+        topDeg, rows, divisorTex: divisorTexLeadRed(divisor), divisorHl: false,
+        quotientTex: quotientClean(r, idx + 1), showRule: true,
+      });
+    }
+  });
+
+  // Prima della consegna: il resto finale perde i suoi monomi nulli grigi.
+  dropPreviousRemainderFaints();
+
+  // Frame finale: tabella completa, ma senza alcuna evidenziazione rossa — il
+  // risultato vero e proprio viene gia' mostrato, enfatizzato, subito dopo
+  // (riga "Risultato"): ripeterlo in rosso qui sarebbe ridondante. Se la
+  // divisione e' risultata esatta (resto nullo), lo segnaliamo esplicitamente
+  // nella didascalia.
+  {
+    const rows = settled.map(cloneRow);
+    const isExact = polyDeg(r.remainder) < 0;
+    frames.push({
+      captionKey: isExact ? "f_final_exact" : "f_final", vars: {},
+      topDeg, rows, divisorTex: divTex, divisorHl: false,
+      quotientTex: quotientClean(r, r.steps.length), showRule: true,
+    });
+  }
+  return frames;
+}
+
+function cloneRow(row: Row): Row {
+  return { minus: row.minus, arrow: row.arrow, markerCls: row.markerCls,
+    cells: row.cells.map(c => c ? { tex: c.tex, cls: c.cls } : null) };
+}
+
+// board "veloce": un solo frame consolidato con Q e R in rosso (per risultato veloce)
+function buildQuickBoard(r: DivResult): Frame {
+  const all = buildFrames(r);
+  return all[all.length - 1];
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  // ----- i18n ---------------------------------------------------------------
+  type Lang = "it" | "en";
+  const I18N: Record<Lang, Record<string, string>> = {
+    it: {
+      degLabel: "Grado massimo",
+      monicLabel: "Usa il denominatore monico",
+      inputHint: "Inserisci nelle caselle i coefficienti: interi, frazioni (es. 3/4) o espressioni lineari nel parametro a (es. 2a-1), incluso l'eventuale segno.",
+      reset: "AZZERA VALORI",
+      random: "VALORI CASUALI",
+      quick: "RISULTATO SINTETICO",
+      stepByStep: "SOLUZIONE PASSO-PASSO",
+      analyze: "Analizza il parametro a",
+      resultTitle: "RISULTATO",
+      resultOssia: "ossia,",
+      // messaggi
+      DENOM_ZERO: "Il denominatore è nullo: impossibile dividere. Inserisci al denominatore dei coefficienti non tutti nulli.",
+      NUM_ZERO: "Il numeratore è nullo: quoziente e resto sono entrambi zero (caso banale).",
+      DEG_LOW: "Il grado del numeratore è minore del grado del denominatore: la frazione è già propria e la divisione non si esegue. Imposta un numeratore di grado maggiore o uguale a quello del denominatore.",
+      DENOM_LEAD_SYMBOLIC: "Il coefficiente del termine di grado massimo del denominatore deve essere un numero: non può contenere il parametro a. Correggilo.",
+      parseErr: "Espressione non valida nella casella {pos}: «{val}». Usa numeri, frazioni o espressioni lineari in a.",
+      degenerate: "Nota: il procedimento assume che il coefficiente direttore del numeratore non si annulli, cioè a ≠ {aval}. Per quel valore il grado effettivo del numeratore si abbassa e il calcolo va rifatto a parte.",
+      posNum: "numeratore, grado {k}",
+      posDen: "denominatore, grado {k}",
+      // narrazione
+      introSetup: "Partiamo dalla frazione inserita e dalla forma che vogliamo ottenere:",
+      introAnnouncePlain: "Eseguiamo dunque la divisione tra N(x) e D(x).",
+      introAnnounceMonic: "Eseguiamo dunque la divisione tra N(x) e D'(x).",
+      introExplainNumDenom:
+        "Prima di iniziare il primo ciclo, vediamo come si imposta lo schema a croce. " +
+        "A sinistra scriviamo tutti i termini del numeratore, <strong>compresi quelli con coefficiente nullo</strong> " +
+        "(mostrati in grigio): servono a tenere allineate le colonne durante i calcoli. " +
+        "A destra scriviamo il divisore; qui invece i termini nulli si possono omettere.",
+      introExplainQuotientCalc:
+        "Sotto il divisore crescerà il quoziente, un termine alla volta. Sotto il numeratore si svolgeranno " +
+        "invece i conti: i prodotti parziali e le differenze di ogni ciclo, fino ad arrivare al resto della divisione.",
+      introExplainLeadTerm:
+        "Chiamiamo <strong>termine direttore</strong> il primo termine di un polinomio, cioè quello di grado più alto: " +
+        "è l'unico che conta per l'algoritmo, perché ad ogni passo si dividono solo i due termini direttori, " +
+        "quello del resto corrente e quello del divisore.",
+      introAlgoStepsIntro: "<strong>Il cuore dell'algoritmo</strong> è un ciclo di quattro passi, che si ripete finché è possibile:",
+      introAlgoStep1: "si divide il termine direttore del resto corrente per il termine direttore del divisore, ottenendo un nuovo termine del quoziente;",
+      introAlgoStep2: "si moltiplica questo termine per ciascun termine del divisore e si scrivono i prodotti sotto il resto corrente;",
+      introAlgoStep3: "si esegue la sottrazione colonna per colonna, ottenendo il nuovo resto corrente;",
+      introAlgoStep4: "si confronta il grado del nuovo resto corrente con quello del divisore: se è ancora maggiore o uguale si ripete il ciclo, altrimenti l'algoritmo si arresta e quel resto corrente e il quoziente costruito fino a quel momento costituiranno il risultato finale.",
+      introImproperCheck:
+        "Prima di mostrare questa soluzione abbiamo già verificato, al momento dell'inserimento, che la frazione fosse " +
+        "<strong>impropria</strong>, ossia che il grado del numeratore fosse maggiore o uguale al grado del denominatore: " +
+        "questa è la condizione che permette al primo ciclo di avviarsi.",
+      mockupNumerator: "Numeratore",
+      mockupDenominator: "Denominatore",
+      mockupQuotient: "Quoziente",
+      mockupCalc: "(calcoli)",
+      mockupRest: "Resto",
+      f1_divide: "Dividiamo il termine direttore del resto corrente, {lead}, per il termine direttore del divisore, {dlead}, ottenendo il termine {q} del quoziente.",
+      f2_multiply: "Moltiplichiamo il quoziente per ciascun termine del divisore e scriviamo i prodotti sotto il resto corrente senza cambiarne il segno.",
+      f3_subtract: "Eseguiamo la sottrazione colonna per colonna, rientrando di un grado. I due termini direttori sono uguali: la loro differenza è zero (in rosso). Riportiamo anche gli altri termini dell'operazione e definiamo <em>nuovo resto corrente</em> la riga appena ottenuta per differenza.",
+      f5_continue: "Per capire se l'algoritmo può proseguire dobbiamo confrontare i gradi del nuovo resto corrente e del divisore. Il grado del nuovo resto corrente ({rdeg}) è ancora maggiore o uguale al grado del divisore ({ddeg}): proseguiamo con un nuovo ciclo.",
+      f5_stop: "Per capire se l'algoritmo può proseguire dobbiamo confrontare i gradi del nuovo resto corrente e del divisore. Il grado del nuovo resto corrente ({rdeg}) è minore del grado del divisore ({ddeg}): l'algoritmo si arresta.",
+      f_final: "La divisione è completata.",
+      f_final_exact: "La divisione è completata ed è esatta (resto nullo).",
+      // analisi parametro
+      anaTitle: "Analisi del parametro a",
+      anaRemainder: "Il resto della divisione è {R}.",
+      anaNone: "Non esiste alcun valore di a per cui il resto si annulla.",
+      anaSome: "Il resto si annulla imponendo che tutti i suoi coefficienti siano nulli: a = {vals}.",
+      anaAlways: "Il resto è identicamente nullo per ogni valore di a.",
+      anaDrop: "Per a = {v} il termine direttore del resto si annulla e il grado del resto scende a {newDeg}.",
+    },
+    en: {
+      degLabel: "Maximum degree",
+      monicLabel: "Use the monic denominator",
+      inputHint: "Enter the coefficients in the boxes: integers, fractions (e.g. 3/4) or linear expressions in the parameter a (e.g. 2a-1), including the sign if any.",
+      reset: "RESET VALUES",
+      random: "RANDOM VALUES",
+      quick: "QUICK RESULT",
+      stepByStep: "STEP-BY-STEP SOLUTION",
+      analyze: "Analyse the parameter a",
+      resultTitle: "RESULT",
+      resultOssia: "that is,",
+      DENOM_ZERO: "The denominator is zero: division is impossible. Enter denominator coefficients that are not all zero.",
+      NUM_ZERO: "The numerator is zero: quotient and remainder are both zero (trivial case).",
+      DEG_LOW: "The numerator degree is lower than the denominator degree: the fraction is already proper and division does not apply. Set a numerator of degree greater than or equal to the denominator.",
+      DENOM_LEAD_SYMBOLIC: "The leading coefficient of the denominator must be a number: it cannot contain the parameter a. Please fix it.",
+      parseErr: "Invalid expression in box {pos}: “{val}”. Use numbers, fractions or linear expressions in a.",
+      degenerate: "Note: the procedure assumes the numerator's leading coefficient is non-zero, i.e. a ≠ {aval}. For that value the actual numerator degree drops and the computation must be redone separately.",
+      posNum: "numerator, degree {k}",
+      posDen: "denominator, degree {k}",
+      introSetup: "We start from the entered fraction and the form we want to obtain:",
+      introAnnouncePlain: "We therefore perform the division between N(x) and D(x).",
+      introAnnounceMonic: "We therefore perform the division between N(x) and D'(x).",
+      introExplainNumDenom:
+        "Before starting the first cycle, let's see how the cross-shaped layout is set up. " +
+        "On the left we write every term of the numerator, <strong>including those with a zero coefficient</strong> " +
+        "(shown in grey): they keep the columns aligned during the calculations. " +
+        "On the right we write the divisor; here zero terms can be left out.",
+      introExplainQuotientCalc:
+        "Below the divisor the quotient will grow, one term at a time. Below the numerator the actual " +
+        "computations take place: the partial products and the differences of each cycle, ending with the remainder of the division.",
+      introExplainLeadTerm:
+        "We call the <strong>leading term</strong> the first term of a polynomial, the one with the highest degree: " +
+        "it is the only one that matters for the algorithm, since at each step we divide just the two leading terms — " +
+        "the current remainder's and the divisor's.",
+      introAlgoStepsIntro: "<strong>At the heart of the algorithm</strong> is a cycle of four steps, repeated for as long as possible:",
+      introAlgoStep1: "the leading term of the current remainder is divided by the leading term of the divisor, obtaining a new quotient term;",
+      introAlgoStep2: "this term is multiplied by each term of the divisor, and the products are written under the current remainder;",
+      introAlgoStep3: "the column-by-column subtraction is performed, obtaining the new current remainder;",
+      introAlgoStep4: "the degree of the new current remainder is compared with the divisor's: if it is still greater than or equal, the cycle is repeated; otherwise the algorithm stops, and that current remainder and the quotient built so far will be the final result.",
+      introImproperCheck:
+        "Before showing this solution, we already checked, at the time of input, that the fraction was " +
+        "<strong>improper</strong>, that is, that the numerator's degree was greater than or equal to the denominator's: " +
+        "this is the condition that allows the first cycle to start.",
+      mockupNumerator: "Numerator",
+      mockupDenominator: "Denominator",
+      mockupQuotient: "Quotient",
+      mockupCalc: "(calculations)",
+      mockupRest: "Remainder",
+      f1_divide: "We divide the leading term of the current remainder, {lead}, by the leading term of the divisor, {dlead}, obtaining the quotient term {q}.",
+      f2_multiply: "We multiply the quotient by each term of the divisor and write the products under the current remainder without changing their sign.",
+      f3_subtract: "We perform the column-by-column subtraction, dropping one degree. The two leading terms are equal: their difference is zero (in red). We bring down the remaining terms of the operation as well, and call <em>new current remainder</em> the row just obtained by difference.",
+      f5_continue: "To see whether the algorithm can continue, we must compare the degrees of the new current remainder and the divisor. The degree of the new current remainder ({rdeg}) is still greater than or equal to the divisor degree ({ddeg}): we continue with a new cycle.",
+      f5_stop: "To see whether the algorithm can continue, we must compare the degrees of the new current remainder and the divisor. The degree of the new current remainder ({rdeg}) is lower than the divisor degree ({ddeg}): the algorithm stops.",
+      f_final: "The division is complete.",
+      f_final_exact: "The division is complete and exact (zero remainder).",
+      anaTitle: "Analysis of the parameter a",
+      anaRemainder: "The remainder of the division is {R}.",
+      anaNone: "There is no value of a for which the remainder vanishes.",
+      anaSome: "The remainder vanishes by requiring all its coefficients to be zero: a = {vals}.",
+      anaAlways: "The remainder is identically zero for every value of a.",
+      anaDrop: "For a = {v} the leading term of the remainder vanishes and the remainder degree drops to {newDeg}.",
+    },
+  };
+
+  // ----- bootstrap di ogni istanza del componente ---------------------------
+  document.querySelectorAll<HTMLElement>(".dp-root").forEach(initInstance);
+
+  function initInstance(root: HTMLElement) {
+    const lang = (root.dataset.locale === "en" ? "en" : "it") as Lang;
+    const t = (key: string, vars: Record<string, string> = {}) =>
+      (I18N[lang][key] ?? key).replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? "");
+
+    // testi statici
+    root.querySelectorAll<HTMLElement>("[data-i18n]").forEach(el => {
+      el.textContent = t(el.dataset.i18n!);
+    });
+
+    const numRow = root.querySelector<HTMLElement>(".dp-num")!;
+    const denRow = root.querySelector<HTMLElement>(".dp-den")!;
+    const degSel = root.querySelector<HTMLSelectElement>(".dp-degree")!;
+    const monicCb = root.querySelector<HTMLInputElement>(".dp-monic-cb")!;
+    const msgBox = root.querySelector<HTMLElement>(".dp-message")!;
+    const outBox = root.querySelector<HTMLElement>(".dp-output")!;
+
+    const kx = (tex: string, display = false) =>
+      katex.renderToString(tex, { throwOnError: false, displayMode: display });
+
+    // costruisce le caselle per una riga (num/den) di grado n
+    function buildRow(container: HTMLElement, which: "num" | "den", n: number) {
+      container.innerHTML = "";
+      for (let pw = n; pw >= 0; pw--) {
+        const inp = document.createElement("input");
+        inp.type = "text";
+        inp.className = "dp-coef";
+        inp.value = "0";
+        inp.dataset.which = which;
+        inp.dataset.pw = String(pw);
+        inp.setAttribute("inputmode", "text");
+        inp.setAttribute("autocomplete", "off");
+        inp.spellcheck = false;
+        container.appendChild(inp);
+
+        // per l'ultimo termine (pw=0) non c'e' "x^n" ne' "+" da mostrare: niente
+        // span di coda, altrimenti resterebbe uno spazio sottile invisibile che
+        // allarga la riga in modo asimmetrico (solo a destra).
+        if (pw > 0) {
+          const tail = document.createElement("span");
+          tail.className = "dp-mono";
+          const xp = pw === 1 ? "x" : `x^{${pw}}`;
+          tail.innerHTML = kx(`${xp}\\;+`);
+          container.appendChild(tail);
+        }
+      }
+    }
+
+    function rebuildInputs() {
+      const n = parseInt(degSel.value, 10);
+      buildRow(numRow, "num", n);
+      buildRow(denRow, "den", n);
+      clearOutput();
+    }
+
+    function clearOutput() {
+      msgBox.textContent = "";
+      msgBox.className = "dp-message";
+      outBox.innerHTML = "";
+    }
+
+    // legge le caselle -> Poly (indice = potenza). Lancia per errori di parsing.
+    function readPoly(which: "num" | "den"): Poly {
+      const n = parseInt(degSel.value, 10);
+      const arr: Poly = new Array(n + 1).fill(PolyA.zero);
+      root.querySelectorAll<HTMLInputElement>(`.dp-coef[data-which="${which}"]`).forEach(inp => {
+        inp.classList.remove("dp-invalid");
+        const pw = parseInt(inp.dataset.pw!, 10);
+        try {
+          arr[pw] = parseCoeff(inp.value);
+        } catch (e) {
+          inp.classList.add("dp-invalid");
+          const posKey = which === "num" ? "posNum" : "posDen";
+          throw new ParseError(t("parseErr", {
+            pos: t(posKey, { k: String(pw) }),
+            val: inp.value.trim(),
+          }));
+        }
+      });
+      return arr;
+    }
+
+    function showMessage(text: string, kind: "error" | "info") {
+      msgBox.textContent = text;
+      msgBox.className = "dp-message dp-" + kind;
+    }
+
+    // valida e calcola; ritorna DivResult o null (mostrando il messaggio)
+    function compute(): DivResult | null {
+      clearOutput();
+      let num: Poly, den: Poly;
+      try {
+        num = readPoly("num");
+        den = readPoly("den");
+      } catch (e) {
+        showMessage((e as Error).message, "error");
+        return null;
+      }
+      const degN = polyDeg(num), degD = polyDeg(den);
+
+      if (degD < 0) { showMessage(t("DENOM_ZERO"), "error"); return null; }
+      // coeff direttore del denominatore deve essere numerico
+      if (!den[degD].isNumeric()) {
+        root.querySelectorAll<HTMLInputElement>(`.dp-coef[data-which="den"]`).forEach(inp => {
+          if (parseInt(inp.dataset.pw!, 10) === degD) inp.classList.add("dp-invalid");
+        });
+        showMessage(t("DENOM_LEAD_SYMBOLIC"), "error"); return null;
+      }
+      if (degN < 0) { showMessage(t("NUM_ZERO"), "info"); return null; }
+      if (degN < degD) { showMessage(t("DEG_LOW"), "error"); return null; }
+
+      const res = divide(num, den, monicCb.checked);
+      if (!res.ok) { showMessage(t(res.error ?? "DENOM_ZERO"), "error"); return null; }
+      return res;
+    }
+
+    // riempie un template di caption sostituendo {x} con KaTeX inline
+    function fillCaption(key: string, vars: Record<string, string>): string {
+      const tmpl = I18N[lang][key] ?? key;
+      return tmpl.replace(/\{(\w+)\}/g, (_, k) =>
+        vars[k] !== undefined ? `<span class="dp-inline">${kx(vars[k])}</span>` : "");
+    }
+
+    // ----- rendering di un frame (schema a croce) ---------------------------
+    // ----- rendering di un frame (schema a croce) ---------------------------
+    // Griglia UNICA (non due zone separate): garantisce che numeratore/righe di
+    // sviluppo e divisore/quoziente condividano le stesse colonne/righe, cosi'
+    // la linea verticale e quella orizzontale risultano continue e si
+    // incrociano davvero, come una croce.
+    //   riga 1        = numeratore (sinistra) | divisore (destra)
+    //   riga 2         = linea orizzontale, copre TUTTA la larghezza
+    //   righe 3, 4, ...= sviluppo del calcolo (sinistra) | quoziente (destra,
+    //                     ancorato in alto, cresce verso il basso)
+    //   colonna vline  = linea verticale, copre TUTTA l'altezza
+    function renderBoard(frame: Frame): HTMLElement {
+      const board = document.createElement("div");
+      board.className = "dp-board";
+
+      const scroller = document.createElement("div");
+      scroller.className = "dp-scroller";
+
+      const grid = document.createElement("div");
+      grid.className = "dp-grid";
+      const vlineCol = frame.topDeg + 3;
+      const rightCol = frame.topDeg + 4;
+      grid.style.gridTemplateColumns = `auto repeat(${frame.topDeg + 1}, max-content) 1.5rem max-content`;
+
+      // Righe della griglia DICHIARATE ESPLICITAMENTE (riga 1 = numeratore,
+      // riga 2 = linea orizzontale, righe 3+ = sviluppo). Senza questa
+      // dichiarazione "-1" punterebbe sempre alla riga 1 (la griglia esplicita
+      // sarebbe vuota), che e' esattamente il bug che ha causato la verticale
+      // troncata e la sovrapposizione divisore/quoziente. Per togliere ogni
+      // ambiguita' calcoliamo anche il numero di riga finale alla lettera,
+      // invece di usare "-1".
+      const totalRows = Math.max(frame.rows.length + 1, 3);
+      const lastLine = totalRows + 1; // N righe = N+1 linee di griglia
+      grid.style.gridTemplateRows = `repeat(${totalRows}, auto)`;
+
+      frame.rows.forEach((row, idx) => {
+        const gridRow = idx === 0 ? 1 : idx + 2; // riga 1 = numeratore, righe 3+ = sviluppo
+        const gut = document.createElement("div");
+        gut.className = "dp-gutter";
+        gut.style.gridRow = String(gridRow);
+        gut.style.gridColumn = "1";
+        if (row.minus) {
+          const m = document.createElement("span");
+          m.className = "dp-marker dp-minus" + (row.markerCls === "hl" ? " hl" : "");
+          m.textContent = "−";
+          gut.appendChild(m);
+        }
+        if (row.arrow) {
+          const a = document.createElement("span");
+          a.className = "dp-marker dp-arrow" + (row.markerCls === "hl" ? " hl" : "");
+          a.textContent = "↓";
+          gut.appendChild(a);
+        }
+        grid.appendChild(gut);
+
+        for (let pw = frame.topDeg; pw >= 0; pw--) {
+          const cell = row.cells[pw];
+          if (!cell) continue;
+          const c = document.createElement("div");
+          c.className = "dp-cell" + (cell.cls ? " " + cell.cls : "");
+          c.style.gridRow = String(gridRow);
+          c.style.gridColumn = String(frame.topDeg - pw + 2);
+          c.innerHTML = kx(cell.tex);
+          grid.appendChild(c);
+        }
+      });
+
+      // linea verticale: dalla riga 1 fino all'ultima riga vera (lastLine),
+      // mai "-1": cosi' attraversa l'intera altezza per costruzione.
+      const vl = document.createElement("div");
+      vl.className = "dp-vline";
+      vl.style.gridColumn = String(vlineCol);
+      vl.style.gridRow = `1 / ${lastLine}`;
+      grid.appendChild(vl);
+
+      // divisore: riga 1, colonna di destra
+      const dv = document.createElement("div");
+      dv.className = "dp-divisor" + (frame.divisorHl ? " hl" : "");
+      dv.style.gridRow = "1";
+      dv.style.gridColumn = String(rightCol);
+      dv.innerHTML = kx(frame.divisorTex);
+      grid.appendChild(dv);
+
+      // linea orizzontale: continua, copre tutta la larghezza della tabella;
+      // separa numeratore+divisore (riga 1) dal resto del calcolo sotto.
+      if (frame.showRule) {
+        const hl = document.createElement("div");
+        hl.className = "dp-hline";
+        hl.style.gridRow = "2";
+        grid.appendChild(hl);
+      }
+
+      // quoziente: colonna di destra, dalla riga 3 fino a lastLine (mai
+      // sovrapposto al divisore, che e' fermo in riga 1), ancorato in alto
+      const q = document.createElement("div");
+      q.className = "dp-quotient";
+      q.style.gridColumn = String(rightCol);
+      q.style.gridRow = `3 / ${lastLine}`;
+      q.innerHTML = kx(frame.quotientTex);
+      grid.appendChild(q);
+
+      scroller.appendChild(grid);
+      board.appendChild(scroller);
+      return board;
+    }
+
+    function renderDegenerate(res: DivResult, host: HTMLElement) {
+      if (!res.degenerateNote) return;
+      const note = document.createElement("p");
+      note.className = "dp-degenerate";
+      note.innerHTML = fillCaption("degenerate", { aval: res.degenerateNote.toLatex() });
+      host.appendChild(note);
+    }
+
+    // schema a croce SCHEMATICO (etichette letterali, nessun calcolo vero):
+    // accompagna la spiegazione testuale mostrando dove va ciascun pezzo.
+    // Stessa architettura visiva della tabella reale (vline/hline a croce),
+    // ma con contenuto fisso: Numeratore | Denominatore, poi sotto
+    // (calcoli)/.../Resto a sinistra, Quoziente a destra.
+    function renderMockup(host: HTMLElement) {
+      const board = document.createElement("div");
+      board.className = "dp-board";
+      const scroller = document.createElement("div");
+      scroller.className = "dp-scroller";
+      const grid = document.createElement("div");
+      grid.className = "dp-grid dp-mockup-grid";
+      grid.style.gridTemplateColumns = "max-content 1.5rem max-content";
+      grid.style.gridTemplateRows = "max-content max-content max-content";
+
+      const num = document.createElement("div");
+      num.style.gridRow = "1"; num.style.gridColumn = "1";
+      num.textContent = t("mockupNumerator");
+      grid.appendChild(num);
+
+      const den = document.createElement("div");
+      den.className = "dp-divisor";
+      den.style.gridRow = "1"; den.style.gridColumn = "3";
+      den.textContent = t("mockupDenominator");
+      grid.appendChild(den);
+
+      const vl = document.createElement("div");
+      vl.className = "dp-vline";
+      vl.style.gridColumn = "2";
+      vl.style.gridRow = "1 / 4";
+      grid.appendChild(vl);
+
+      const hl = document.createElement("div");
+      hl.className = "dp-hline";
+      hl.style.gridRow = "2";
+      grid.appendChild(hl);
+
+      const calc = document.createElement("div");
+      calc.style.gridRow = "3"; calc.style.gridColumn = "1";
+      calc.className = "dp-mockup-calc";
+      calc.innerHTML = `${t("mockupCalc")}<br>⋮<br>${t("mockupRest")}`;
+      grid.appendChild(calc);
+
+      const quo = document.createElement("div");
+      quo.className = "dp-quotient";
+      quo.style.gridRow = "3"; quo.style.gridColumn = "3";
+      quo.textContent = t("mockupQuotient");
+      grid.appendChild(quo);
+
+      scroller.appendChild(grid);
+      board.appendChild(scroller);
+      host.appendChild(board);
+    }
+
+    // blocco introduttivo (solo passo-passo): riga 1 SOLO numerica (fratto
+    // inserito, con k raccolto numericamente se monico), riga 2 SOLO formale
+    // (passaggi con simboli astratti, primati se monico), poi l'annuncio di
+    // quali polinomi si usano davvero nella divisione (N(x) e D(x), oppure
+    // N(x) e D'(x) se e' stato richiesto il monico).
+    function renderIntro(res: DivResult, host: HTMLElement) {
+      const block = document.createElement("div");
+      block.className = "dp-step-block dp-intro-block";
+
+      const setup = document.createElement("p");
+      setup.className = "dp-caption";
+      setup.textContent = t("introSetup");
+      block.appendChild(setup);
+
+      const eqNumeric = document.createElement("div");
+      eqNumeric.className = "dp-intro-eq";
+      eqNumeric.innerHTML = kx(introNumericLineTex(res), true);
+      block.appendChild(eqNumeric);
+
+      const eqFormal = document.createElement("div");
+      eqFormal.className = "dp-intro-eq";
+      eqFormal.innerHTML = kx(introFormalLineTex(res), true);
+      block.appendChild(eqFormal);
+
+      // ordine: numeratore/denominatore -> dove vanno quoziente e conti ->
+      // schema illustrativo -> definizione di termine direttore -> annuncio
+      // (quali polinomi si usano davvero), che chiude il blocco introduttivo
+      const pNumDenom = document.createElement("p");
+      pNumDenom.className = "dp-caption";
+      pNumDenom.innerHTML = t("introExplainNumDenom");
+      block.appendChild(pNumDenom);
+
+      const pQuotientCalc = document.createElement("p");
+      pQuotientCalc.className = "dp-caption";
+      pQuotientCalc.innerHTML = t("introExplainQuotientCalc");
+      block.appendChild(pQuotientCalc);
+
+      renderMockup(block);
+
+      const pLeadTerm = document.createElement("p");
+      pLeadTerm.className = "dp-caption";
+      pLeadTerm.innerHTML = t("introExplainLeadTerm");
+      block.appendChild(pLeadTerm);
+
+      const algoBox = document.createElement("div");
+      algoBox.className = "dp-algo-box";
+
+      const pAlgoIntro = document.createElement("p");
+      pAlgoIntro.className = "dp-caption";
+      pAlgoIntro.innerHTML = t("introAlgoStepsIntro");
+      algoBox.appendChild(pAlgoIntro);
+
+      const algoList = document.createElement("ul");
+      algoList.className = "dp-algo-steps";
+      for (const key of ["introAlgoStep1", "introAlgoStep2", "introAlgoStep3", "introAlgoStep4"]) {
+        const li = document.createElement("li");
+        li.innerHTML = t(key);
+        algoList.appendChild(li);
+      }
+      algoBox.appendChild(algoList);
+      block.appendChild(algoBox);
+
+      const pImproper = document.createElement("p");
+      pImproper.className = "dp-caption";
+      pImproper.innerHTML = t("introImproperCheck");
+      block.appendChild(pImproper);
+
+      const announce = document.createElement("p");
+      announce.className = "dp-caption";
+      announce.textContent = t(res.monic ? "introAnnounceMonic" : "introAnnouncePlain");
+      block.appendChild(announce);
+
+      host.appendChild(block);
+    }
+
+    function renderResultLine(res: DivResult, host: HTMLElement) {
+      const wrap = document.createElement("div");
+      wrap.className = "dp-result";
+      const head = document.createElement("div");
+      head.className = "dp-result-head";
+      head.textContent = t("resultTitle");
+      // riga 1: richiamo della formula generale (simboli astratti)
+      const bodyGeneric = document.createElement("div");
+      bodyGeneric.className = "dp-result-body dp-result-generic";
+      bodyGeneric.innerHTML = kx(genericFormulaTex(res), true);
+      // connettivo testuale, come in uno svolgimento di un libro di testo
+      const ossia = document.createElement("div");
+      ossia.className = "dp-result-ossia";
+      ossia.textContent = t("resultOssia");
+      // riga 2: controparte numerica della stessa uguaglianza
+      const bodyNumeric = document.createElement("div");
+      bodyNumeric.className = "dp-result-body dp-result-numeric";
+      bodyNumeric.innerHTML = kx(`${initialFractionTex(res)} = ${resultTex(res)}`, true);
+      wrap.append(head, bodyGeneric, ossia, bodyNumeric);
+      host.appendChild(wrap);
+    }
+
+    function maybeAnalyzeButton(res: DivResult, host: HTMLElement) {
+      const ana = analyzeParam(res);
+      if (!ana.hasParam) return;
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "dp-btn dp-analyze";
+      btn.textContent = t("analyze");
+      const panel = document.createElement("div");
+      panel.className = "dp-ana-panel";
+      btn.addEventListener("click", () => {
+        if (panel.dataset.done) { panel.classList.toggle("open"); return; }
+        renderAnalysis(res, panel);
+        panel.dataset.done = "1";
+        panel.classList.add("open");
+        if ((window as any).umami) {
+          (window as any).umami.track('divpoly-analyze', {
+            degree: parseInt(degSel.value, 10),
+            randomUsed: dpRandomUsed,
+          });
+        }
+      });
+      host.append(btn, panel);
+    }
+
+    function renderAnalysis(res: DivResult, host: HTMLElement) {
+      const ana = analyzeParam(res);
+      const title = document.createElement("div");
+      title.className = "dp-ana-title";
+      title.textContent = t("anaTitle");
+      host.appendChild(title);
+
+      const remP = document.createElement("p");
+      remP.innerHTML = fillCaption("anaRemainder", { R: polyTex(res.remainder) });
+      host.appendChild(remP);
+
+      const main = document.createElement("p");
+      if (ana.vanishNote === "ALWAYS") main.textContent = t("anaAlways");
+      else if (ana.vanishNote === "NONE") main.textContent = t("anaNone");
+      else if (ana.vanishes && ana.vanishes.length) {
+        const vals = ana.vanishes.map(f => f.toLatex()).join(", ");
+        main.innerHTML = fillCaption("anaSome", { vals });
+      } else main.textContent = t("anaNone");
+      host.appendChild(main);
+
+      ana.degreeDrops.forEach(d => {
+        const p = document.createElement("p");
+        p.innerHTML = fillCaption("anaDrop", { v: d.aValue.toLatex(), newDeg: String(d.newDeg) });
+        host.appendChild(p);
+      });
+    }
+
+    // ----- helper tracking -----------------------------------------------
+    let dpRandomUsed = false;
+    function dpParamsUsed(): boolean {
+      let found = false;
+      root.querySelectorAll<HTMLInputElement>(".dp-coef").forEach(i => {
+        if (/[a-zA-Z]/.test(i.value)) found = true;
+      });
+      return found;
+    }
+    function dpTrack(mode) {
+      if ((window as any).umami) {
+        (window as any).umami.track('divpoly-solve', {
+          mode,
+          degree: parseInt(degSel.value, 10),
+          randomUsed: dpRandomUsed,
+          paramsUsed: dpParamsUsed(),
+        });
+      }
+    }
+
+    // ----- risultato veloce -------------------------------------------------
+    function doQuick() {
+      const res = compute();
+      if (!res) return;
+      renderDegenerate(res, outBox);
+      const frame = buildQuickBoard(res);
+      outBox.appendChild(renderBoard(frame));
+      renderResultLine(res, outBox);
+      maybeAnalyzeButton(res, outBox);
+      dpTrack('quick');
+    }
+
+    // ----- soluzione passo-passo (impilata, stampabile) ---------------------
+    // Tutti i frame vengono renderizzati uno sotto l'altro: l'utente scorre
+    // la pagina e puo' stampare l'intera soluzione.
+    function doSteps() {
+      const res = compute();
+      if (!res) return;
+      renderDegenerate(res, outBox);
+      const frames = buildFrames(res);
+
+      const stack = document.createElement("div");
+      stack.className = "dp-stack";
+
+      renderIntro(res, stack);
+
+      frames.forEach((f) => {
+        const block = document.createElement("div");
+        block.className = "dp-step-block";
+        const caption = document.createElement("p");
+        caption.className = "dp-caption";
+        caption.innerHTML = fillCaption(f.captionKey, f.vars);
+        block.appendChild(caption);
+        block.appendChild(renderBoard(f));
+        stack.appendChild(block);
+      });
+
+      outBox.appendChild(stack);
+      renderResultLine(res, outBox);
+      maybeAnalyzeButton(res, outBox);
+      dpTrack('steps');
+    }
+
+    // ----- reset & random ---------------------------------------------------
+    function doReset() {
+      root.querySelectorAll<HTMLInputElement>(".dp-coef").forEach(i => {
+        i.value = "0"; i.classList.remove("dp-invalid");
+      });
+      clearOutput();
+      dpRandomUsed = false;
+    }
+
+    const randInt = (lo: number, hi: number) =>
+      lo + Math.floor(Math.random() * (hi - lo + 1));
+    const randNonZero = (lo: number, hi: number) => {
+      let v = 0; while (v === 0) v = randInt(lo, hi); return v;
+    };
+
+    function doRandom() {
+      const n = parseInt(degSel.value, 10);
+      const k = randInt(1, 3);
+      const degDen = Math.max(1, n - k);
+      const setVal = (which: "num" | "den", pw: number, v: number) => {
+        const inp = root.querySelector<HTMLInputElement>(
+          `.dp-coef[data-which="${which}"][data-pw="${pw}"]`);
+        if (inp) { inp.value = String(v); inp.classList.remove("dp-invalid"); }
+      };
+      for (let pw = 0; pw <= n; pw++) {
+        // numeratore: direttore (grado n) non nullo, gli altri 0..9 con segno
+        setVal("num", pw, pw === n ? randNonZero(-9, 9) : randInt(-9, 9));
+        // denominatore: direttore in [1,9], sotto -9..9, sopra 0
+        if (pw === degDen) setVal("den", pw, randInt(1, 9));
+        else if (pw < degDen) setVal("den", pw, randInt(-9, 9));
+        else setVal("den", pw, 0);
+      }
+      clearOutput();
+      dpRandomUsed = true;
+    }
+
+    // ----- wiring -----------------------------------------------------------
+    degSel.addEventListener("change", rebuildInputs);
+    root.querySelector(".dp-reset")!.addEventListener("click", doReset);
+    root.querySelector(".dp-random")!.addEventListener("click", doRandom);
+    root.querySelector(".dp-quick")!.addEventListener("click", doQuick);
+    root.querySelector(".dp-step-btn")!.addEventListener("click", doSteps);
+    monicCb.addEventListener("change", clearOutput);
+
+    rebuildInputs();
+  }
+</script>
+
+<style is:global>
+  .dp-root {
+    --dp-red: #d11111;
+    --dp-accent: var(--sl-color-accent, #4f7cff);
+    --dp-accent-hi: var(--sl-color-accent-high, #b8c8ff);
+    --dp-border: var(--sl-color-gray-5, #383838);
+    --dp-faint: var(--sl-color-gray-3, #888888);
+    --dp-radius: 12px;
+    --dp-surface: var(--sl-color-gray-6, #1a1a1a);
+    font-size: 1rem;
+    line-height: 1.5;
+    color: var(--sl-color-text, inherit);
+    max-width: 100%;
+  }
+
+  .dp-panel {
+    background: var(--dp-surface);
+    border: 1px solid var(--dp-border);
+    border-radius: var(--dp-radius);
+    padding: 1.25rem 1rem;
+    margin: 1.25rem 0;
+  }
+
+  .dp-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem 1.5rem;
+    align-items: center;
+  }
+  .dp-ctrl { display: inline-flex; align-items: center; gap: 0.5rem; min-height: 2.2rem; margin: 0; }
+  .dp-ctrl-label { font-size: 0.95rem; line-height: 1; }
+  .dp-monic-cb { width: 1.05rem; height: 1.05rem; margin: 0; flex: 0 0 auto; }
+  .dp-degree {
+    padding: 0.25rem 0.5rem;
+    border: 1.5px solid var(--dp-border);
+    border-radius: 6px;
+    background: var(--sl-color-bg, #000);
+    color: var(--sl-color-text, inherit);
+    transition: background-color 0.15s ease, border-color 0.15s ease;
+  }
+  .dp-degree:hover {
+    border-color: var(--dp-accent);
+    background: color-mix(in srgb, var(--dp-accent) 10%, var(--sl-color-bg, #000));
+  }
+  .dp-degree:focus { border-color: var(--dp-accent); outline: none; }
+  .dp-monic { cursor: pointer; }
+
+  /* ----- zona input: fratto -----
+     .dp-fraction = finestra che scorre orizzontalmente (overflow-x).
+     .dp-fraction-inner = blocco largo quanto il suo contenuto (width: max-content):
+       si centra da solo quando ci sta, altrimenti resta ancorato a sinistra e
+       l'intera larghezza diventa raggiungibile con la barra di scorrimento.
+     Numeratore e denominatore non vanno MAI a capo (flex-wrap: nowrap). */
+  .dp-fraction {
+    margin: 0;
+    padding: 3rem 0.5rem;
+    overflow-x: auto;
+  }
+  .dp-fraction-inner {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.7rem;
+    width: max-content;
+    margin: 0 auto;
+  }
+  .dp-row {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 0.35rem;
+    margin: 0;
+  }
+  .dp-bar {
+    width: calc(100% + 2rem);
+    margin: 0 -1rem;
+    height: 2px;
+    background: currentColor;
+  }
+  .dp-coef {
+    width: 3rem;
+    flex: 0 0 auto;
+    padding: 0.3rem 0.2rem;
+    text-align: center;
+    border: 1.5px solid var(--dp-border);
+    border-radius: 6px;
+    background: var(--sl-color-bg, #000);
+    color: var(--sl-color-text, inherit);
+    font-size: 1rem;
+    transition: background-color 0.15s ease, border-color 0.15s ease;
+  }
+  .dp-coef:hover {
+    border-color: var(--dp-accent);
+    background: color-mix(in srgb, var(--dp-accent) 10%, var(--sl-color-bg, #000));
+  }
+  .dp-coef:focus {
+    outline: none;
+    border-color: var(--dp-accent);
+    background: color-mix(in srgb, var(--dp-accent) 16%, var(--sl-color-bg, #000));
+  }
+  .dp-coef.dp-invalid {
+    border-color: var(--dp-red);
+    background: color-mix(in srgb, var(--dp-red) 12%, transparent);
+  }
+  .dp-mono { white-space: nowrap; flex: 0 0 auto; }
+
+  .dp-hint {
+    font-size: 0.85rem;
+    opacity: 0.75;
+    margin: 0 0 1rem;
+    text-align: center;
+  }
+
+  /* ----- bottoni -----
+     Starlight inietta un margin-top automatico sugli elementi "fratelli" dentro
+     il contenuto markdown: senza reset, il 2° e 3° bottone vengono spinti in
+     basso e la riga appare sfalsata (il 1° sembra di altezza diversa).
+     Fix collaudato sugli altri risolutori (Gauss-Jordan, Kernel): margin: 0
+     esplicito sui bottoni + align-items: stretch sulla griglia. Stile e
+     comportamento (ghost, pillola, scale on active) allineati a quelli degli
+     altri risolutori del sito (es. Gram-Schmidt). */
+  .dp-buttons {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    align-items: stretch;
+    gap: 0.75rem;
+    margin: 1.25rem 0 0.6rem;
+  }
+  .dp-btn {
+    box-sizing: border-box;
+    margin: 0;
+    height: 3.6rem;
+    padding: 0 1rem;
+    line-height: 1.2;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    border-radius: 999px;
+    border: 1.5px solid var(--dp-border);
+    background: transparent;
+    color: var(--sl-color-text, inherit);
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+    transition: transform 0.1s ease, background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+  }
+  .dp-btn:hover { border-color: var(--dp-accent); color: var(--dp-accent); }
+  .dp-btn:active { transform: scale(0.96); }
+  .dp-step-btn { width: 100%; margin: 0 0 1rem; }
+  .dp-analyze { margin-top: 1rem; }
+
+  /* ----- messaggi ----- */
+  .dp-message { margin: 0.5rem 0; font-size: 0.95rem; }
+  .dp-message.dp-error {
+    padding: 0.6rem 0.8rem;
+    border-left: 4px solid var(--dp-red);
+    background: color-mix(in srgb, var(--dp-red) 8%, transparent);
+    border-radius: 4px;
+  }
+  .dp-message.dp-info {
+    padding: 0.6rem 0.8rem;
+    border-left: 4px solid var(--dp-accent);
+    background: color-mix(in srgb, var(--dp-accent) 8%, transparent);
+    border-radius: 4px;
+  }
+
+  /* pannello di output, stesso stile di .gj-result/.go-result: sfondo, bordo
+     e angoli arrotondati. :not(:empty) evita un riquadro vuoto prima che sia
+     stato calcolato un risultato (qui .dp-output e' un unico contenitore
+     condiviso tra risultato veloce e passo-passo, ripulito e ripopolato ad
+     ogni richiesta — non due sezioni separate come in GaussJordan). */
+  .dp-output:not(:empty) {
+    background: var(--dp-surface);
+    border: 1px solid var(--dp-border);
+    border-radius: var(--dp-radius);
+    margin-top: 1.5rem;
+    padding: 1.5rem 1rem;
+    text-align: left;
+  }
+
+  /* ----- schema a croce -----
+     Griglia unica: gutter | colonne potenze x | vline | colonna destra.
+     riga 1 = numeratore + divisore; riga 2 = linea orizzontale (tutta la
+     larghezza); righe 3+ = sviluppo + quoziente (ancorato in alto). */
+  .dp-board { margin: 1rem 0; }
+  .dp-scroller {
+    overflow-x: auto;
+    padding-bottom: 0.5rem;
+  }
+  .dp-grid {
+    display: grid;
+    align-items: baseline;
+    column-gap: 0.5rem;
+    row-gap: 0.405rem;
+    width: max-content;
+    margin: 0 auto;
+  }
+  /* con width:max-content + margin:0 auto, una tabella che entra nello
+     spazio disponibile si centra da sola; una che lo supera (polinomi
+     lunghi) vede i margini automatici annullarsi e resta comunque
+     raggiungibile scorrendo, ancorata a sinistra. */
+  .dp-gutter {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.1rem;
+    justify-content: flex-end;
+    padding-right: 0.2rem;
+  }
+  .dp-cell { white-space: nowrap; text-align: center; }
+  .dp-cell.hl, .dp-divisor.hl { color: var(--dp-red); }
+  .dp-cell.zero { color: var(--dp-red); font-weight: 700; }
+  /* zeri di completamento (posizioni vuote sotto lo span del prodotto):
+     un dettaglio discreto, non un risultato del calcolo come lo zero rosso. */
+  .dp-cell.zero-faint { color: var(--dp-faint); font-weight: 400; opacity: 0.75; }
+  .dp-cell.strike { position: relative; }
+  .dp-cell.strike::after {
+    content: "";
+    position: absolute;
+    left: -2px; right: -2px; top: 50%;
+    height: 2px;
+    background: var(--dp-red);
+    transform: rotate(-8deg);
+  }
+  .dp-marker { font-weight: 700; line-height: 1; }
+  .dp-marker.hl { color: var(--dp-red); }
+  .dp-minus { font-size: 1.1rem; }
+  .dp-arrow { font-size: 1rem; }
+
+  /* linea verticale: continua dalla riga 1 all'ultima */
+  .dp-vline {
+    /* grid-row impostata inline (numero letterale, mai "-1": vedi renderBoard) */
+    align-self: stretch;
+    justify-self: center;
+    width: 2px;
+    background: currentColor;
+  }
+  /* linea orizzontale: continua, copre tutte le colonne (vero incrocio a croce) */
+  .dp-hline {
+    grid-column: 1 / -1;
+    align-self: center;
+    height: 2px;
+    background: currentColor;
+  }
+  .dp-divisor { white-space: nowrap; align-self: baseline; }
+  .dp-quotient {
+    white-space: nowrap;
+    align-self: start;
+    min-height: 1.4em;
+    padding-top: 0.1rem;
+  }
+  .dp-mockup-calc {
+    text-align: center;
+    line-height: 1.7;
+    align-self: start;
+  }
+
+  /* ----- soluzione impilata ----- */
+  .dp-stack { display: flex; flex-direction: column; }
+  .dp-step-block {
+    padding: 1rem 0;
+    border-bottom: 1px dashed var(--dp-border);
+  }
+  .dp-step-block:last-child { border-bottom: none; }
+  .dp-caption { margin: 0 0 0.4rem; line-height: 1.55; }
+  .dp-algo-box {
+    background: var(--sl-color-gray-6, rgba(255,255,255,0.04));
+    border-left: 4px solid var(--dp-accent);
+    border-radius: 6px;
+    padding: 0.9rem 1rem;
+    margin: 1.5rem 0;
+  }
+  .dp-algo-box .dp-caption { margin-bottom: 0.5rem; }
+  .dp-algo-steps { margin: 0 0 0.4rem; padding-left: 1.4rem; line-height: 1.55; }
+  .dp-algo-box .dp-algo-steps { margin-bottom: 0; }
+  .dp-algo-steps li { margin: 0.2rem 0; }
+  .dp-inline { white-space: nowrap; }
+
+  /* stampa: ogni blocco non si taglia a meta' pagina */
+  @media print {
+    .dp-step-block { break-inside: avoid; }
+  }
+
+  /* ----- risultato & analisi ----- */
+  .dp-result { margin-top: 1rem; }
+  .dp-result-head {
+    font-weight: 700;
+    margin-bottom: 0.3rem;
+    color: var(--sl-color-text-accent, var(--dp-accent-hi));
+  }
+  .dp-result-body { overflow-x: auto; padding: 0.4rem 0; }
+  .dp-intro-eq { overflow-x: auto; padding: 0.4rem 0; }
+  .dp-result-generic { padding-bottom: 0.1rem; }
+  .dp-result-numeric { padding-top: 0.1rem; }
+  .dp-result-ossia { font-style: italic; opacity: 0.8; margin: 0.1rem 0; }
+  .dp-degenerate {
+    font-size: 0.9rem;
+    padding: 0.6rem 0.8rem;
+    border-left: 4px solid var(--dp-accent);
+    background: color-mix(in srgb, var(--dp-accent) 6%, transparent);
+    border-radius: 4px;
+    margin-bottom: 0.8rem;
+  }
+  .dp-ana-panel { display: none; margin-top: 0.8rem; line-height: 1.5; }
+  .dp-ana-panel.open { display: block; }
+  .dp-ana-title {
+    font-weight: 700;
+    margin-bottom: 0.4rem;
+    color: var(--sl-color-text-accent, var(--dp-accent-hi));
+  }
+
+  /* ----- mobile ----- */
+  @media (max-width: 30rem) {
+    .dp-buttons { grid-template-columns: 1fr; }
+    .dp-coef { width: 2.9rem; font-size: 0.95rem; }
+    .dp-root { font-size: 0.95rem; }
+  }
+</style>

@@ -1,0 +1,48 @@
+---
+title: Divisione polinomiale
+description: Strumento interattivo per dividere un polinomio per un altro, con coefficienti razionali esatti e parametro letterale. Quoziente e resto, risultato veloce e soluzione passo-passo con lo schema a croce.
+sidebar:
+  hidden: false
+  label: Divisione polinomiale
+  order: 6
+tableOfContents: false
+---
+
+{/* Adattare il percorso di import alla struttura del proprio progetto
+    (es. alias ~/components oppure percorso relativo dalla cartella della pagina). */}
+import DivisionePolinomiale from "@components/DivisionePolinomiale.astro";
+
+Una frazione algebrica si dice **impropria** quando il grado del numeratore è
+maggiore o uguale a quello del denominatore. In tal caso è sempre possibile
+riscriverla come somma di un polinomio (il **quoziente**) e di una frazione
+**propria**, il cui numeratore è il **resto** della divisione:
+
+$$
+\frac{N(x)}{D(x)} = Q(x) + \frac{R(x)}{D(x)}, \qquad \deg R < \deg D.
+$$
+
+Lo strumento esegue questa divisione mantenendo i coefficienti come numeri
+razionali esatti, senza alcun arrotondamento. È ammesso un parametro letterale
+`a` (lineare nei dati inseriti): l'unico vincolo è che il coefficiente del
+termine di grado massimo del denominatore sia un numero, non un'espressione che
+contiene `a`.
+
+<DivisionePolinomiale />
+
+## Come usare lo strumento
+
+- **Caselle dei coefficienti.** In ogni casella si inserisce un numero intero,
+  una frazione (ad esempio `3/4`) oppure un'espressione lineare nel parametro
+  (ad esempio `2a-1`). Il segno va indicato dentro la casella.
+- **Grado massimo.** Il selettore imposta il grado massimo, uguale per
+  numeratore e denominatore. Cambiarlo azzera i coefficienti.
+- **Usa il denominatore monico.** Divide il denominatore per il proprio
+  coefficiente direttore; il risultato viene mostrato raccogliendo il fattore
+  $\frac{1}{k}$.
+- **Valori casuali.** Genera una divisione puramente numerica già eseguibile.
+- **Risultato veloce.** Mostra la tabella completa con quoziente e resto
+  evidenziati, senza la spiegazione.
+- **Soluzione passo-passo.** Ricostruisce la divisione un termine alla volta,
+  con lo schema a croce e la sottrazione verticale esplicita.
+- **Analizza il parametro a.** Quando è presente il parametro, indica per quali
+  valori di `a` il resto si annulla e per quali il suo grado si abbassa.

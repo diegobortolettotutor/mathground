@@ -1,0 +1,201 @@
+---
+// src/components/PoligonoEsponenziale.astro
+const locale = (Astro.currentLocale ?? "it").toLowerCase();
+const lang = locale.startsWith("en") ? "en" : "it";
+
+const DICT = {
+  it: {
+    title: "e<sup>i&theta;</sup> come limite di un poligono",
+    labN: 'passi <code>n</code>',
+    labT: 'angolo <code>&theta;</code>',
+    rad: "rad",
+    modLab: "modulo finale |z<sub>n</sub>|",
+    modTgt: "obiettivo: 1",
+    argLab: "argomento finale arg(z<sub>n</sub>)",
+    argTgt: "obiettivo: \u03b8 = ",
+    legPoly: "poligono (1+i&theta;/n)<sup>n</sup>",
+    legArc: "arco obiettivo",
+  },
+  en: {
+    title: "e<sup>i&theta;</sup> as the limit of a polygon",
+    labN: 'steps <code>n</code>',
+    labT: 'angle <code>&theta;</code>',
+    rad: "rad",
+    modLab: "final modulus |z<sub>n</sub>|",
+    modTgt: "target: 1",
+    argLab: "final argument arg(z<sub>n</sub>)",
+    argTgt: "target: \u03b8 = ",
+    legPoly: "polygon (1+i&theta;/n)<sup>n</sup>",
+    legArc: "target arc",
+  },
+};
+const t = DICT[lang];
+---
+
+<div class="mg-poligono">
+  <h3 set:html={t.title} />
+  <p class="mg-formula">e<sup>i&theta;</sup> = lim<sub>n&rarr;&infin;</sub> (1 + i&theta;/n)<sup>n</sup></p>
+
+  <svg viewBox="0 0 680 480" role="img" aria-label={t.title.replace(/<[^>]+>/g, "")}>
+    <line x1="120" y1="320" x2="430" y2="320" class="mg-axis" />
+    <line x1="250" y1="90" x2="250" y2="455" class="mg-axis" />
+    <text x="424" y="336" class="mg-faint">Re</text>
+    <text x="258" y="100" class="mg-faint">Im</text>
+    <text x="236" y="338" class="mg-faint">0</text>
+    <circle cx="250" cy="320" r="120" fill="none" class="mg-circle" stroke-dasharray="2 3" />
+    <g id="mgp-dyn"></g>
+  </svg>
+
+  <div class="mg-ctrl">
+    <label set:html={t.labN} />
+    <input type="range" id="mgp-n" min="1" max="38" value="5" step="1" />
+    <output id="mgp-nout">5</output>
+  </div>
+  <div class="mg-ctrl">
+    <label set:html={t.labT} />
+    <input type="range" id="mgp-t" min="0" max="360" value="90" step="1" />
+    <output id="mgp-tout"></output>
+  </div>
+
+  <div class="mg-cards">
+    <div class="mg-card">
+      <div class="lab" set:html={t.modLab} />
+      <div class="val" id="mgp-modout">1.000</div>
+      <div class="tgt" set:html={t.modTgt} />
+    </div>
+    <div class="mg-card">
+      <div class="lab" set:html={t.argLab} />
+      <div class="val" id="mgp-argout">90.0&deg;</div>
+      <div class="tgt" id="mgp-argtgt"></div>
+    </div>
+  </div>
+
+  <div class="mg-legend">
+    <span><span class="sw poly"></span><span set:html={t.legPoly} /></span>
+    <span><span class="sw arc"></span><span set:html={t.legArc} /></span>
+    <span><span class="dot"></span>e<sup>i&theta;</sup></span>
+  </div>
+</div>
+
+<style>
+  .mg-poligono {
+    --ink: var(--sl-color-text, #26252a);
+    --muted: var(--sl-color-gray-3, #6c6b66);
+    --faint: var(--sl-color-gray-4, #a8a7a0);
+    --surface: var(--sl-color-gray-6, #f6f5f1);
+    --line: var(--sl-color-hairline, #d9d7cf);
+    --axis: var(--sl-color-gray-5, #c4c2ba);
+    --track: var(--sl-color-gray-5, #e4e2da);
+    --poly: #2f6fc9;
+    --poly-dot: #2f6fc9;
+    --arc: #149a72;
+    --target: #12936c;
+    color: var(--ink);
+    max-width: 680px;
+    margin-inline: auto;
+    line-height: 1.55;
+  }
+  .mg-poligono h3 { font-size: 17px; font-weight: 600; margin: 0 0 4px; }
+  .mg-formula {
+    font-family: var(--sl-font-mono, ui-monospace, monospace);
+    font-size: 14px; color: var(--muted); margin: 0 0 14px;
+  }
+  .mg-formula sup, .mg-formula sub { font-size: 11px; }
+  .mg-poligono svg { display: block; width: 100%; height: auto; }
+  .mg-axis { stroke: var(--axis); stroke-width: 1; }
+  .mg-circle { stroke: var(--line); stroke-width: 1; }
+  .mg-faint { fill: var(--faint); font-size: 12px; }
+
+  .mg-ctrl { display: flex; align-items: center; gap: 12px; margin: 6px 0; }
+  .mg-ctrl label { font-size: 13px; color: var(--muted); min-width: 104px; }
+  .mg-ctrl label code { font-family: var(--sl-font-mono, monospace); color: var(--ink); }
+  .mg-ctrl output { font-size: 14px; font-weight: 600; min-width: 104px; text-align: right; }
+
+  .mg-poligono input[type="range"] {
+    -webkit-appearance: none; appearance: none; flex: 1; height: 4px;
+    background: var(--track); border-radius: 2px; outline: none; cursor: pointer; margin: 0;
+  }
+  .mg-poligono input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none; width: 18px; height: 18px; border-radius: 50%;
+    background: var(--poly); border: 2px solid var(--sl-color-bg, #fff); cursor: pointer;
+  }
+  .mg-poligono input[type="range"]::-moz-range-thumb {
+    width: 18px; height: 18px; border-radius: 50%;
+    background: var(--poly); border: 2px solid var(--sl-color-bg, #fff); cursor: pointer;
+  }
+
+  .mg-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 16px; }
+  .mg-card { background: var(--surface); border-radius: 10px; padding: 14px 16px; margin: 0; }
+  .mg-card .lab { font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+  .mg-card .lab sub { font-size: 10px; }
+  .mg-card .val { font-size: 24px; font-weight: 600; }
+  .mg-card .tgt { font-size: 12px; color: var(--faint); margin-top: 2px; }
+
+  .mg-legend { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 14px; font-size: 12px; color: var(--muted); }
+  .mg-legend .sw { display: inline-block; width: 14px; height: 0; border-top: 2px solid; vertical-align: 3px; margin-right: 5px; }
+  .mg-legend .sw.poly { border-top-color: var(--poly); }
+  .mg-legend .sw.arc { border-top-color: var(--arc); }
+  .mg-legend .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--target); vertical-align: 0; margin-right: 5px; }
+</style>
+
+<script define:vars={{ rad: t.rad, argTgt: t.argTgt }}>
+  (function () {
+    var ox = 250, oy = 320, R = 120;
+    function px(re) { return (ox + re * R).toFixed(2); }
+    function py(im) { return (oy - im * R).toFixed(2); }
+
+    // Scala dei passi: 1-32 lineare, poi lista esplicita
+    var EXTRA = [40, 64, 110, 256, 512, 4096];
+    function toN(raw) {
+      if (raw <= 32) return raw;
+      var i = raw - 33;
+      return EXTRA[i] !== undefined ? EXTRA[i] : EXTRA[EXTRA.length - 1];
+    }
+
+    var nEl = document.getElementById("mgp-n");
+    var tEl = document.getElementById("mgp-t");
+    var dyn = document.getElementById("mgp-dyn");
+    if (!nEl || !tEl || !dyn) return;
+
+    function render() {
+      var n = toN(+nEl.value);
+      var th = (+tEl.value) * Math.PI / 180;   // il cursore è in gradi, converto in radianti
+      document.getElementById("mgp-nout").textContent = n;
+      document.getElementById("mgp-tout").textContent =
+        th.toFixed(2) + " " + rad + " \u00b7 " + Math.round((th * 180) / Math.PI) + "\u00b0";
+
+      var re = 1, im = 0, fy = th / n, verts = [[1, 0]];
+      for (var k = 1; k <= n; k++) { var nr = re - im * fy, ni = re * fy + im; re = nr; im = ni; verts.push([re, im]); }
+
+      var s = "";
+      if (n <= 8) {
+        for (var k = 0; k < verts.length; k++) {
+          s += '<line x1="' + px(0) + '" y1="' + py(0) + '" x2="' + px(verts[k][0]) + '" y2="' + py(verts[k][1]) + '" stroke="var(--faint)" stroke-width="0.6" opacity="0.4"/>';
+        }
+      }
+      var arc = "";
+      for (var i = 0; i <= 48; i++) { var a = (th * i) / 48; arc += (i ? "L" : "M") + px(Math.cos(a)) + " " + py(Math.sin(a)) + " "; }
+      s += '<path d="' + arc + '" fill="none" stroke="var(--arc)" stroke-width="2.5" stroke-linecap="round"/>';
+      s += '<line x1="' + px(0) + '" y1="' + py(0) + '" x2="' + px(Math.cos(th)) + '" y2="' + py(Math.sin(th)) + '" stroke="var(--target)" stroke-width="0.8" stroke-dasharray="3 3" opacity="0.7"/>';
+      var pts = verts.map(function (p) { return px(p[0]) + "," + py(p[1]); }).join(" ");
+      s += '<polyline points="' + pts + '" fill="none" stroke="var(--poly)" stroke-width="1.7" stroke-linejoin="round"/>';
+      if (n <= 20) { for (var k = 0; k < verts.length; k++) { s += '<circle cx="' + px(verts[k][0]) + '" cy="' + py(verts[k][1]) + '" r="2.4" fill="var(--poly-dot)"/>'; } }
+      s += '<circle cx="' + px(1) + '" cy="' + py(0) + '" r="3" fill="var(--muted)"/>';
+      s += '<text x="' + (ox + R + 8) + '" y="' + (oy + 16) + '" font-size="12" fill="var(--muted)">1</text>';
+      s += '<circle cx="' + px(Math.cos(th)) + '" cy="' + py(Math.sin(th)) + '" r="5" fill="var(--target)"/>';
+      var ze = verts[verts.length - 1];
+      s += '<circle cx="' + px(ze[0]) + '" cy="' + py(ze[1]) + '" r="5.5" fill="none" stroke="var(--poly-dot)" stroke-width="2"/>';
+      dyn.innerHTML = s;
+
+      var mod = Math.hypot(ze[0], ze[1]), arg = (Math.atan2(ze[1], ze[0]) * 180) / Math.PI;
+      if (arg < 0) arg += 360;
+      document.getElementById("mgp-modout").textContent = mod.toFixed(3);
+      document.getElementById("mgp-argout").textContent = arg.toFixed(1) + "\u00b0";
+      document.getElementById("mgp-argtgt").textContent = argTgt + ((th * 180) / Math.PI).toFixed(1) + "\u00b0";
+    }
+
+    nEl.addEventListener("input", render);
+    tEl.addEventListener("input", render);
+    render();
+  })();
+</script>

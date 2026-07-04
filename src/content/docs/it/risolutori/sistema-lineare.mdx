@@ -1,0 +1,27 @@
+---
+title: Sistemi lineari
+description: Risolutore online di sistemi lineari (anche non omogenei), con Rouché-Capelli, aritmetica esatta e parametri, passo-passo.
+sidebar:
+  hidden: false
+  label: Sistema lineare
+  order: 7
+tableOfContents: false
+---
+
+import LinearSystemSolver from '@components/LinearSystemSolver.astro';
+
+Dato un sistema $A \cdot \mathbf{x} = \mathbf{b}$, questo simulatore ne determina **tutte le soluzioni**:
+prima verifica compatibilità e numero di soluzioni con il teorema di **Rouché-Capelli**, poi
+cerca scorciatoie a occhio (incompatibilità evidenti, soluzioni particolari immediate, relazioni
+tra le colonne), e in ogni caso risolve con **Gauss-Jordan** sulla matrice aumentata, fino alla
+**forma parametrica** del risultato. Tutti i calcoli sono in aritmetica razionale esatta; le celle
+di $A$ e di $\mathbf{b}$ accettano anche **parametri** (per esempio `k` o `t`), con analisi dei casi sui
+valori critici.
+
+<LinearSystemSolver />
+:::tip[Vedi anche]
+Per lo svolgimento dettagliato, mossa per mossa, della riduzione a scala di una
+matrice, usa il risolutore di [Gauss-Jordan](/it/risolutori/gauss-jordan/). Per il
+solo sistema omogeneo e il calcolo del nucleo, puoi usare anche il risolutore del
+[Kernel](/it/risolutori/kernel/).
+:::

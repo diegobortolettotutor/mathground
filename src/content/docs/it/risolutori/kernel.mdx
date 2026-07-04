@@ -1,0 +1,23 @@
+---
+title: Kernel / Nucleo / spazio nullo di un'applicazione lineare
+description: Risolutore online per il kernel / nucleo / spazio nullo di una matrice, con sistema omogeneo, aritmetica esatta e parametri, passo-passo.
+sidebar:
+  hidden: false
+  label: Kernel
+  order: 3
+tableOfContents: false
+---
+
+import KernelSolver from '@components/KernelSolver.astro';
+
+Data una matrice $A$, questo simulatore risolve il sistema omogeneo $A \cdot \mathbf{x} = \mathbf{0}$ e
+ne determina il **nucleo** (kernel): prima cerca relazioni semplici tra le colonne,
+poi risolve comunque il sistema con Gauss-Jordan e confronta i due risultati. Tutti
+i calcoli sono in aritmetica razionale esatta; le celle accettano anche **parametri**
+(per esempio `k`), con analisi dei casi sui valori critici.
+ 
+<KernelSolver />
+:::tip[Vedi anche]
+Per lo svolgimento dettagliato, mossa per mossa, della riduzione a scala di una
+matrice, usa il risolutore di [Gauss-Jordan](/it/risolutori/gauss-jordan/).
+:::

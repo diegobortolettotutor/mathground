@@ -1,0 +1,34 @@
+---
+import Default from '@astrojs/starlight/components/PageFrame.astro';
+import { Image } from 'astro:assets';
+import LogoLight from '../assets/Logo-light.svg';
+---
+
+<div class="print-only-logo">
+  <Image src={LogoLight} alt="MathGround" height={44} />
+</div>
+
+<Default {...Astro.props}>
+  <slot name="header" slot="header" />
+  <slot name="sidebar" slot="sidebar" />
+  <slot />
+</Default>
+
+<script>
+  function collapseSidebar() {
+    const groups = document.querySelectorAll<HTMLDetailsElement>('#starlight__sidebar details');
+    groups.forEach((details) => {
+      const isActive = details.querySelector('a[aria-current="page"]');
+      details.open = !!isActive;
+    });
+  }
+
+  // prima del ridisegno, ma dopo il ripristino di Starlight → niente lampo
+  requestAnimationFrame(collapseSidebar);
+
+  // navigazione tra pagine: chiude prima del ridisegno
+  document.addEventListener('astro:after-swap', collapseSidebar);
+
+  // rete di sicurezza a pagina caricata
+  document.addEventListener('astro:page-load', () => requestAnimationFrame(collapseSidebar));
+</script>

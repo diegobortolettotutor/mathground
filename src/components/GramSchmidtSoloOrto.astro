@@ -1,0 +1,812 @@
+---
+/**
+ * GramSchmidtOrtho.astro — Ortogonalizzazione di Gram-Schmidt (SENZA normalizzazione),
+ * nativa, responsive, bilingue (it/en). Gemella di GramSchmidt.astro.
+ *
+ * Dipendenze:
+ *   npm install katex      (nessun nerdamer: aritmetica razionale esatta in puro BigInt)
+ *
+ * Uso in una pagina .mdx di Starlight:
+ *   import GramSchmidtOrtho from '../../../components/GramSchmidtOrtho.astro';
+ *   <GramSchmidtOrtho />
+ *
+ * Metodo: si proietta v_j sui vettori GIA ortogonalizzati w_i e si sottrae. La proiezione
+ *   v_{j||w_i} = (v_j . w_i)/(w_i . w_i) * w_i  ha al denominatore la norma al quadrato
+ *   w_i . w_i (intera): tutto resta razionale e NON compaiono mai radicali. L'output e una
+ *   base ORTOGONALE (non ortonormale). Poiche l'ortogonalita e invariante per scalari non
+ *   nulli, ad ogni passo si tiene il rappresentante a coordinate intere ridotto.
+ *
+ * Note:
+ *  - Rendering matematico con KaTeX (coerente col resto del sito).
+ *  - Aritmetica esatta sui razionali con una piccola classe Frac su BigInt (zero dipendenze).
+ *  - Stato tenuto in un modello JS; nessuna variabile globale condivisa.
+ */
+
+import 'katex/dist/katex.min.css';
+
+const lang = (Astro.currentLocale ?? 'it').toLowerCase().startsWith('en') ? 'en' : 'it';
+
+const UI = {
+  it: {
+    title: 'Ortogonalizzazione di Gram-Schmidt',
+    subtitle: 'Da \\(k\\) vettori di \\(\\mathbb{R}^n\\) a una base ortogonale (senza normalizzare)',
+    step1: 'Step 1 — IMPOSTA QUANTI VETTORI E DI QUALE DIMENSIONE',
+    vecLabel: 'N° vettori \\(\\left(k\\right)\\)',
+    dimLabel: 'Dimensione \\(\\left(n\\right)\\)',
+    inR: '\\(\\times\\)',
+    step2: 'Step 2 — IMPOSTA LE COORDINATE DEI VETTORI',
+    btnReset: 'AZZERA VALORI',
+    btnRandom: 'VALORI CASUALI',
+    btnQuick: 'RISULTATO SINTETICO',
+    btnStep: 'SVOLGIMENTO PASSO-PASSO',
+  },
+  en: {
+    title: 'Gram-Schmidt Orthogonalization',
+    subtitle: 'From \\(k\\) vectors of \\(\\mathbb{R}^n\\) to an orthogonal basis (without normalizing)',
+    step1: 'Step 1 — SET HOW MANY VECTORS AND OF WHICH DIMENSION',
+    vecLabel: 'N° of vectors \\(\\left(k\\right)\\)',
+    dimLabel: 'Dimension \\(\\left(n\\right)\\)',
+    inR: '\\(\\times\\)',
+    step2: 'Step 2 — SET THE VECTOR COORDINATES',
+    btnReset: 'RESET VALUES',
+    btnRandom: 'RANDOM VALUES',
+    btnQuick: 'QUICK RESULT',
+    btnStep: 'STEP-BY-STEP SOLUTION',
+  },
+}[lang];
+---
+
+<div class="go-root" data-lang={lang}>
+  <!-- Step 1: dimensioni -->
+  <section class="go-panel">
+    <h3 class="go-steplabel">{UI.step1}</h3>
+    <div class="go-dims" id="goDims">
+      <label for="goVecs" set:html={UI.vecLabel}></label>
+      <input id="goVecs" type="number" min="1" max="8" value="3" />
+      <span class="go-sep" set:html={UI.inR}></span>
+      <input id="goDim" type="number" min="1" max="8" value="3" />
+      <label for="goDim" set:html={UI.dimLabel}></label>
+    </div>
+  </section>
+
+  <!-- Step 2: contenuto vettori -->
+  <section class="go-panel">
+    <h3 class="go-steplabel">{UI.step2}</h3>
+    <div class="go-vectorswrap" id="goVectorsWrap">
+      <div class="go-vectors" id="goVectors"></div>
+    </div>
+    <div id="goStatus" class="go-status" role="alert" aria-live="polite"></div>
+  </section>
+
+  <!-- Azioni -->
+  <div class="go-actions">
+    <button id="goBtnReset" class="go-btn go-btn-ghost" type="button">{UI.btnReset}</button>
+    <button id="goBtnRandom" class="go-btn go-btn-ghost" type="button">{UI.btnRandom}</button>
+    <button id="goBtnQuick" class="go-btn go-btn-ghost" type="button">{UI.btnQuick}</button>
+  </div>
+
+  <div class="go-secondary">
+    <button id="goBtnStep" class="go-btn go-btn-ghost go-btn-wide" type="button">{UI.btnStep}</button>
+  </div>
+
+  <!-- Output -->
+  <section id="goQuick" class="go-result" hidden></section>
+  <section id="goFull" class="go-result" hidden></section>
+</div>
+
+<style is:global>
+  .go-root {
+    --go-radius: 12px;
+    --go-surface: var(--sl-color-gray-6, #1a1a1a);
+    --go-border: var(--sl-color-gray-5, #383838);
+    --go-accent: var(--sl-color-accent, #4f7cff);
+    --go-red: #d11111;
+    --go-accent-hi: var(--sl-color-accent-high, #b8c8ff);
+    font-size: 1rem;
+    line-height: 1.5;
+    color: var(--sl-color-text, inherit);
+    width: 100%;
+    min-width: 330px;
+    margin: 1.5rem 0;
+    text-align: center;
+  }
+  .go-root *,
+  .go-root *::before,
+  .go-root *::after { box-sizing: border-box; }
+
+  .go-panel {
+    background: var(--go-surface);
+    border: 1px solid var(--go-border);
+    border-radius: var(--go-radius);
+    padding: 1.25rem 1rem;
+    margin: 1.25rem 0;
+  }
+  .go-steplabel {
+    margin: 0 0 1rem;
+    font-size: clamp(0.85rem, 2.4vw, 1rem);
+    letter-spacing: 0.02em;
+    color: var(--sl-color-text-accent, var(--go-accent-hi));
+  }
+
+  /* dimensioni */
+  .go-dims { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 0.6rem; }
+  .go-dims label { font-size: 1rem; }
+  .go-dims input {
+    background: var(--sl-color-bg, #000);
+    color: var(--sl-color-text, #fff);
+    border: 1.5px solid var(--go-border);
+    border-radius: 6px;
+    text-align: center;
+    padding: 0.35rem;
+    font: inherit;
+    width: 4rem;
+    transition: background-color 0.15s ease, border-color 0.15s ease;
+  }
+  .go-dims input:hover {
+    border-color: var(--go-accent);
+    background: color-mix(in srgb, var(--go-accent) 10%, var(--sl-color-bg, #000));
+  }
+  .go-dims input:focus { border-color: var(--go-accent); outline: none; }
+  .go-sep { font-size: 1.6rem; opacity: 0.9; line-height: 1; }
+
+  /* zona vettori di input */
+  .go-vectorswrap { overflow-x: auto; padding: 0.5rem 0.25rem; }
+  .go-vectors {
+    display: inline-flex; align-items: flex-start; justify-content: center;
+    gap: 1.1rem; min-width: 100%; padding: 0.25rem 0; margin: 0;
+  }
+  /* l'etichetta v_j e' fuori dal flusso (position:absolute), cosi non puo' MAI
+     influenzare l'altezza o la posizione del corpo del vettore: tutti i corpi
+     restano allineati sulla stessa linea indipendentemente dal rendering KaTeX
+     dell'etichetta. .go-vec riserva lo spazio con padding-top fisso. */
+  .go-vec { position: relative; display: inline-flex; flex-direction: column; align-items: center; padding-top: 1.6rem; }
+  /* reset defensivo: alcuni temi applicano margin/padding diversi al primo elemento
+     di un blocco di contenuto (es. :first-child del markdown). Azzeriamo qui per
+     evitare che v1 riceva margini che gli altri vettori non hanno. */
+  /* reset defensivo: alcuni temi applicano margin/padding diversi al primo elemento
+     di un blocco di contenuto (es. :first-child del markdown), spesso con !important.
+     Per vincere la cascata indipendentemente dall'ordine, alziamo la specificita'
+     usando l'attributo [data-lang] (sempre presente su .go-root). */
+  .go-root[data-lang] .go-vec,
+  .go-root[data-lang] .go-vec-label,
+  .go-root[data-lang] .go-vec-body,
+  .go-root[data-lang] .go-vec-col,
+  .go-root[data-lang] .go-cell {
+    margin: 0 !important;
+  }
+  .go-root[data-lang] .go-vectorswrap,
+  .go-root[data-lang] .go-vectors,
+  .go-root[data-lang] .go-vec {
+    margin-top: 0 !important;
+  }
+  .go-vec-label {
+    position: absolute; top: 0; left: 0; right: 0;
+    font-size: 0.85rem; color: var(--sl-color-text-accent, var(--go-accent-hi));
+    height: 1.6rem; line-height: 1.6rem;
+    display: flex; align-items: center; justify-content: center;
+    white-space: nowrap;
+  }
+  .go-vec-label .katex { line-height: normal; }
+  .go-vec-body { display: inline-flex; align-items: center; gap: 0.12rem; }
+  .go-vec-col { display: inline-flex; flex-direction: column; gap: 4px; width: 4.5rem; align-items: center; }
+  .go-paren { display: inline-flex; align-items: center; justify-content: center; line-height: 0; color: var(--sl-color-text, inherit); }
+  .go-paren .katex { line-height: 0; }
+
+  /* celle: strette, si allargano (animate) al focus SENZA spostare le vicine,
+     perche la colonna ha larghezza fissa e l'input cresce al suo interno. */
+  .go-cell {
+    background: var(--sl-color-bg, #000);
+    color: var(--sl-color-text, #fff);
+    border: 1.5px solid var(--go-border);
+    border-radius: 6px;
+    text-align: center;
+    padding: 0.18rem 0.3rem;
+    font: inherit;
+    width: 3.4rem;
+    transition: width 0.3s ease-in-out, background-color 0.15s ease, border-color 0.15s ease;
+  }
+  .go-cell:hover {
+    border-color: var(--go-accent);
+    background: color-mix(in srgb, var(--go-accent) 10%, var(--sl-color-bg, #000));
+  }
+  .go-cell:focus {
+    border-color: var(--go-accent); outline: none;
+    background: color-mix(in srgb, var(--go-accent) 16%, var(--sl-color-bg, #000));
+    width: 4.5rem;
+  }
+
+  .go-status { margin: 0.5rem 0 0; font-size: 0.95rem; }
+  .go-status.go-error {
+    padding: 0.6rem 0.8rem;
+    border-left: 4px solid var(--go-red);
+    background: color-mix(in srgb, var(--go-red) 8%, transparent);
+    border-radius: 4px;
+  }
+
+  /* pulsanti */
+  .go-actions {
+    display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.75rem; align-items: stretch; margin: 1.25rem auto; max-width: 48rem;
+  }
+  .go-actions .go-btn {
+    box-sizing: border-box; width: 100%; margin: 0;
+    height: 3.6rem; padding: 0 1rem; line-height: 1.2;
+    display: inline-flex; align-items: center; justify-content: center; text-align: center;
+  }
+  .go-secondary { margin-top: 1.25rem; }
+  .go-btn {
+    font: inherit; font-weight: 600; cursor: pointer;
+    border-radius: 999px; padding: 0.7rem 1.4rem; border: 1.5px solid transparent;
+    transition: transform 0.1s ease, background 0.2s ease, border-color 0.2s ease;
+  }
+  .go-btn:active { transform: scale(0.96); }
+  .go-btn-ghost { background: transparent; color: var(--sl-color-text, inherit); border-color: var(--go-border); }
+  .go-btn-ghost:hover { border-color: var(--go-accent); color: var(--go-accent); }
+  .go-btn-wide { padding: 0.9rem 1.4rem; width: 100%; margin: 0 0 1rem; }
+
+  /* output */
+  .go-result {
+    background: var(--go-surface); border: 1px solid var(--go-border);
+    border-radius: var(--go-radius); margin-top: 1.5rem; padding: 1.5rem 1rem;
+    opacity: 0; transition: opacity 0.3s ease; text-align: left;
+  }
+  .go-result.go-visible { opacity: 1; }
+  .go-result h2 { text-align: center; }
+  .go-result h3 { margin-top: 2.5rem; color: var(--go-accent); }
+  .go-result h4 { margin-top: 0.25rem; }
+  .go-result h5 {
+    margin: 2.5rem 0 1rem; padding-top: 1rem;
+    font-size: 0.95rem; letter-spacing: 0.03em; color: var(--sl-color-text-accent, var(--go-accent-hi));
+  }
+  .go-result ul { margin: 1.25rem 0; padding-left: 1.4rem; }
+  .go-result li { margin: 0.4rem 0; }
+  .go-tip {
+    background: var(--sl-color-gray-6, rgba(255,255,255,0.04));
+    border-left: 4px solid var(--go-accent);
+    border-radius: 6px; padding: 0.9rem 1rem; margin: 1.5rem 0;
+  }
+  .go-katex { overflow-x: auto; overflow-y: hidden; padding: 0.75rem 0.25rem; margin: 1.5rem 0; }
+  .go-katex .katex-display { margin: 0; }
+  .go-conti { overflow-x: auto; padding: 0.5rem 0.25rem; margin: 0.5rem 0 1.5rem; opacity: 0.95; }
+
+  @media (max-width: 600px) {
+    .go-root { font-size: 0.95rem; }
+    .go-actions { grid-template-columns: 1fr; }
+    .go-actions .go-btn, .go-btn-wide { width: 100%; }
+    .go-result { padding: 1rem 0.5rem; }
+
+    /* Step 1: due righe — input affiancati sopra, etichette allineate sotto */
+    .go-dims {
+      display: grid;
+      grid-template-columns: 4rem auto 4rem;
+      column-gap: 0.6rem;
+      row-gap: 0.4rem;
+      justify-content: center;
+      align-items: center;
+    }
+    .go-dims input { grid-row: 1; width: 100%; }
+    #goVecs { grid-column: 1; }
+    .go-sep { grid-row: 1; grid-column: 2; justify-self: center; }
+    #goDim { grid-column: 3; }
+    .go-dims label {
+      grid-row: 2;
+      width: max-content;
+      white-space: nowrap;
+    }
+    label[for="goVecs"] { grid-column: 1; justify-self: end; }
+    label[for="goDim"] { grid-column: 3; justify-self: start; }
+  }
+</style>
+
+<script>
+  import katex from 'katex';
+  import renderMathInElement from 'katex/contrib/auto-render';
+
+  const root = document.querySelector('.go-root');
+  if (root) initGramOrtho(root);
+
+  function initGramOrtho(root) {
+    const LANG = (root.dataset.lang || document.documentElement.lang || 'it')
+      .toLowerCase().startsWith('en') ? 'en' : 'it';
+
+    // ============================================================= i18n / narrazione
+    const D = {
+      it: {
+        titleQuick: 'Risultato sintetico',
+        titleStep: 'Svolgimento passo-passo',
+        inputIs: '<p>I vettori immessi sono:</p>',
+
+        // --- spiegazione della tecnica (solo nel passo-passo) ---
+        techHead: '<h5>LA TECNICA RISOLUTIVA CHE USEREMO</h5>',
+        techBody:
+          '<p>Prima di iniziare fissiamo il metodo. Qui vogliamo solo rendere i vettori <i>ortogonali</i> tra loro, senza normalizzarli: il vantaggio è che <b>non comparirà mai un radicale</b>, e tutto resta razionale.</p>' +
+          '<p>Costruiamo i vettori ortogonali \\( \\mathbf{w}_{1}, \\mathbf{w}_{2}, \\ldots \\) uno alla volta. Il primo è \\( \\mathbf{w}_{1} = \\mathbf{v}\\mkern-2mu_{1} \\). Per ottenere il successivo si toglie da \\( \\mathbf{v}\\mkern-2mu_{j} \\) la sua proiezione lungo ciascun \\( \\mathbf{w}\\mkern-1mu_{i} \\) già trovato:</p>',
+        techFormU: '\\mathbf{w}_{1} \\; = \\; \\mathbf{v}\\mkern-2mu_{1} \\qquad\\qquad \\mathbf{w}\\mkern-1mu_{j} \\; = \\; \\mathbf{v}\\mkern-2mu_{j} \\; - \\; \\sum_{i\\,<\\,j} \\mathbf{v}\\mkern-2mu_{j\\mkern1mu\\mathbin{/\\mkern-5mu/}\\mkern1mu\\mathbf{w}\\mkern-1mu_{i}}',
+        techBody2:
+          '<p class="go-tip">Il punto chiave: la proiezione lungo un vettore <i>non</i> unitario \\( \\mathbf{w}\\mkern-1mu_{i} \\) ha al denominatore la sua <b>norma al quadrato</b> \\( \\mathbf{w}\\mkern-1mu_{i}\\cdot \\mathbf{w}\\mkern-1mu_{i} \\), che è un numero <b>intero</b>. Nessuna radice quadrata: ci portiamo dietro solo norme al quadrato intere e l\'intero procedimento si svolge con frazioni esatte.</p>',
+        techBody3:
+          '<p>La proiezione di \\( \\mathbf{v}\\mkern-2mu_{j} \\) lungo \\( \\mathbf{w}\\mkern-1mu_{i} \\) (la sua componente <i>parallela</i> a \\( \\mathbf{w}\\mkern-1mu_{i} \\)) la indichiamo \\( \\mathbf{v}\\mkern-2mu_{j\\mkern1mu\\mathbin{/\\mkern-5mu/}\\mkern1mu\\mathbf{w}\\mkern-1mu_{i}} \\) e vale:</p>',
+        techFormProj:
+          '\\mathbf{v}\\mkern-2mu_{j\\mkern1mu\\mathbin{/\\mkern-5mu/}\\mkern1mu\\mathbf{w}\\mkern-1mu_{i}} \\; = \\; \\frac{\\mathbf{v}\\mkern-2mu_{j}\\cdot \\mathbf{w}\\mkern-1mu_{i}}{\\mathbf{w}\\mkern-1mu_{i}\\cdot \\mathbf{w}\\mkern-1mu_{i}}\\; \\mathbf{w}\\mkern-1mu_{i}',
+        techBody4:
+          '<p>Il nuovo vettore ortogonale \\( \\mathbf{w}\\mkern-1mu_{j} \\) coincide con la parte di \\( \\mathbf{v}\\mkern-2mu_{j} \\) ortogonale a tutte le direzioni già trovate, che indichiamo anche \\( \\mathbf{v}\\mkern-2mu_{j\\perp} \\):</p>',
+        techFormPerp:
+          '\\mathbf{w}\\mkern-1mu_{j} \\; = \\; \\mathbf{v}\\mkern-2mu_{j\\perp} \\; = \\; \\mathbf{v}\\mkern-2mu_{j} \\; - \\; \\sum_{i\\,<\\,j} \\mathbf{v}\\mkern-2mu_{j\\mkern1mu\\mathbin{/\\mkern-5mu/}\\mkern1mu\\mathbf{w}\\mkern-1mu_{i}}',
+        techBody5:
+          '<p>Poiché un insieme ortogonale resta ortogonale anche moltiplicando i vettori per scalari non nulli, ad ogni passo terremo come \\( \\mathbf{w}\\mkern-1mu_{j} \\) il rappresentante a <b>coordinate intere ridotte</b> (raccogliendo l\'eventuale fattore \\( \\tfrac{1}{d} \\)), per avere numeri puliti.</p>',
+
+        // --- per vettore ---
+        analyze: (j) => `<h5>ANALIZZIAMO \\( \\mathbf{v}\\mkern-2mu_{${j}} \\)</h5>`,
+        firstIntro: (j) =>
+          `<p>Il primo vettore (non nullo) dà direttamente la prima direzione: \\( \\mathbf{v}\\mkern-2mu_{${j}} \\Longrightarrow \\mathbf{w}_{1} \\). Ci servirà la sua norma al quadrato \\( \\mathbf{w}_{1}\\cdot \\mathbf{w}_{1} \\) come denominatore nelle proiezioni successive.</p>`,
+        firstZero: (j) =>
+          `<p>Il vettore \\( \\mathbf{v}\\mkern-2mu_{${j}} \\) è il vettore nullo: non individua alcuna direzione, quindi lo scartiamo e proseguiamo.</p>`,
+        projIntro: (j) =>
+          `<p>Calcoliamo le proiezioni di \\( \\mathbf{v}\\mkern-2mu_{${j}} \\) lungo ciascun vettore ortogonale già trovato.</p>`,
+        projStep: (j, ui, dotTex, S) =>
+          `<p>Proiezione di \\( \\mathbf{v}\\mkern-2mu_{${j}} \\) lungo \\( \\mathbf{w}_{${ui}} \\): il prodotto scalare vale \\( \\mathbf{v}\\mkern-2mu_{${j}}\\cdot \\mathbf{w}_{${ui}} = ${dotTex} \\) e si divide per \\( \\mathbf{w}_{${ui}}\\cdot \\mathbf{w}_{${ui}} = ${S} \\).</p>`,
+        perpIntro: (j) =>
+          `<p>Il vettore ortogonale è \\( \\mathbf{v}\\mkern-2mu_{${j}} \\) meno tutte le proiezioni trovate. Raccogliamo il denominatore comune così le coordinate restano intere.</p>`,
+        dependent: (j) =>
+          `<p>Risulta \\( \\mathbf{v}\\mkern-2mu_{${j}\\perp} = \\mathbf{0} \\): il vettore \\( \\mathbf{v}\\mkern-2mu_{${j}} \\) è combinazione lineare dei precedenti, quindi <b>non aggiunge una nuova direzione</b>. Lo scartiamo e proseguiamo.</p>`,
+        keepRep: (vi) =>
+          `<p>Serve solo l'ortogonalità, quindi scartiamo il fattore comune e ridefiniamo \\( \\mathbf{w}_{${vi}} \\) come il vettore a coordinate intere ridotto, come mostrato sopra.</p>`,
+        dropFactorNote:
+          '<p class="go-tip">Il fattore evidenziato e barrato non è stato calcolato "a caso": a noi interessa solo la <i>direzione</i> di \\( \\mathbf{w}\\mkern-1mu_{j} \\), e qualunque multiplo positivo di un vettore individua la stessa direzione, senza alterare l\'ortogonalità con gli altri. Quando le coordinate hanno un fattore comune conviene quindi sostituire il vettore con il suo rappresentante a coordinate più semplici, scartando quel fattore. Da qui in avanti \\( \\mathbf{w}\\mkern-1mu_{j} \\) indicherà sempre questo rappresentante semplificato.</p>',
+
+        resultHead: '<h5>BASE ORTOGONALE</h5>',
+        resultIntro: (m) =>
+          m === 0
+            ? '<p>Nessuno dei vettori immessi è indipendente: non si ottiene alcun vettore ortogonale.</p>'
+            : `<p>I vettori ortogonali ottenuti sono ${m === 1 ? 'l\'unico seguente' : `i seguenti \\( ${m} \\)`} (a due a due perpendicolari):</p>`,
+        quickIntro: (m) =>
+          m === 0
+            ? '<p>I vettori immessi sono linearmente dipendenti: non si ottiene alcun vettore ortogonale.</p>'
+            : `<p>La base ortogonale ottenuta con Gram-Schmidt è:</p>`,
+        depNote: (list, n) =>
+          n === 1
+            ? `<p>Il vettore \\( ${list} \\) è risultato combinazione lineare dei precedenti e non ha prodotto un nuovo vettore ortogonale.</p>`
+            : `<p>I vettori \\( ${list} \\) sono risultati combinazione lineare dei precedenti e non hanno prodotto un nuovo vettore ortogonale.</p>`,
+        orthoNote: '<p>Si verifica facilmente che il prodotto scalare tra due qualunque di essi è nullo.</p>',
+      },
+      en: {
+        titleQuick: 'Quick result',
+        titleStep: 'Step-by-step solution',
+        inputIs: '<p>The entered vectors are:</p>',
+
+        techHead: '<h5>THE SOLUTION TECHNIQUE WE WILL USE</h5>',
+        techBody:
+          '<p>Before we start, let us fix the method. Here we only want to make the vectors <i>orthogonal</i> to one another, without normalizing them: the advantage is that <b>no radical ever appears</b>, and everything stays rational.</p>' +
+          '<p>We build the orthogonal vectors \\( \\mathbf{w}_{1}, \\mathbf{w}_{2}, \\ldots \\) one at a time. The first is \\( \\mathbf{w}_{1} = \\mathbf{v}\\mkern-2mu_{1} \\). To get the next one we remove from \\( \\mathbf{v}\\mkern-2mu_{j} \\) its projection along each \\( \\mathbf{w}\\mkern-1mu_{i} \\) already found:</p>',
+        techFormU: '\\mathbf{w}_{1} \\; = \\; \\mathbf{v}\\mkern-2mu_{1} \\qquad\\qquad \\mathbf{w}\\mkern-1mu_{j} \\; = \\; \\mathbf{v}\\mkern-2mu_{j} \\; - \\; \\sum_{i\\,<\\,j} \\mathbf{v}\\mkern-2mu_{j\\mkern1mu\\mathbin{/\\mkern-5mu/}\\mkern1mu\\mathbf{w}\\mkern-1mu_{i}}',
+        techBody2:
+          '<p class="go-tip">The key point: the projection along a <i>non</i>-unit vector \\( \\mathbf{w}\\mkern-1mu_{i} \\) has its <b>squared norm</b> \\( \\mathbf{w}\\mkern-1mu_{i}\\cdot \\mathbf{w}\\mkern-1mu_{i} \\) at the denominator, which is an <b>integer</b>. No square roots: we carry only integer squared norms and the whole procedure is done with exact fractions.</p>',
+        techBody3:
+          '<p>The projection of \\( \\mathbf{v}\\mkern-2mu_{j} \\) along \\( \\mathbf{w}\\mkern-1mu_{i} \\) (its component <i>parallel</i> to \\( \\mathbf{w}\\mkern-1mu_{i} \\)) is denoted \\( \\mathbf{v}\\mkern-2mu_{j\\mkern1mu\\mathbin{/\\mkern-5mu/}\\mkern1mu\\mathbf{w}\\mkern-1mu_{i}} \\) and equals:</p>',
+        techFormProj:
+          '\\mathbf{v}\\mkern-2mu_{j\\mkern1mu\\mathbin{/\\mkern-5mu/}\\mkern1mu\\mathbf{w}\\mkern-1mu_{i}} \\; = \\; \\frac{\\mathbf{v}\\mkern-2mu_{j}\\cdot \\mathbf{w}\\mkern-1mu_{i}}{\\mathbf{w}\\mkern-1mu_{i}\\cdot \\mathbf{w}\\mkern-1mu_{i}}\\; \\mathbf{w}\\mkern-1mu_{i}',
+        techBody4:
+          '<p>The new orthogonal vector \\( \\mathbf{w}\\mkern-1mu_{j} \\) is the part of \\( \\mathbf{v}\\mkern-2mu_{j} \\) orthogonal to every direction already found, also denoted \\( \\mathbf{v}\\mkern-2mu_{j\\perp} \\):</p>',
+        techFormPerp:
+          '\\mathbf{w}\\mkern-1mu_{j} \\; = \\; \\mathbf{v}\\mkern-2mu_{j\\perp} \\; = \\; \\mathbf{v}\\mkern-2mu_{j} \\; - \\; \\sum_{i\\,<\\,j} \\mathbf{v}\\mkern-2mu_{j\\mkern1mu\\mathbin{/\\mkern-5mu/}\\mkern1mu\\mathbf{w}\\mkern-1mu_{i}}',
+        techBody5:
+          '<p>Since an orthogonal set stays orthogonal even after multiplying its vectors by non-zero scalars, at each step we keep as \\( \\mathbf{w}\\mkern-1mu_{j} \\) the <b>reduced integer-coordinate</b> representative (collecting any \\( \\tfrac{1}{d} \\) factor), to get clean numbers.</p>',
+
+        analyze: (j) => `<h5>LET'S ANALYZE \\( \\mathbf{v}\\mkern-2mu_{${j}} \\)</h5>`,
+        firstIntro: (j) =>
+          `<p>The first (non-zero) vector directly gives the first direction: \\( \\mathbf{v}\\mkern-2mu_{${j}} \\Longrightarrow \\mathbf{w}_{1} \\). We will need its squared norm \\( \\mathbf{w}_{1}\\cdot \\mathbf{w}_{1} \\) as the denominator in the later projections.</p>`,
+        firstZero: (j) =>
+          `<p>The vector \\( \\mathbf{v}\\mkern-2mu_{${j}} \\) is the zero vector: it gives no direction, so we discard it and continue.</p>`,
+        projIntro: (j) =>
+          `<p>We compute the projections of \\( \\mathbf{v}\\mkern-2mu_{${j}} \\) along each orthogonal vector already found.</p>`,
+        projStep: (j, ui, dotTex, S) =>
+          `<p>Projection of \\( \\mathbf{v}\\mkern-2mu_{${j}} \\) along \\( \\mathbf{w}_{${ui}} \\): the dot product is \\( \\mathbf{v}\\mkern-2mu_{${j}}\\cdot \\mathbf{w}_{${ui}} = ${dotTex} \\) and we divide by \\( \\mathbf{w}_{${ui}}\\cdot \\mathbf{w}_{${ui}} = ${S} \\).</p>`,
+        perpIntro: (j) =>
+          `<p>The orthogonal vector is \\( \\mathbf{v}\\mkern-2mu_{${j}} \\) minus all the projections found. We collect the common denominator so the coordinates stay integer.</p>`,
+        dependent: (j) =>
+          `<p>We get \\( \\mathbf{v}\\mkern-2mu_{${j}\\perp} = \\mathbf{0} \\): the vector \\( \\mathbf{v}\\mkern-2mu_{${j}} \\) is a linear combination of the previous ones, so it <b>adds no new direction</b>. We discard it and continue.</p>`,
+        keepRep: (vi) =>
+          `<p>We only need orthogonality, so we drop the common factor and redefine \\( \\mathbf{w}_{${vi}} \\) as the reduced integer-coordinate vector, as shown above.</p>`,
+        dropFactorNote:
+          '<p class="go-tip">The highlighted, crossed-out factor was not pulled out "by chance": we only care about the <i>direction</i> of \\( \\mathbf{w}\\mkern-1mu_{j} \\), and any positive multiple of a vector points in the same direction, without changing its orthogonality with the others. When the coordinates share a common factor, it is convenient to replace the vector with its representative with simpler coordinates, dropping that factor. From here on, \\( \\mathbf{w}\\mkern-1mu_{j} \\) will always denote this simplified representative.</p>',
+
+        resultHead: '<h5>ORTHOGONAL BASIS</h5>',
+        resultIntro: (m) =>
+          m === 0
+            ? '<p>None of the entered vectors is independent: no orthogonal vector is obtained.</p>'
+            : `<p>The orthogonal vectors obtained are ${m === 1 ? 'the single one below' : `the following \\( ${m} \\)`} (pairwise perpendicular):</p>`,
+        quickIntro: (m) =>
+          m === 0
+            ? '<p>The entered vectors are linearly dependent: no orthogonal vector is obtained.</p>'
+            : `<p>The orthogonal basis obtained with Gram-Schmidt is:</p>`,
+        depNote: (list, n) =>
+          n === 1
+            ? `<p>The vector \\( ${list} \\) turned out to be a linear combination of the previous ones and produced no new orthogonal vector.</p>`
+            : `<p>The vectors \\( ${list} \\) turned out to be linear combinations of the previous ones and produced no new orthogonal vector.</p>`,
+        orthoNote: '<p>One easily checks that the dot product of any two of them is zero.</p>',
+      },
+    }[LANG];
+    const L = D;
+    // ---------------------------------------------------------- riferimenti DOM
+    const inVecs = root.querySelector('#goVecs');
+    const inDim = root.querySelector('#goDim');
+    const vectorsEl = root.querySelector('#goVectors');
+    const statusEl = root.querySelector('#goStatus');
+    const quickEl = root.querySelector('#goQuick');
+    const fullEl = root.querySelector('#goFull');
+
+    let K, N;
+
+    // --------------------------------------------------------- helper rendering
+    const KOPTS = { throwOnError: false, displayMode: true };
+    const RMOPTS = {
+      throwOnError: false,
+      delimiters: [
+        { left: '\\(', right: '\\)', display: false },
+        { left: '\\[', right: '\\]', display: true },
+      ],
+    };
+    function renderKatexBlock(tex) {
+      const safe = tex.replace(/\\mspace/g, '\\mkern');
+      try { return katex.renderToString(safe, KOPTS); }
+      catch (e) { return '<span style="color:#e55">[KaTeX error]</span>'; }
+    }
+    function renderInline(el) { try { renderMathInElement(el, RMOPTS); } catch (e) {} }
+    function reveal(el) {
+      el.hidden = false; el.style.display = 'block';
+      requestAnimationFrame(() => el.classList.add('go-visible'));
+    }
+    function hide(el) { el.classList.remove('go-visible'); el.style.display = 'none'; el.hidden = true; }
+    function tip(msg) { statusEl.textContent = msg; statusEl.className = 'go-status go-error'; }
+    function unTip() { statusEl.textContent = ''; statusEl.className = 'go-status'; }
+
+    const ERR = {
+      it: {
+        long: (n) => `Troppo lungo: usa meno di ${n} caratteri.`,
+        bad: 'Caratteri non ammessi. Inserisci solo numeri razionali (interi, frazioni come 3/4, decimali). Niente lettere.',
+      },
+      en: {
+        long: (n) => `Too long: use fewer than ${n} characters.`,
+        bad: 'Forbidden characters. Enter only rational numbers (integers, fractions like 3/4, decimals). No letters.',
+      },
+    }[LANG];
+
+    // ------------------------------------------------------------ griglia input
+    function cellId(j, c) { return `gov${j}c${c}`; }
+
+    function showVectors() {
+      K = Math.max(1, Math.min(8, parseInt(inVecs.value) || 1));
+      N = Math.max(1, Math.min(8, parseInt(inDim.value) || 1));
+      let html = '';
+      for (let j = 0; j < K; j++) {
+        html += '<div class="go-vec">';
+        html += `<div class="go-vec-label">\\( \\mathbf{v}\\mkern-2mu_{${j + 1}} \\)</div>`;
+        html += '<div class="go-vec-body">';
+        html += '<span class="go-paren go-paren-l" aria-hidden="true"></span>';
+        html += '<div class="go-vec-col">';
+        for (let c = 0; c < N; c++) {
+          html += `<input class="go-cell" type="text" inputmode="text" id="${cellId(j, c)}" value="0">`;
+        }
+        html += '</div>';
+        html += '<span class="go-paren go-paren-r" aria-hidden="true"></span>';
+        html += '</div></div>';
+      }
+      vectorsEl.innerHTML = html;
+      vectorsEl.querySelectorAll('input').forEach((inp) => {
+        inp.addEventListener('change', () => validateCell(inp));
+      });
+      renderInline(vectorsEl);
+      fitBrackets();
+    }
+
+    // parentesi estensibili di KaTeX, dimensionate sull'altezza della colonna di input.
+    function fitBrackets() {
+      requestAnimationFrame(() => {
+        const col = vectorsEl.querySelector('.go-vec-col');
+        if (!col) return;
+        const H = col.getBoundingClientRect().height;
+        if (H <= 0) return;
+        const REF = 10;
+        const probe = vectorsEl.querySelector('.go-paren-l');
+        if (!probe) return;
+        probe.innerHTML = katex.renderToString('\\left(\\rule{0pt}{' + REF + 'em}\\right.', { throwOnError: false });
+        const ref = probe.getBoundingClientRect().height;
+        if (ref <= 0) return;
+        const em = (H * REF / ref).toFixed(3);
+        const lTex = katex.renderToString('\\left(\\rule{0pt}{' + em + 'em}\\right.', { throwOnError: false });
+        const rTex = katex.renderToString('\\left.\\rule{0pt}{' + em + 'em}\\right)', { throwOnError: false });
+        vectorsEl.querySelectorAll('.go-paren-l').forEach((el) => { el.innerHTML = lTex; });
+        vectorsEl.querySelectorAll('.go-paren-r').forEach((el) => { el.innerHTML = rTex; });
+      });
+    }
+
+    // ------------------------------------------------------------ validazione cella
+    function sanitizeRational(str) {
+      // ammessi: cifre, segno + -, una barra di frazione /, punto/virgola decimale, spazi
+      let out = '', ok = true;
+      for (const ch of str) {
+        const code = ch.charCodeAt(0);
+        const isDigit = code >= 48 && code <= 57;
+        if (isDigit) out += ch;
+        else if (ch === ',') out += '.';
+        else if (ch === '+' || ch === '-' || ch === '/' || ch === '.' || ch === ' ') out += ch;
+        else ok = false;
+      }
+      return { out: out.replace(/\s+/g, ''), ok };
+    }
+
+    function validateCell(inp) {
+      const LIM = 16;
+      const raw = inp.value;
+      if (raw.length >= LIM) { inp.value = '0'; tip(ERR.long(LIM)); return; }
+      const { out, ok } = sanitizeRational(raw);
+      if (out === '') { inp.value = '0'; unTip(); return; }
+      if (!ok || (out.match(/\//g) || []).length > 1) { inp.value = '0'; tip(ERR.bad); return; }
+      try {
+        const v = Frac.parse(out);          // aritmetica esatta su BigInt
+        inp.value = v.toString();           // "p/q" oppure "p"
+        unTip();
+      } catch (e) { inp.value = '0'; tip(ERR.bad); }
+    }
+
+    let goRandomUsed = false;
+    function randInt() { return Math.floor(Math.random() * 11) - 5; } // -5..5
+    function fillRandom() {
+      for (let j = 0; j < K; j++)
+        for (let c = 0; c < N; c++)
+          root.querySelector('#' + cellId(j, c)).value = String(randInt());
+      unTip();
+      goRandomUsed = true;
+    }
+    function resetCells() {
+      for (let j = 0; j < K; j++)
+        for (let c = 0; c < N; c++)
+          root.querySelector('#' + cellId(j, c)).value = '0';
+      unTip();
+      goRandomUsed = false;
+    }
+    function goTrack(mode) {
+      if (window.umami) umami.track('gramschmidtorto-solve', { mode, vectors: K, dim: N, randomUsed: goRandomUsed });
+    }
+
+    // legge il modello corrente dai campi (stringhe razionali esatte)
+    function readVectors() {
+      const V = [];
+      for (let j = 0; j < K; j++) {
+        const col = [];
+        for (let c = 0; c < N; c++) {
+          const el = root.querySelector('#' + cellId(j, c));
+          let s = (el && el.value || '0').trim();
+          if (s === '' || /[a-zA-Z]/.test(s)) s = '0';
+          col.push(s);
+        }
+        V.push(col);
+      }
+      return V;
+    }
+    // ============================================================= motore (BigInt)
+    const babs = (x) => (x < 0n ? -x : x);
+    function bgcd(a, b) { a = babs(a); b = babs(b); while (b) { [a, b] = [b, a % b]; } return a; }
+    function blcm(a, b) { a = babs(a); b = babs(b); if (a === 0n || b === 0n) return 0n; return (a / bgcd(a, b)) * b; }
+
+    class Frac {
+      constructor(n, d = 1n) {
+        if (d === 0n) throw new Error('den 0');
+        if (d < 0n) { n = -n; d = -d; }
+        const g = bgcd(n, d) || 1n;
+        this.n = n / g; this.d = d / g;
+      }
+      static parse(str) {
+        let s = String(str).trim().replace(/\s+/g, '').replace(/,/g, '.');
+        if (s === '' || s === '+' || s === '-') return new Frac(0n);
+        if (s.includes('/')) { const p = s.split('/'); return Frac.parseDec(p[0]).div(Frac.parseDec(p[1])); }
+        return Frac.parseDec(s);
+      }
+      static parseDec(str) {
+        let s = String(str).trim(), sign = 1n;
+        if (s[0] === '+') s = s.slice(1);
+        else if (s[0] === '-') { sign = -1n; s = s.slice(1); }
+        if (s === '') return new Frac(0n);
+        if (s.includes('.')) {
+          const parts = s.split('.');
+          if (parts.length > 2) throw new Error('bad decimal');
+          const ip = parts[0], fp = parts[1] || '';
+          if (!/^[0-9]*$/.test(ip) || !/^[0-9]*$/.test(fp)) throw new Error('bad decimal');
+          return new Frac(sign * BigInt((ip || '0') + fp), 10n ** BigInt(fp.length));
+        }
+        if (!/^[0-9]+$/.test(s)) throw new Error('not a number: ' + str);
+        return new Frac(sign * BigInt(s), 1n);
+      }
+      add(o) { return new Frac(this.n * o.d + o.n * this.d, this.d * o.d); }
+      sub(o) { return new Frac(this.n * o.d - o.n * this.d, this.d * o.d); }
+      mul(o) { return new Frac(this.n * o.n, this.d * o.d); }
+      div(o) { return new Frac(this.n * o.d, this.d * o.n); }
+      isZero() { return this.n === 0n; }
+      isOne() { return this.n === 1n && this.d === 1n; }
+      toString() { return this.d === 1n ? `${this.n}` : `${this.n}/${this.d}`; }
+    }
+
+    function dotF(u, v) { let acc = new Frac(0n); for (let i = 0; i < u.length; i++) acc = acc.add(u[i].mul(v[i])); return acc; }
+
+    // riduce un vettore di Frac a (scale)*(vettore intero ridotto): { scale:Frac, a:[BigInt], S:BigInt } | {zero}
+    function reduceDirection(w) {
+      let D = 1n;
+      for (const f of w) D = blcm(D, f.d);
+      const b = w.map((f) => f.n * (D / f.d));
+      let g = 0n;
+      for (const x of b) g = bgcd(g, x);
+      if (g === 0n) return { zero: true };
+      const a = b.map((x) => x / g);
+      let S = 0n;
+      for (const x of a) S += x * x;
+      return { zero: false, a, S, scale: new Frac(g, D) };
+    }
+
+    // Gram-Schmidt; vectors: array (k) di array (n) di stringhe razionali. Ritorna { versors, log }.
+    function gramSchmidt(vectors) {
+      const versors = [];          // { a:[BigInt], S:BigInt }
+      const log = [];
+      vectors.forEach((vRaw, j) => {
+        const v = vRaw.map(Frac.parse);
+        let w = v.slice();
+        const projs = [];
+        versors.forEach((u, idx) => {
+          const aF = u.a.map((x) => new Frac(x));
+          const num = dotF(v, aF);                  // v . a_i
+          const t = num.div(new Frac(u.S));         // num / S_i
+          const proj = aF.map((af) => af.mul(t));   // t * a_i
+          w = w.map((wc, c) => wc.sub(proj[c]));
+          projs.push({ ui: idx + 1, a: u.a.slice(), S: u.S, num, t, proj });
+        });
+        const wRaw = w.slice();
+        const red = reduceDirection(w);
+        if (red.zero) {
+          log.push({ j, kind: projs.length ? 'dependent' : 'zero', v, projs, wRaw });
+        } else {
+          versors.push({ a: red.a, S: red.S });
+          const vi = versors.length; // indice del versore (1-based) nell'ordine di accettazione
+          log.push({ j, vi, kind: projs.length ? 'new' : 'first', v, projs, wRaw, a: red.a, S: red.S, scale: red.scale });
+        }
+      });
+      return { versors, log };
+    }
+
+    // -------------------------------------------------------------- helper LaTeX
+    function fracTeX(f) {
+      if (f.d === 1n) return `${f.n}`;
+      return f.n < 0n ? `-\\frac{${-f.n}}{${f.d}}` : `\\frac{${f.n}}{${f.d}}`;
+    }
+    function colVecF(arr) { return '\\begin{pmatrix}' + arr.map(fracTeX).join('\\\\[2pt]') + '\\end{pmatrix}'; }
+    function colVecI(arr) { return '\\begin{pmatrix}' + arr.map((x) => `${x}`).join('\\\\[2pt]') + '\\end{pmatrix}'; }
+    // scalare razionale davanti a un vettore: barrato ed evidenziato (per la nota "rappresentante più semplice")
+    function dropFactorTeX(f) {
+      if (f.isOne()) return '';
+      if (f.n === 1n) return `\\frac{1}{\\textcolor{#e5a050}{\\cancel{${f.d}}}}\\,`;
+      return `\\textcolor{#e5a050}{\\cancel{${fracTeX(f)}}}\\,`;
+    }
+    // prodotto scalare esteso: a_0 v_0 + a_1 v_1 + ... (salta i termini con coordinata 0 del versore)
+    function dotSumTeX(vArr, aInts) {
+      const terms = [];
+      for (let c = 0; c < aInts.length; c++) {
+        if (aInts[c] === 0n) continue;
+        const vt = fracTeX(vArr[c]);
+        const at = `${aInts[c]}`;
+        terms.push(`\\left(${vt}\\right)\\!\\cdot\\!\\left(${at}\\right)`);
+      }
+      return terms.length ? terms.join(' + ') : '0';
+    }
+    function sqSumTeX(a) { return a.map((x) => (x < 0n ? `(${x})^{2}` : `${x}^{2}`)).join(' + '); }
+
+    // ------------------------------------------------------------ visualizzazione
+    function emit(target, html, tex, conti) {
+      if (html) { const d = document.createElement('div'); d.className = 'go-text'; d.innerHTML = html; target.appendChild(d); renderInline(d); }
+      if (tex) { const w = document.createElement('div'); w.className = 'go-katex'; w.innerHTML = renderKatexBlock(tex); target.appendChild(w); }
+      if (conti) { const c = document.createElement('div'); c.className = 'go-conti'; c.innerHTML = renderKatexBlock(conti); target.appendChild(c); }
+    }
+    function clearResults() { quickEl.innerHTML = ''; fullEl.innerHTML = ''; hide(quickEl); hide(fullEl); }
+
+    // ============================================================= Gram-Schmidt
+    function elabora(quick) {
+      const target = quick ? quickEl : fullEl;
+      const other = quick ? fullEl : quickEl;
+      quickEl.innerHTML = ''; fullEl.innerHTML = '';
+
+      const V = readVectors();
+      const { versors, log } = gramSchmidt(V);
+
+      emit(target, `<h2>${quick ? L.titleQuick : L.titleStep}</h2>`);
+
+      // vettori immessi
+      const inParts = log.map((e) => `\\mathbf{v}\\mkern-2mu_{${e.j + 1}} = ${colVecF(e.v)}`);
+      emit(target, L.inputIs, inParts.join('\\quad '));
+
+      if (!quick) {
+        // spiegazione della tecnica risolutiva
+        emit(target, L.techHead + L.techBody, L.techFormU);
+        emit(target, L.techBody2 + L.techBody3, L.techFormProj);
+        emit(target, L.techBody4, L.techFormPerp);
+        emit(target, L.techBody5);
+
+        // passi per ciascun vettore
+        log.forEach((e) => {
+          const jD = e.j + 1;
+          if (e.kind === 'zero') { emit(target, L.analyze(jD) + L.firstZero(jD)); return; }
+          emit(target, L.analyze(jD));
+
+          if (e.kind === 'first') {
+            emit(target, L.firstIntro(jD));
+            let t;
+            if (!e.scale.isOne()) {
+              t = `\\mathbf{v}\\mkern-2mu_{${jD}} \\; = \\; ${colVecF(e.v)} \\;\\Longrightarrow\\; \\mathbf{w}_{1} \\; = \\; ${dropFactorTeX(e.scale)}${colVecI(e.a)} = ${colVecI(e.a)}`;
+            } else {
+              t = `\\mathbf{w}_{1} \\; = \\; \\mathbf{v}\\mkern-2mu_{${jD}} \\; = \\; ${colVecF(e.v)}`;
+            }
+            emit(target, '', t);
+            if (!e.scale.isOne()) emit(target, L.dropFactorNote);
+            if (versors.length > 1) emit(target, '', `\\mathbf{w}_{1}\\cdot \\mathbf{w}_{1} = ${sqSumTeX(e.a)} = ${e.S}`);
+            return;
+          }
+
+          // 'new' o 'dependent': mostra le proiezioni
+          emit(target, L.projIntro(jD));
+          e.projs.forEach((p) => {
+            emit(target,
+              L.projStep(jD, p.ui, fracTeX(p.num), `${p.S}`),
+              `\\mathbf{v}\\mkern-2mu_{${jD}\\mkern1mu\\mathbin{/\\mkern-5mu/}\\mkern1mu\\mathbf{w}_{${p.ui}}} \\; = \\; \\frac{\\mathbf{v}\\mkern-2mu_{${jD}}\\cdot \\mathbf{w}_{${p.ui}}}{\\mathbf{w}_{${p.ui}}\\cdot \\mathbf{w}_{${p.ui}}}\\,\\mathbf{w}_{${p.ui}} \\; = \\; \\frac{${fracTeX(p.num)}}{${p.S}}\\,${colVecI(p.a)} \\; = \\; ${colVecF(p.proj)}`);
+          });
+
+          // vettore ortogonale
+          emit(target, L.perpIntro(jD));
+          let symBase = `\\mathbf{v}\\mkern-2mu_{${jD}\\perp} \\; = \\; \\mathbf{v}\\mkern-2mu_{${jD}}`;
+          let vals = colVecF(e.v);
+          e.projs.forEach((p) => { symBase += ` \\, - \\, \\mathbf{v}\\mkern-2mu_{${jD}\\mkern1mu\\mathbin{/\\mkern-5mu/}\\mkern1mu\\mathbf{w}_{${p.ui}}}`; vals += ` \\, - \\, ${colVecF(p.proj)}`; });
+
+          if (e.kind === 'dependent') {
+            emit(target, '', `${symBase} \\; = \\; ${vals} \\; = \\; ${colVecF(e.wRaw)} \\; = \\; \\mathbf{0}`);
+            emit(target, L.dependent(jD));
+          } else {
+            let perpTex;
+            if (!e.scale.isOne()) {
+              perpTex = `${symBase} \\; = \\; ${vals} \\; = \\; ${colVecF(e.wRaw)} \\;\\Longrightarrow\\; \\mathbf{w}_{${e.vi}} \\; = \\; ${dropFactorTeX(e.scale)}${colVecI(e.a)} = ${colVecI(e.a)}`;
+            } else {
+              perpTex = `\\mathbf{w}_{${e.vi}} \\; = \\; ${symBase} \\; = \\; ${vals} \\; = \\; ${colVecF(e.wRaw)}`;
+            }
+            emit(target, '', perpTex);
+            if (!e.scale.isOne()) emit(target, L.keepRep(e.vi));
+            if (e.vi < versors.length) emit(target, '', `\\mathbf{w}_{${e.vi}}\\cdot \\mathbf{w}_{${e.vi}} = ${sqSumTeX(e.a)} = ${e.S}`);
+          }
+        });
+      }
+
+      // risultato finale (sia passo-passo sia sintetico)
+      const m = versors.length;
+      const deps = log.filter((e) => e.kind === 'dependent' || e.kind === 'zero').map((e) => `\\mathbf{v}\\mkern-2mu_{${e.j + 1}}`);
+      if (quick) emit(target, L.quickIntro(m));
+      else emit(target, L.resultHead + L.resultIntro(m));
+      if (m > 0) {
+        const list = versors.map((u, i) => `\\mathbf{w}_{${i + 1}} \\; = \\; ${colVecI(u.a)}`).join('\\qquad ');
+        emit(target, '', list);
+        if (!quick && m > 1) emit(target, L.orthoNote);
+      }
+      if (deps.length && (quick ? m > 0 : true)) emit(target, L.depNote(deps.join(',\\; '), deps.length));
+
+      hide(other);
+      reveal(target);
+    }
+
+    // -------------------------------------------------------------- interazioni
+    function rebuild() { showVectors(); clearResults(); unTip(); }
+    inVecs.addEventListener('input', rebuild);
+    inDim.addEventListener('input', rebuild);
+    root.querySelector('#goBtnReset').addEventListener('click', () => { resetCells(); clearResults(); unTip(); });
+    root.querySelector('#goBtnRandom').addEventListener('click', () => { fillRandom(); clearResults(); });
+    root.querySelector('#goBtnQuick').addEventListener('click', () => { clearResults(); elabora(true); goTrack('quick'); });
+    root.querySelector('#goBtnStep').addEventListener('click', () => { clearResults(); elabora(false); goTrack('steps'); });
+
+    // ------------------------------------------------------------- avvio
+    showVectors();
+    renderInline(root);
+    fitBrackets();
+    window.addEventListener('resize', fitBrackets);
+  }
+</script>

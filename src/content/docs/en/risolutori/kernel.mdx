@@ -1,0 +1,23 @@
+---
+title: Kernel / null space of a linear map
+description: Online kernel / null space solver for matrices, with homogeneous systems, exact arithmetic, and symbolic parameters, step by step.
+sidebar:
+  hidden: false
+  label: Kernel
+  order: 3
+tableOfContents: false
+---
+
+import KernelSolver from '@components/KernelSolver.astro';
+
+Given a matrix $A$, this simulator solves the homogeneous system $A \cdot \mathbf{x} = \mathbf{0}$ and
+finds its **kernel**: it first looks for simple relations among the columns, then
+solves the system with Gauss-Jordan anyway and compares the two results. All
+computations use exact rational arithmetic; the cells also accept **parameters**
+(for example `k`), with a case analysis on the critical values.
+ 
+<KernelSolver />
+:::tip[See also]
+For the detailed, move-by-move row reduction of a matrix, use the
+[Gauss-Jordan](/en/risolutori/gauss-jordan/) solver.
+:::

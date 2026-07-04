@@ -1,0 +1,34 @@
+---
+title: Gram-Schmidt
+description: Risolutore online di ortonormalizzazione di Gram-Schmidt, calcola passo-passo base ortonormale da vettori con proiezioni e frazioni esatte.
+sidebar:
+  hidden: false
+  label: Gram-Schmidt
+  order: 4
+tableOfContents: false
+---
+
+import GramSchmidt from '@components/GramSchmidt.astro';
+
+Questo strumento applica il **procedimento di Gram-Schmidt** a un insieme di
+vettori di $\mathbb{R}^n$ e restituisce una **base ortonormale** dello spazio
+generato.
+
+Inserisci i vettori come colonne (numeri interi o frazioni, es. `1/2`, `-3`),
+scegli quanti sono ($k$) e in quale spazio vivono ($n$), poi premi
+**RISULTATO SINTETICO** per la sola base finale oppure **SVOLGIMENTO
+PASSO-PASSO** per vedere tutti i calcoli intermedi: proiezioni, parti
+ortogonali, norme al quadrato e versori, con il fattore comune evidenziato
+ogni volta che si sceglie un rappresentante a coordinate più semplici.
+
+Se uno dei vettori inseriti risulta **linearmente dipendente** dai precedenti,
+lo strumento lo segnala e lo scarta automaticamente: la base ortonormale finale
+avrà quindi meno di $k$ elementi.
+
+**Non usarlo per**: insiemi con più di 8 vettori o in dimensione superiore a
+8 (limite dello strumento), né per ottenere una base solo *ortogonale* (senza
+normalizzazione) — per quello c'è il
+[risolutore dedicato](/it/risolutori/gram-schmid-solo-orto/), più rapido perché
+evita i radicali.
+
+<GramSchmidt />

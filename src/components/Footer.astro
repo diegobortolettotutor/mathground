@@ -1,0 +1,63 @@
+---
+const isEN = Astro.url.pathname.startsWith('/en/');
+const locale = isEN ? '/en' : '/it';
+---
+<footer class="footer-custom">
+  <p class="footer-riga1">© <span id="anno-corrente"></span> Diego Bortoletto · MathGround.it</p>
+  <p class="footer-riga2">
+    <a href={locale + '/paginalegale#privacy'}>Privacy Policy</a> · 
+    <a href={locale + '/paginalegale#terms'}>{isEN ? 'Terms of Service' : 'Termini di Servizio'}</a> · 
+    <a href={locale + '/contatti'}>{isEN ? 'Contact me' : 'Contattami'}</a>
+  </p>
+</footer>
+
+<script is:inline>
+  function aggiornaAnno() {
+    const el = document.getElementById('anno-corrente');
+    if (el) el.textContent = new Date().getFullYear();
+  }
+  aggiornaAnno();
+  document.addEventListener('astro:page-load', aggiornaAnno);
+
+  function posizionaFooter() {
+    const footer = document.querySelector('.footer-custom');
+    if (!footer) return;
+    footer.style.marginTop = '0px';
+    const V = window.innerHeight;
+    const altezzaContenuto = footer.getBoundingClientRect().top + window.scrollY;
+    const h = footer.offsetHeight;
+    let spazio;
+    if (altezzaContenuto < V / 2) {
+      spazio = V - altezzaContenuto - h;
+    } else {
+      spazio = V / 2;
+    }
+    if (spazio < 0) spazio = 0;
+    footer.style.marginTop = spazio + 'px';
+  }
+
+  posizionaFooter();
+  document.addEventListener('astro:page-load', posizionaFooter);
+  window.addEventListener('load', posizionaFooter);
+  window.addEventListener('resize', posizionaFooter);
+</script>
+
+<style>
+  .footer-custom {
+    padding-top: 1rem;
+    border-top: 1px solid var(--sl-color-gray-5);
+    font-size: var(--sl-text-sm);
+    color: var(--sl-color-gray-3);
+    text-align: center;
+  }
+  .footer-custom p {
+    margin: 0.2rem 0;
+  }
+  .footer-custom a {
+    color: var(--sl-color-gray-3);
+    text-decoration: none;
+  }
+  .footer-custom a:hover {
+    text-decoration: underline;
+  }
+</style>

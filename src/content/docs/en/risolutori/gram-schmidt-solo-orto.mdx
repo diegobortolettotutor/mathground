@@ -1,0 +1,38 @@
+---
+title: Gram-Schmidt without normalization
+description: Online Gram-Schmidt orthogonalization solver without normalization, orthogonal basis with integer coordinates, step by step.
+sidebar:
+  hidden: false
+  label: Gram-Schmidt without normalization
+  order: 5
+tableOfContents: false
+---
+
+import GramSchmidtSoloOrto from '@components/GramSchmidtSoloOrto.astro';
+
+This tool applies the **Gram-Schmidt procedure** to a set of vectors in
+$\mathbb{R}^n$ and returns an **orthogonal basis** (not normalized) of the
+space they span.
+
+It is the version to use when only **orthogonality** between the vectors
+matters, not their length: at every step the tool keeps the representative
+with **reduced integer coordinates**, avoiding square roots and decimal
+numbers at every stage of the computation.
+
+Enter the vectors as columns (integers or fractions, e.g. `1/2`, `-3`), choose
+how many there are ($k$) and which space they live in ($n$), then press
+**SYNTHETIC RESULT** for just the final basis, or **STEP-BY-STEP SOLUTION** to
+see every intermediate calculation: projections, orthogonal parts, and the
+common factor highlighted whenever a simpler-coordinate representative is
+chosen.
+
+If one of the vectors turns out to be **linearly dependent** on the previous
+ones, the tool flags it and discards it automatically: the final orthogonal
+basis will then have fewer than $k$ elements.
+
+**Do not use it for**: sets with more than 8 vectors or in dimension higher
+than 8 (the tool's limit), nor to get directly an *orthonormal* basis (with
+unit-length versors) — for that there is the
+[full Gram-Schmidt solver](/en/risolutori/gram-schmidt/).
+
+<GramSchmidtSoloOrto />

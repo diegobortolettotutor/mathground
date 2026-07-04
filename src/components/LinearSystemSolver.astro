@@ -1,0 +1,2128 @@
+---
+/**
+ * LinearSystemSolver.astro — Risolutore didattico di SISTEMI LINEARI (anche non omogenei).
+ * Bilingue (it/en), aritmetica esatta (razionale su BigInt + funzioni razionali
+ * multivariate per i parametri), spiegazione passo-passo in KaTeX.
+ *
+ * Impostazione sulla falsariga di KernelSolver.astro:
+ *   - stesse classi/pattern grafici (prefisso ls- invece di ks-);
+ *   - stesso motore aritmetico (Fraction / Polynomial / RationalFunction / rref);
+ *   - scorciatoie "a occhio" adattate al caso non omogeneo (incompatibilità evidenti,
+ *     soluzione particolare visibile, relazioni fra colonne per la parte omogenea);
+ *   - via maestra SEMPRE mostrata: Rouché-Capelli, Gauss-Jordan sull'aumentata,
+ *     forma parametrica della soluzione generale (parametri = variabili libere).
+ *
+ * Dipendenze (già nel progetto): npm install katex
+ * Uso in una pagina .mdx:
+ *   import LinearSystemSolver from '../../../components/LinearSystemSolver.astro';
+ *   <LinearSystemSolver />
+ *
+ * Una sola istanza per pagina (come per GaussJordan.astro e KernelSolver.astro).
+ */
+import 'katex/dist/katex.min.css';
+
+const lang = (Astro.currentLocale ?? 'it').toLowerCase().startsWith('en') ? 'en' : 'it';
+
+const UI = {
+  it: {
+    title: 'Sistemi lineari',
+    subtitle: 'Risoluzione di \\(A \\cdot \\mathbf{x}=\\mathbf{b}\\) con Rouché-Capelli, scorciatoie e Gauss-Jordan',
+    step1: 'Step 1 \u2014 IMPOSTA LE DIMENSIONI DEL SISTEMA',
+    rowsLabel: 'Equazioni \\((m)\\)',
+    colsLabel: 'Incognite \\((n)\\)',
+    step2: 'Step 2 \u2014 COMPILA LA MATRICE \\(A\\) E IL TERMINE NOTO \\(\\mathbf{b}\\)',
+    note: 'Cerchiamo TUTTE le soluzioni del sistema \\(A \\cdot \\mathbf{x}=\\mathbf{b}\\): prima le scorciatoie, poi in ogni caso la via maestra con Gauss-Jordan e la forma parametrica del risultato.',
+    btnReset: 'AZZERA VALORI',
+    btnRandom: 'VALORI CASUALI',
+    btnQuick: 'RISULTATO SINTETICO',
+    btnStep: 'SVOLGIMENTO PASSO-PASSO',
+  },
+  en: {
+    title: 'Linear systems',
+    subtitle: 'Solving \\(A \\cdot \\mathbf{x}=\\mathbf{b}\\) via Rouché-Capelli, shortcuts and Gauss-Jordan',
+    step1: 'Step 1 \u2014 SET THE SYSTEM DIMENSIONS',
+    rowsLabel: 'Equations \\((m)\\)',
+    colsLabel: 'Unknowns \\((n)\\)',
+    step2: 'Step 2 \u2014 FILL IN THE MATRIX \\(A\\) AND THE RIGHT-HAND SIDE \\(\\mathbf{b}\\)',
+    note: 'We look for ALL solutions of \\(A \\cdot \\mathbf{x}=\\mathbf{b}\\): shortcuts first, then in any case the standard route with Gauss-Jordan and the parametric form of the result.',
+    btnReset: 'RESET VALUES',
+    btnRandom: 'RANDOM VALUES',
+    btnQuick: 'QUICK RESULT',
+    btnStep: 'STEP-BY-STEP SOLUTION',
+  },
+}[lang];
+---
+
+<div class="ls-root" data-lang={lang}>
+  <section class="ls-panel">
+    <h4 class="ls-steplabel">{UI.step1}</h4>
+    <div class="ls-dims" id="lsDims">
+      <label for="lsRows" set:html={UI.rowsLabel}></label>
+      <input id="lsRows" type="number" min="1" max="8" value="3" />
+      <span class="ls-times">\(\large\times\)</span>
+      <input id="lsCols" type="number" min="1" max="8" value="3" />
+      <label for="lsCols" set:html={UI.colsLabel}></label>
+    </div>
+  </section>
+
+  <section class="ls-panel">
+    <h4 class="ls-steplabel">{UI.step2}</h4>
+    <div class="ls-eqwrap" id="lsEqWrap">
+      <div class="ls-eq">
+        <span class="ls-paren ls-paren-al" aria-hidden="true"></span>
+        <div id="lsGrid" class="ls-gridhost"></div>
+        <span class="ls-paren ls-paren-ar" aria-hidden="true"></span>
+        <span id="lsXeq" class="ls-xeq"></span>
+        <span class="ls-paren ls-paren-bl" aria-hidden="true"></span>
+        <div id="lsBGrid" class="ls-gridhost"></div>
+        <span class="ls-paren ls-paren-br" aria-hidden="true"></span>
+      </div>
+    </div>
+    <p class="ls-note" set:html={UI.note}></p>
+    <div id="lsStatus" class="ls-status" role="alert" aria-live="polite"></div>
+  </section>
+
+  <div class="ls-actions">
+    <button id="lsBtnReset" class="ls-btn ls-btn-ghost" type="button">{UI.btnReset}</button>
+    <button id="lsBtnRandom" class="ls-btn ls-btn-ghost" type="button">{UI.btnRandom}</button>
+    <button id="lsBtnQuick" class="ls-btn ls-btn-ghost" type="button">{UI.btnQuick}</button>
+  </div>
+
+  <div class="ls-secondary">
+    <button id="lsBtnStep" class="ls-btn ls-btn-ghost ls-btn-wide" type="button">{UI.btnStep}</button>
+  </div>
+
+  <section id="lsOut" class="ls-result" hidden></section>
+</div>
+
+<style is:global>
+  .ls-root {
+    --ls-radius: 12px;
+    --ls-surface: var(--sl-color-gray-6, #1a1a1a);
+    --ls-border: var(--sl-color-gray-5, #383838);
+    --ls-accent: var(--sl-color-accent, #4f7cff);
+    --ls-red: #d11111;
+    --ls-accent-hi: var(--sl-color-accent-high, #b8c8ff);
+    font-size: 1rem; line-height: 1.5;
+    min-width: 330px;
+    color: var(--sl-color-text, inherit);
+    width: 100%; margin: 1.5rem 0; text-align: center;
+  }
+  .ls-root *, .ls-root *::before, .ls-root *::after { box-sizing: border-box; }
+
+  .ls-panel {
+    background: var(--ls-surface); border: 1px solid var(--ls-border);
+    border-radius: var(--ls-radius); padding: 1.25rem 1rem; margin: 1.25rem 0;
+  }
+  .ls-steplabel {
+    margin: 0 0 1rem; font-size: clamp(0.8rem, 2.4vw, 1rem);
+    letter-spacing: 0.02em; color: var(--sl-color-text-accent, var(--ls-accent-hi));
+  }
+
+  .ls-dims { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 1.2rem; }
+  .ls-dims label { font-size: 1rem; }
+  .ls-dims input, .ls-cell {
+    background: var(--sl-color-bg, #000); color: var(--sl-color-text, #fff);
+    border: 1.5px solid var(--ls-border); border-radius: 6px; text-align: center;
+    padding: 0.35rem; font: inherit;
+  }
+  .ls-dims input { width: 4rem; }
+  .ls-dims input:hover, .ls-cell:hover {
+    border-color: var(--ls-accent);
+    background: color-mix(in srgb, var(--ls-accent) 10%, var(--sl-color-bg, #000));
+  }
+  .ls-dims input:focus, .ls-cell:focus { border-color: var(--ls-accent); outline: none; }
+  .ls-times { font-size: 1.3rem; }
+
+  .ls-eqwrap { overflow-x: auto; padding: 0.5rem 0.25rem; }
+  .ls-eq { display: inline-flex; align-items: center; justify-content: center; gap: 0.15rem; min-width: 100%; white-space: nowrap; }
+  .ls-gridhost { display: inline-block; }
+  .ls-paren { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; line-height: 0; color: var(--sl-color-text, inherit); }
+  .ls-paren svg { display: block; }
+  .ls-xeq { display: inline-flex; align-items: center; padding: 0 0.5rem; white-space: nowrap; }
+
+  .ls-root .ls-grid {
+    display: table !important; width: auto !important; margin: 0; border: 0 !important;
+    border-collapse: collapse; background: transparent !important; box-shadow: none !important;
+  }
+  .ls-root .ls-grid :is(thead, tbody, tr, th, td) {
+    border: 0 !important; background: transparent !important; box-shadow: none !important;
+  }
+  .ls-root .ls-grid td { padding: 2px 3px; text-align: center; vertical-align: middle; }
+
+  .ls-cell {
+    width: 3.4rem; padding: 0.18rem 0.3rem; margin: 0;
+    transition: width 0.35s ease-in-out, background-color 0.15s ease, border-color 0.15s ease;
+  }
+  .ls-cell:focus { background: color-mix(in srgb, var(--ls-accent) 16%, var(--sl-color-bg, #000)); }
+  .ls-cell.ls-cell-wide { width: 7rem; }
+
+  .ls-note { margin: 1rem auto 0; max-width: 36rem; opacity: 0.9; font-size: 0.9rem; }
+
+  .ls-status { margin: 0.75rem 0 0; font-size: 0.95rem; }
+  .ls-status.ls-error {
+    padding: 0.6rem 0.8rem;
+    border-left: 4px solid var(--ls-red);
+    background: color-mix(in srgb, var(--ls-red) 8%, transparent);
+    border-radius: 4px;
+  }
+
+  /* ----- bottoni -----
+     Starlight inietta un margin-top automatico sugli elementi "fratelli" dentro
+     il contenuto markdown: senza reset, il 2° e 3° bottone vengono spinti in
+     basso e la riga appare sfalsata (il 1° sembra di altezza diversa).
+     Fix collaudato sugli altri risolutori (Gauss-Jordan, Kernel): margin: 0
+     esplicito sui bottoni + align-items: stretch sulla griglia + altezza fissa.
+     Stile e comportamento (ghost, pillola, scale on active) allineati agli
+     altri risolutori del sito. */
+  .ls-actions {
+    display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.75rem; align-items: stretch; margin: 1.25rem auto; max-width: 48rem;
+  }
+  .ls-actions .ls-btn { width: 100%; margin: 0; }
+  .ls-btn {
+    box-sizing: border-box; height: 3.6rem; padding: 0 1rem; line-height: 1.2;
+    display: inline-flex; align-items: center; justify-content: center; text-align: center;
+    font: inherit; font-weight: 600; cursor: pointer; border-radius: 999px;
+    border: 1.5px solid transparent; transition: transform 0.1s ease, background 0.2s ease, border-color 0.2s ease;
+  }
+  .ls-btn:active { transform: scale(0.96); }
+  .ls-btn-accent { background: var(--ls-accent); color: var(--sl-color-white, #fff); }
+  .ls-btn-accent:hover { background: var(--sl-color-accent-high, var(--ls-accent)); }
+  .ls-btn-ghost { background: transparent; color: var(--sl-color-text, inherit); border-color: var(--ls-border); }
+  .ls-btn-ghost:hover { border-color: var(--ls-accent); color: var(--ls-accent); }
+  .ls-secondary { margin: 1.25rem auto 0; max-width: 48rem; }
+  .ls-btn-wide { width: 100%; margin: 0 0 1rem; }
+
+  .ls-result {
+    background: var(--ls-surface); border: 1px solid var(--ls-border);
+    border-radius: var(--ls-radius); margin-top: 1.5rem; padding: 1.5rem 1rem;
+    opacity: 0; transition: opacity 0.3s ease; text-align: left;
+  }
+  .ls-result.ls-visible { opacity: 1; }
+  .ls-result h2 { text-align: center; }
+  .ls-result h3 {
+    margin-top: 2.5rem; padding-top: 0.75rem; color: var(--ls-accent);
+    border-top: 1px solid var(--ls-border);
+  }
+  .ls-result p { margin: 0.9rem 0; }
+  .ls-katex { overflow-x: auto; overflow-y: hidden; padding: 0.75rem 0.25rem; margin: 1rem 0; }
+  .ls-katex .katex-display { margin: 0; }
+
+  @media (max-width: 600px) {
+    .ls-root { font-size: 0.95rem; }
+    .ls-actions { grid-template-columns: 1fr; }
+    .ls-result { padding: 1rem 0.5rem; }
+
+    /* Step 1 (input m e n) su due righe: input affiancati sopra, etichette sotto
+       allineate al bordo interno del proprio input. Colonne 1 e 3 = 4rem (= larghezza
+       input), così le etichette più larghe sporgono senza spostare l'allineamento. */
+    .ls-dims {
+      display: grid;
+      grid-template-columns: 4rem auto 4rem;
+      column-gap: 1.2rem;
+      row-gap: 0.4rem;
+      justify-content: center;
+      align-items: center;
+    }
+    .ls-dims input { grid-row: 1; width: 100%; }
+    #lsRows { grid-column: 1; }
+    .ls-times { grid-row: 1; grid-column: 2; justify-self: center; }
+    #lsCols { grid-column: 3; }
+    .ls-dims label {
+      grid-row: 2;
+      width: max-content;
+      white-space: nowrap;
+    }
+    label[for="lsRows"] { grid-column: 1; justify-self: center; }
+    label[for="lsCols"] { grid-column: 3; justify-self: center; }
+  }
+</style>
+
+<script>
+import katex from 'katex';
+import renderMathInElement from 'katex/contrib/auto-render';
+
+
+// --- fraction ---
+// Aritmetica razionale ESATTA su BigInt (identica a KernelSolver).
+// Invariante: den > 0, gcd(|num|, den) == 1, lo zero è 0/1.
+
+function gcdBig(a, b) {
+  a = a < 0n ? -a : a;
+  b = b < 0n ? -b : b;
+  while (b) { [a, b] = [b, a % b]; }
+  return a;
+}
+
+class Fraction {
+  constructor(num, den = 1n) {
+    num = BigInt(num);
+    den = BigInt(den);
+    if (den === 0n) throw new Error('Fraction: denominatore nullo');
+    if (den < 0n) { num = -num; den = -den; }
+    const g = gcdBig(num, den) || 1n;
+    this.num = num / g;
+    this.den = den / g;
+  }
+
+  static get ZERO() { return new Fraction(0n, 1n); }
+  static get ONE() { return new Fraction(1n, 1n); }
+
+  static tryParse(str) {
+    const s = String(str).trim().replace(/\s+/g, '');
+    if (s === '') return null;
+    let m = s.match(/^([+-]?\d+)\/([+-]?\d+)$/);
+    if (m) return new Fraction(BigInt(m[1]), BigInt(m[2]));
+    m = s.match(/^([+-]?\d+)$/);
+    if (m) return new Fraction(BigInt(m[1]), 1n);
+    m = s.match(/^([+-]?)(\d*)\.(\d+)$/);
+    if (m) {
+      const sign = m[1] === '-' ? -1n : 1n;
+      const intp = m[2] === '' ? 0n : BigInt(m[2]);
+      const frac = m[3];
+      const den = 10n ** BigInt(frac.length);
+      const num = intp * den + BigInt(frac);
+      return new Fraction(sign * num, den);
+    }
+    return null;
+  }
+
+  clone() { return new Fraction(this.num, this.den); }
+
+  isZero() { return this.num === 0n; }
+  isConstant() { return true; }
+  isOne() { return this.num === 1n && this.den === 1n; }
+  isMinusOne() { return this.num === -1n && this.den === 1n; }
+  isInteger() { return this.den === 1n; }
+
+  sign() { return this.num > 0n ? 1 : (this.num < 0n ? -1 : 0); }
+
+  neg() { return new Fraction(-this.num, this.den); }
+  inv() {
+    if (this.num === 0n) throw new Error('Fraction: inverso di zero');
+    return new Fraction(this.den, this.num);
+  }
+
+  add(o) { return new Fraction(this.num * o.den + o.num * this.den, this.den * o.den); }
+  sub(o) { return new Fraction(this.num * o.den - o.num * this.den, this.den * o.den); }
+  mul(o) { return new Fraction(this.num * o.num, this.den * o.den); }
+  div(o) { return new Fraction(this.num * o.den, this.den * o.num); }
+
+  equals(o) { return this.num === o.num && this.den === o.den; }
+
+  toLatex() {
+    if (this.den === 1n) return this.num.toString();
+    const sign = this.num < 0n ? '-' : '';
+    const n = this.num < 0n ? -this.num : this.num;
+    return `${sign}\\frac{${n.toString()}}{${this.den.toString()}}`;
+  }
+
+  toString() {
+    return this.den === 1n ? this.num.toString() : `${this.num.toString()}/${this.den.toString()}`;
+  }
+}
+
+// --- polynomial ---
+// Polinomio MULTIVARIATO a coefficienti razionali esatti (identico a KernelSolver).
+// isZero() è ESATTO: ogni decisione di pivot (rango, compatibilità) è senza ambiguità.
+
+function monoKey(exps) {
+  const keys = Object.keys(exps).filter((v) => exps[v] !== 0).sort();
+  return keys.map((v) => `${v}^${exps[v]}`).join('|');
+}
+function keyToExps(key) {
+  const exps = {};
+  if (key === '') return exps;
+  for (const part of key.split('|')) {
+    const [v, e] = part.split('^');
+    exps[v] = parseInt(e, 10);
+  }
+  return exps;
+}
+
+class Polynomial {
+  constructor(terms = new Map()) {
+    this.terms = new Map();
+    for (const [k, c] of terms) if (!c.isZero()) this.terms.set(k, c);
+  }
+
+  static constant(fr) {
+    const t = new Map();
+    if (!fr.isZero()) t.set('', fr.clone());
+    return new Polynomial(t);
+  }
+  static fromInt(n) { return Polynomial.constant(new Fraction(BigInt(n), 1n)); }
+  static get ZERO() { return new Polynomial(); }
+  static get ONE() { return Polynomial.constant(Fraction.ONE); }
+  static variable(name) {
+    const t = new Map();
+    t.set(`${name}^1`, Fraction.ONE);
+    return new Polynomial(t);
+  }
+
+  clone() {
+    const t = new Map();
+    for (const [k, c] of this.terms) t.set(k, c.clone());
+    return new Polynomial(t);
+  }
+
+  isZero() { return this.terms.size === 0; }
+  isConstant() { return this.terms.size === 0 || (this.terms.size === 1 && this.terms.has('')); }
+  isOne() { return this.terms.size === 1 && this.terms.has('') && this.terms.get('').isOne(); }
+
+  asConstant() {
+    if (this.terms.size === 0) return Fraction.ZERO;
+    if (this.terms.size === 1 && this.terms.has('')) return this.terms.get('').clone();
+    return null;
+  }
+
+  vars() {
+    const s = new Set();
+    for (const k of this.terms.keys())
+      for (const v of Object.keys(keyToExps(k))) s.add(v);
+    return [...s].sort();
+  }
+
+  neg() {
+    const t = new Map();
+    for (const [k, c] of this.terms) t.set(k, c.neg());
+    return new Polynomial(t);
+  }
+
+  add(o) {
+    const t = new Map(this.terms);
+    for (const [k, c] of o.terms) {
+      const cur = t.get(k);
+      if (cur) { const s = cur.add(c); if (s.isZero()) t.delete(k); else t.set(k, s); }
+      else t.set(k, c.clone());
+    }
+    return new Polynomial(t);
+  }
+  sub(o) { return this.add(o.neg()); }
+
+  scale(fr) {
+    if (fr.isZero()) return Polynomial.ZERO;
+    const t = new Map();
+    for (const [k, c] of this.terms) t.set(k, c.mul(fr));
+    return new Polynomial(t);
+  }
+
+  mul(o) {
+    const t = new Map();
+    for (const [k1, c1] of this.terms) {
+      const e1 = keyToExps(k1);
+      for (const [k2, c2] of o.terms) {
+        const e2 = keyToExps(k2);
+        const e = { ...e1 };
+        for (const v of Object.keys(e2)) e[v] = (e[v] || 0) + e2[v];
+        const k = monoKey(e);
+        const prod = c1.mul(c2);
+        const cur = t.get(k);
+        if (cur) { const s = cur.add(prod); if (s.isZero()) t.delete(k); else t.set(k, s); }
+        else t.set(k, prod);
+      }
+    }
+    return new Polynomial(t);
+  }
+
+  equals(o) { return this.sub(o).isZero(); }
+
+  degreeIn(name) {
+    let d = 0;
+    for (const k of this.terms.keys()) {
+      const e = keyToExps(k)[name] || 0;
+      if (e > d) d = e;
+    }
+    return d;
+  }
+  totalDegree() {
+    let d = 0;
+    for (const k of this.terms.keys()) {
+      const e = keyToExps(k);
+      const s = Object.values(e).reduce((a, b) => a + b, 0);
+      if (s > d) d = s;
+    }
+    return d;
+  }
+
+  substitute(name, fr) {
+    let acc = Polynomial.ZERO;
+    for (const [k, c] of this.terms) {
+      const e = keyToExps(k);
+      const p = e[name] || 0;
+      let coeff = c;
+      if (p > 0) { coeff = coeff.mul(fracPow(fr, p)); delete e[name]; }
+      const nk = monoKey(e);
+      const term = new Map(); term.set(nk, coeff);
+      acc = acc.add(new Polynomial(term));
+    }
+    return acc;
+  }
+
+  primitivePart() {
+    if (this.isZero()) return { content: Fraction.ONE, prim: Polynomial.ZERO };
+    let denLcm = 1n, numGcd = 0n;
+    const g = (a, b) => { a = a < 0n ? -a : a; b = b < 0n ? -b : b; while (b) { [a, b] = [b, a % b]; } return a; };
+    for (const c of this.terms.values()) {
+      denLcm = denLcm / g(denLcm, c.den) * c.den;
+    }
+    for (const c of this.terms.values()) {
+      const scaledNum = c.num * (denLcm / c.den);
+      numGcd = g(numGcd, scaledNum);
+    }
+    if (numGcd === 0n) numGcd = 1n;
+    let content = new Fraction(numGcd, denLcm);
+    const t = new Map();
+    for (const [k, c] of this.terms) {
+      t.set(k, c.div(content));
+    }
+    let prim = new Polynomial(t);
+    return { content, prim };
+  }
+
+  toLatex() {
+    if (this.isZero()) return '0';
+    const entries = [...this.terms.entries()].map(([k, c]) => ({ k, c, e: keyToExps(k) }));
+    entries.sort((A, B) => {
+      const dA = Object.values(A.e).reduce((a, b) => a + b, 0);
+      const dB = Object.values(B.e).reduce((a, b) => a + b, 0);
+      if (dB !== dA) return dB - dA;
+      return A.k < B.k ? -1 : (A.k > B.k ? 1 : 0);
+    });
+    let out = '';
+    entries.forEach((t, i) => {
+      const isConst = t.k === '';
+      const c = t.c;
+      const neg = c.sign() < 0;
+      const absC = neg ? c.neg() : c;
+      let mono = '';
+      const vars = Object.keys(t.e).sort();
+      for (const v of vars) {
+        mono += t.e[v] === 1 ? v : `${v}^{${t.e[v]}}`;
+      }
+      let coeffTex;
+      if (isConst) coeffTex = absC.toLatex();
+      else if (absC.isOne()) coeffTex = '';
+      else coeffTex = absC.toLatex();
+      const piece = coeffTex + mono || coeffTex || mono;
+      if (i === 0) out += (neg ? '-' : '') + (piece === '' ? absC.toLatex() : piece);
+      else out += (neg ? ' - ' : ' + ') + (piece === '' ? absC.toLatex() : piece);
+    });
+    return out;
+  }
+
+  toString() { return this.toLatex(); }
+
+  // Come toLatex, ma una variabile viene RESA come una stringa data (non valutata):
+  // serve a mostrare la sostituzione del parametro col valore incorniciato.
+  toLatexSubst(subst) {
+    if (this.isZero()) return '0';
+    const entries = [...this.terms.entries()].map(([k, c]) => ({ k, c, e: keyToExps(k) }));
+    entries.sort((A, B) => {
+      const dA = Object.values(A.e).reduce((a, b) => a + b, 0);
+      const dB = Object.values(B.e).reduce((a, b) => a + b, 0);
+      if (dB !== dA) return dB - dA;
+      return A.k < B.k ? -1 : (A.k > B.k ? 1 : 0);
+    });
+    let out = '';
+    entries.forEach((t, i) => {
+      const isConst = t.k === '';
+      const c = t.c;
+      const neg = c.sign() < 0;
+      const absC = neg ? c.neg() : c;
+      let mono = '';
+      for (const v of Object.keys(t.e).sort()) {
+        const sym = subst[v] !== undefined ? subst[v] : v;
+        mono += t.e[v] === 1 ? sym : `${sym}^{${t.e[v]}}`;
+      }
+      let coeffTex;
+      if (isConst) coeffTex = absC.toLatex();
+      else if (absC.isOne()) coeffTex = '';
+      else coeffTex = absC.toLatex();
+      const piece = (coeffTex + mono) || coeffTex || mono;
+      if (i === 0) out += (neg ? '-' : '') + (piece === '' ? absC.toLatex() : piece);
+      else out += (neg ? ' - ' : ' + ') + (piece === '' ? absC.toLatex() : piece);
+    });
+    return out;
+  }
+}
+
+function fracPow(fr, n) {
+  let r = Fraction.ONE;
+  for (let i = 0; i < n; i++) r = r.mul(fr);
+  return r;
+}
+
+// --- rationalfunction ---
+// Funzione razionale ESATTA (identica a KernelSolver): stessa API di Fraction,
+// così il motore di Gauss-Jordan è scritto UNA SOLA VOLTA contro un campo astratto.
+
+function polyToUni(poly, v) {
+  const d = poly.degreeIn(v);
+  const arr = new Array(d + 1).fill(null).map(() => Fraction.ZERO);
+  for (const [k, c] of poly.terms) {
+    if (k === '') { arr[0] = arr[0].add(c); continue; }
+    const [vv, e] = k.split('^');
+    arr[parseInt(e, 10)] = arr[parseInt(e, 10)].add(c);
+  }
+  return arr;
+}
+function uniToPoly(arr, v) {
+  let p = Polynomial.ZERO;
+  for (let e = 0; e < arr.length; e++) {
+    if (arr[e].isZero()) continue;
+    const t = new Map();
+    t.set(e === 0 ? '' : `${v}^${e}`, arr[e].clone());
+    p = p.add(new Polynomial(t));
+  }
+  return p;
+}
+function uniTrim(a) { let n = a.length; while (n > 1 && a[n - 1].isZero()) n--; return a.slice(0, n); }
+function uniIsZero(a) { return a.every((c) => c.isZero()); }
+function uniDivmod(a, b) {
+  a = uniTrim(a.map((x) => x.clone())); b = uniTrim(b);
+  const q = new Array(Math.max(1, a.length - b.length + 1)).fill(null).map(() => Fraction.ZERO);
+  const r = a.map((x) => x.clone());
+  const bLead = b[b.length - 1];
+  while (uniTrim(r).length >= b.length && !uniIsZero(r)) {
+    const rt = uniTrim(r);
+    const deg = rt.length - b.length;
+    if (deg < 0) break;
+    const coeff = rt[rt.length - 1].div(bLead);
+    q[deg] = coeff;
+    for (let i = 0; i < b.length; i++) r[deg + i] = r[deg + i].sub(coeff.mul(b[i]));
+  }
+  return { q: uniTrim(q), r: uniTrim(r) };
+}
+function uniGCD(a, b) {
+  a = uniTrim(a); b = uniTrim(b);
+  while (!uniIsZero(b)) { const { r } = uniDivmod(a, b); a = b; b = uniTrim(r); }
+  const lead = a[a.length - 1];
+  if (!lead.isZero() && !lead.isOne()) a = a.map((c) => c.div(lead));
+  return a;
+}
+
+class RationalFunction {
+  constructor(num, den = Polynomial.ONE) {
+    if (den.isZero()) throw new Error('RationalFunction: denominatore nullo');
+    this.num = num;
+    this.den = den;
+    this.reduce();
+  }
+
+  static get ZERO() { return new RationalFunction(Polynomial.ZERO); }
+  static get ONE() { return new RationalFunction(Polynomial.ONE); }
+  static fromFraction(fr) { return new RationalFunction(Polynomial.constant(fr)); }
+  static fromInt(n) { return new RationalFunction(Polynomial.fromInt(n)); }
+  static variable(name) { return new RationalFunction(Polynomial.variable(name)); }
+
+  clone() { return new RationalFunction(this.num.clone(), this.den.clone()); }
+
+  reduce() {
+    if (this.num.isZero()) { this.den = Polynomial.ONE; return; }
+    const dc = this.den.asConstant();
+    if (dc !== null) { this.num = this.num.scale(dc.inv()); this.den = Polynomial.ONE; return; }
+    const allVars = new Set([...this.num.vars(), ...this.den.vars()]);
+    if (allVars.size <= 1) {
+      const v = [...allVars][0];
+      let na = polyToUni(this.num, v);
+      let da = polyToUni(this.den, v);
+      const g = uniGCD(na, da);
+      if (!(g.length === 1 && g[0].isOne())) {
+        na = uniDivmod(na, g).q;
+        da = uniDivmod(da, g).q;
+      }
+      let nP = uniToPoly(na, v), dP = uniToPoly(da, v);
+      const dPP = dP.primitivePart();
+      nP = nP.scale(dPP.content.inv());
+      dP = dPP.prim;
+      const dArr = polyToUni(dP, v);
+      if (dArr[dArr.length - 1].sign() < 0) { dP = dP.neg(); nP = nP.neg(); }
+      this.num = nP; this.den = dP;
+      return;
+    }
+    const dPP = this.den.primitivePart();
+    this.num = this.num.scale(dPP.content.inv());
+    this.den = dPP.prim;
+  }
+
+  isZero() { return this.num.isZero(); }
+  isOne() { return this.den.isOne() && this.num.isOne(); }
+  isConstant() { return this.den.isConstant() && this.num.isConstant(); }
+  asFraction() {
+    const n = this.num.asConstant(), d = this.den.asConstant();
+    if (n !== null && d !== null) return n.div(d);
+    return null;
+  }
+  vars() { return [...new Set([...this.num.vars(), ...this.den.vars()])].sort(); }
+
+  neg() { return new RationalFunction(this.num.neg(), this.den.clone()); }
+  inv() {
+    if (this.num.isZero()) throw new Error('RationalFunction: inverso di zero');
+    return new RationalFunction(this.den.clone(), this.num.clone());
+  }
+  add(o) { return new RationalFunction(this.num.mul(o.den).add(o.num.mul(this.den)), this.den.mul(o.den)); }
+  sub(o) { return new RationalFunction(this.num.mul(o.den).sub(o.num.mul(this.den)), this.den.mul(o.den)); }
+  mul(o) { return new RationalFunction(this.num.mul(o.num), this.den.mul(o.den)); }
+  div(o) { return new RationalFunction(this.num.mul(o.den), this.den.mul(o.num)); }
+  equals(o) { return this.sub(o).isZero(); }
+
+  substitute(name, fr) {
+    const n = this.num.substitute(name, fr);
+    const d = this.den.substitute(name, fr);
+    if (d.isZero()) return null;
+    return new RationalFunction(n, d);
+  }
+
+  toLatex() {
+    if (this.den.isOne()) return this.num.toLatex();
+    const nTex = this.num.toLatex();
+    const dTex = this.den.toLatex();
+    return `\\frac{${nTex}}{${dTex}}`;
+  }
+  toString() { return this.den.isOne() ? this.num.toString() : `(${this.num})/(${this.den})`; }
+}
+
+// --- engine ---
+// Motore di riduzione scritto UNA VOLTA contro un campo astratto (come KernelSolver).
+
+function makeMatrix(data) { return data.map((row) => row.map((e) => e.clone())); }
+function cloneMatrix(M) { return makeMatrix(M); }
+
+// Gauss-Jordan -> forma a scala ridotta per righe (RREF).
+// assumptions: elementi-pivot NON costanti su cui abbiamo diviso (pivot ≠ 0 assunto).
+function rref(M, field, opts = {}) {
+  const preferConst = !!opts.preferConstantPivot;
+  const R = cloneMatrix(M);
+  const m = R.length, n = m ? R[0].length : 0;
+  const ops = [];
+  const pivotCols = [];
+  const assumptions = [];
+  let pivRow = 0;
+
+  for (let col = 0; col < n && pivRow < m; col++) {
+    let sel = -1;
+    if (preferConst) {
+      for (let r = pivRow; r < m; r++) {
+        const e = R[r][col];
+        if (!e.isZero() && e.isConstant && e.isConstant()) { sel = r; break; }
+      }
+    }
+    if (sel === -1) {
+      for (let r = pivRow; r < m; r++) { if (!R[r][col].isZero()) { sel = r; break; } }
+    }
+    if (sel === -1) continue;
+
+    if (sel !== pivRow) {
+      const tmp = R[sel]; R[sel] = R[pivRow]; R[pivRow] = tmp;
+      ops.push({ type: 'swap', i: pivRow, j: sel });
+    }
+
+    const pivotEl = R[pivRow][col];
+    if (pivotEl.isConstant && !pivotEl.isConstant()) {
+      assumptions.push({ col, element: pivotEl.clone() });
+    }
+    if (!R[pivRow][col].isOne()) {
+      const inv = R[pivRow][col].inv();
+      for (let c = col; c < n; c++) R[pivRow][c] = R[pivRow][c].mul(inv);
+      ops.push({ type: 'scale', i: pivRow, factor: inv });
+    }
+    for (let r = 0; r < m; r++) {
+      if (r === pivRow) continue;
+      const f = R[r][col];
+      if (!f.isZero()) {
+        const negf = f.neg();
+        for (let c = col; c < n; c++) R[r][c] = R[r][c].add(negf.mul(R[pivRow][c]));
+        ops.push({ type: 'addmul', target: r, source: pivRow, factor: negf });
+      }
+    }
+    pivotCols.push(col);
+    pivRow++;
+  }
+  return { R, pivotCols, rank: pivotCols.length, ops, assumptions };
+}
+
+// Base del nucleo a partire dalla RREF (della sola A, prime n colonne).
+function kernelBasis(R, pivotCols, n, field) {
+  const isPivotCol = new Array(n).fill(false);
+  pivotCols.forEach((c) => { isPivotCol[c] = true; });
+  const pivotRowOfCol = {};
+  pivotCols.forEach((c, k) => { pivotRowOfCol[c] = k; });
+
+  const freeCols = [];
+  for (let c = 0; c < n; c++) if (!isPivotCol[c]) freeCols.push(c);
+
+  const basis = [];
+  for (const fcol of freeCols) {
+    const vec = new Array(n).fill(null).map(() => field.zero());
+    vec[fcol] = field.one();
+    for (const pcol of pivotCols) {
+      const prow = pivotRowOfCol[pcol];
+      vec[pcol] = R[prow][fcol].neg();
+    }
+    basis.push(vec);
+  }
+  return { basis, freeCols };
+}
+
+function rankOfVectors(vectors, field) {
+  if (vectors.length === 0) return 0;
+  const M = vectors.map((v) => v.map((e) => e.clone()));
+  return rref(M, field).rank;
+}
+
+function sameSpan(vecsA, vecsB, field) {
+  const rA = rankOfVectors(vecsA, field);
+  const rB = rankOfVectors(vecsB, field);
+  const rU = rankOfVectors([...vecsA, ...vecsB], field);
+  return rA === rB && rB === rU;
+}
+
+// --- system core ---
+// Chiusura di un sistema [A|b] (aumentata con n+1 colonne, incognite = prime n).
+// Compatibile ⇔ l'ultima colonna NON è di pivot (Rouché-Capelli). Se compatibile:
+//   - soluzione particolare: variabili libere = 0, pivot = colonna dei termini noti;
+//   - base del nucleo dalla RREF ristretta alle prime n colonne.
+function closeSystem(aug, field, n) {
+  const { R, pivotCols, assumptions } = rref(aug, field, { preferConstantPivot: true });
+  const incompatible = pivotCols.includes(n);
+  const rankAug = pivotCols.length;
+  const pivotColsA = pivotCols.filter((c) => c < n);
+  const rankA = pivotColsA.length;
+  const nullity = n - rankA;
+
+  let xp = null, kbasis = [], freeCols = [];
+  if (!incompatible) {
+    xp = new Array(n).fill(null).map(() => field.zero());
+    pivotColsA.forEach((pc, idx) => { xp[pc] = R[idx][n].clone(); });
+    const Rn = R.map((row) => row.slice(0, n));
+    const kb = kernelBasis(Rn, pivotColsA, n, field);
+    kbasis = kb.basis; freeCols = kb.freeCols;
+  } else {
+    const Rn = R.map((row) => row.slice(0, n));
+    const kb = kernelBasis(Rn, pivotColsA, n, field);
+    freeCols = kb.freeCols;
+  }
+  return { R, pivotCols, pivotColsA, rankA, rankAug, incompatible, nullity, xp, kbasis, freeCols, assumptions };
+}
+
+// --- shortcuts ---
+// Scorciatoie "umane" per il caso NON omogeneo, in tre famiglie:
+//  (a) incompatibilità evidenti: riga di A nulla con b_i ≠ 0 (equazione 0 = c),
+//      oppure due righe di A proporzionali con termini noti non proporzionali;
+//  (b) soluzione particolare a occhio: b = 0, oppure b uguale a una colonna,
+//      a un multiplo umano o a una combinazione umana di ≤ 3 colonne di A
+//      (se Σ λ_j c_j = b, allora x con x_j = λ_j risolve il sistema);
+//  (c) relazioni fra colonne di A (identiche al KernelSolver): danno la parte
+//      omogenea, cioè i vettori del nucleo.
+// Caso simbolico: si accettano solo coefficienti COSTANTI umani, cioè fatti
+// validi per OGNI valore del parametro.
+
+const HUMAN_DENS = [1n, 2n, 3n, 4n, 5n];
+const HUMAN_MAX_ABS_NUM = 12n;
+
+function asFrac(el) {
+  if (typeof el.asFraction === 'function') return el.asFraction();
+  return el;
+}
+function isHumanCoeff(el) {
+  const fr = asFrac(el);
+  if (!fr || fr.isZero()) return false;
+  const absNum = fr.num < 0n ? -fr.num : fr.num;
+  if (!HUMAN_DENS.includes(fr.den)) return false;
+  return absNum <= HUMAN_MAX_ABS_NUM;
+}
+// vero se l'elemento è una costante razionale NON nulla (fatto valido per ogni parametro)
+function isNonzeroConst(el) {
+  const fr = asFrac(el);
+  return !!fr && !fr.isZero();
+}
+
+function getColumn(matrix, j) { return matrix.map((row) => row[j]); }
+function columnIsZero(matrix, j) { return matrix.every((row) => row[j].isZero()); }
+
+// Risolve, in modo esatto, il sistema Σ_t x_t · c_{S[t]} = target (tutte le m righe),
+// dove target è una colonna data. Ritorna { ok, coeffs } solo se UNICA e CONSISTENTE.
+function solveCombination(matrix, S, targetCol, field) {
+  const k = S.length;
+  const aug = matrix.map((row, r) => [...S.map((c) => row[c].clone()), targetCol[r].clone()]);
+  const { R, pivotCols } = rref(aug, field);
+  if (pivotCols.includes(k)) return { ok: false };
+  for (let t = 0; t < k; t++) if (!pivotCols.includes(t)) return { ok: false };
+  const coeffs = new Array(k);
+  pivotCols.forEach((pc, idx) => { if (pc < k) coeffs[pc] = R[idx][k].clone(); });
+  return { ok: true, coeffs };
+}
+
+function* subsets(maxExclusive, size, start = 0, acc = []) {
+  if (acc.length === size) { yield acc.slice(); return; }
+  for (let i = start; i < maxExclusive; i++) {
+    acc.push(i);
+    yield* subsets(maxExclusive, size, i + 1, acc);
+    acc.pop();
+  }
+}
+
+function kernelVectorFromRelation(target, parts, n, field) {
+  const v = new Array(n).fill(null).map(() => field.zero());
+  v[target] = field.one();
+  for (const { col, coeff } of parts) v[col] = coeff.neg();
+  return v;
+}
+
+// (c) relazioni fra colonne di A — identico al KernelSolver.
+function findColumnShortcuts(matrix, field) {
+  const m = matrix.length, n = m ? matrix[0].length : 0;
+  const relations = [];
+
+  for (let j = 0; j < n; j++) {
+    if (columnIsZero(matrix, j)) {
+      relations.push({ target: j, type: 'null', parts: [] });
+      continue;
+    }
+    if (j === 0) continue;
+
+    let found = null;
+    for (let size = 1; size <= 3 && !found; size++) {
+      if (size > j) break;
+      for (const S of subsets(j, size)) {
+        const sol = solveCombination(matrix, S, getColumn(matrix, j), field);
+        if (!sol.ok) continue;
+        if (!sol.coeffs.every(isHumanCoeff)) continue;
+        const parts = S.map((col, t) => ({ col, coeff: sol.coeffs[t] }));
+        const type = size === 1 ? 'multiple' : (size === 2 ? 'combo2' : 'combo3');
+        found = { target: j, type, parts };
+        break;
+      }
+    }
+    if (found) relations.push(found);
+  }
+
+  const vectors = relations.map((rel) => kernelVectorFromRelation(rel.target, rel.parts, n, field));
+  const count = vectors.length;
+  const independent = rankOfVectors(vectors, field) === count;
+  return { relations, vectors, count, independent };
+}
+
+// (a) incompatibilità evidenti. Nel caso simbolico l'incompatibilità viene
+// dichiarata SOLO se vale per ogni valore del parametro (scarti costanti non nulli).
+function findEyeIncompatibilities(A, b, field) {
+  const m = A.length;
+  const out = [];
+  for (let i = 0; i < m; i++) {
+    if (A[i].every((e) => e.isZero())) {
+      if (isNonzeroConst(b[i]) || (!b[i].isZero() && b[i].isConstant && b[i].isConstant())) {
+        out.push({ kind: 'zeroRow', row: i, rhs: b[i].clone() });
+      }
+      continue;
+    }
+    for (let j = i + 1; j < m; j++) {
+      if (A[j].every((e) => e.isZero())) continue;
+      let lam = null, ok = true;
+      for (let c = 0; c < A[i].length; c++) {
+        const a = A[i][c], bb = A[j][c];
+        if (a.isZero()) { if (!bb.isZero()) { ok = false; break; } continue; }
+        const r = bb.div(a);
+        if (lam === null) lam = r;
+        else if (!lam.equals(r)) { ok = false; break; }
+      }
+      if (!ok || lam === null || lam.isZero()) continue;
+      if (!isHumanCoeff(lam)) continue;
+      const diff = b[j].sub(lam.mul(b[i]));
+      if (isNonzeroConst(diff)) {
+        out.push({ kind: 'propRows', i, j, lam: lam.clone(), bi: b[i].clone(), bj: b[j].clone() });
+      }
+    }
+  }
+  return out;
+}
+
+// (b) soluzione particolare a occhio.
+function findEyeParticular(A, b, field) {
+  const m = A.length, n = m ? A[0].length : 0;
+  if (b.every((e) => e.isZero())) {
+    const xp = new Array(n).fill(null).map(() => field.zero());
+    return { kind: 'bzero', parts: [], xp };
+  }
+  for (let size = 1; size <= 3; size++) {
+    if (size > n) break;
+    for (const S of subsets(n, size)) {
+      const sol = solveCombination(A, S, b, field);
+      if (!sol.ok) continue;
+      if (!sol.coeffs.every(isHumanCoeff)) continue;
+      const parts = S.map((col, t) => ({ col, coeff: sol.coeffs[t] }));
+      const xp = new Array(n).fill(null).map(() => field.zero());
+      for (const { col, coeff } of parts) xp[col] = coeff.clone();
+      const kind = size === 1 ? (parts[0].coeff.isOne() ? 'bcol' : 'bmult') : 'bcombo';
+      return { kind, parts, xp };
+    }
+  }
+  return null;
+}
+
+// --- fields / parser ---
+const numericField = {
+  name: 'Q',
+  symbolic: false,
+  zero: () => Fraction.ZERO,
+  one: () => Fraction.ONE,
+  fromFraction: (fr) => fr.clone(),
+};
+
+function symbolicField(varNames) {
+  return {
+    name: `Q(${varNames.join(',')})`,
+    symbolic: true,
+    vars: [...varNames],
+    zero: () => RationalFunction.ZERO,
+    one: () => RationalFunction.ONE,
+    fromFraction: (fr) => RationalFunction.fromFraction(fr),
+  };
+}
+
+function parseCellToPoly(str) {
+  const s = String(str).trim();
+  if (s === '') return Polynomial.ZERO;
+  const asFr = Fraction.tryParse(s);
+  if (asFr) return Polynomial.constant(asFr);
+  return parseExpr(s);
+}
+
+function parseExpr(s) {
+  let i = 0;
+  const src = s.replace(/\s+/g, '');
+  function peek() { return src[i]; }
+  function eat(ch) { if (src[i] === ch) { i++; return true; } return false; }
+
+  function parseSum() {
+    let node = parseTerm();
+    for (;;) {
+      if (eat('+')) node = node.add(parseTerm());
+      else if (eat('-')) node = node.sub(parseTerm());
+      else break;
+    }
+    return node;
+  }
+  function parseTerm() {
+    let node = parseFactor();
+    for (;;) {
+      if (eat('*')) node = node.mul(parseFactor());
+      else if (eat('/')) {
+        const d = parseFactor();
+        const dc = d.asConstant();
+        if (dc === null) throw new Error('divisione per un\'espressione non costante non supportata in una cella');
+        if (dc.isZero()) throw new Error('divisione per zero');
+        node = node.scale(dc.inv());
+      }
+      else if (isImplicitMul()) node = node.mul(parseFactor());
+      else break;
+    }
+    return node;
+  }
+  function isImplicitMul() {
+    const c = peek();
+    if (c === undefined) return false;
+    return /[A-Za-z0-9(]/.test(c);
+  }
+  function parseFactor() {
+    let base = parseAtom();
+    if (eat('^')) {
+      const expNode = parseAtom();
+      const ex = expNode.asConstant();
+      if (!ex || !ex.isInteger() || ex.num < 0n) throw new Error('Esponente non valido');
+      let r = Polynomial.ONE;
+      for (let e = 0n; e < ex.num; e++) r = r.mul(base);
+      base = r;
+    }
+    return base;
+  }
+  function parseAtom() {
+    if (eat('(')) { const node = parseSum(); if (!eat(')')) throw new Error('Parentesi non chiusa'); return node; }
+    if (eat('-')) return parseAtom().neg();
+    if (eat('+')) return parseAtom();
+    const c = peek();
+    if (c === undefined) throw new Error('Espressione incompleta');
+    if (/[0-9.]/.test(c)) {
+      let num = '';
+      while (i < src.length && /[0-9.]/.test(src[i])) num += src[i++];
+      const fr = Fraction.tryParse(num);
+      if (!fr) throw new Error('Numero non valido: ' + num);
+      return Polynomial.constant(fr);
+    }
+    if (/[A-Za-z]/.test(c)) { i++; return Polynomial.variable(c); }
+    throw new Error('Carattere inatteso: ' + c);
+  }
+
+  const result = parseSum();
+  if (i !== src.length) throw new Error('Token residui in: ' + s);
+  return result;
+}
+
+// Costruisce A, b e l'aumentata dal contenuto testuale delle celle.
+// Decide il campo: se compare almeno una variabile (in A O in b) -> simbolico.
+function buildSystem(aCells, bCells) {
+  const aPolys = aCells.map((row) => row.map(parseCellToPoly));
+  const bPolys = bCells.map(parseCellToPoly);
+  const varSet = new Set();
+  for (const row of aPolys) for (const p of row) for (const v of p.vars()) varSet.add(v);
+  for (const p of bPolys) for (const v of p.vars()) varSet.add(v);
+  const vars = [...varSet].sort();
+  if (vars.length === 0) {
+    const field = numericField;
+    const A = aPolys.map((row) => row.map((p) => field.fromFraction(p.asConstant())));
+    const b = bPolys.map((p) => field.fromFraction(p.asConstant()));
+    const aug = A.map((row, r) => [...row.map((e) => e.clone()), b[r].clone()]);
+    return { A, b, aug, field, vars: [] };
+  }
+  const field = symbolicField(vars);
+  const A = aPolys.map((row) => row.map((p) => new RationalFunction(p)));
+  const b = bPolys.map((p) => new RationalFunction(p));
+  const aug = A.map((row, r) => [...row.map((e) => e.clone()), b[r].clone()]);
+  return { A, b, aug, field, vars };
+}
+
+// --- cases ---
+// Analisi per casi sui PARAMETRI (stessa idea del KernelSolver, ma sull'AUMENTATA):
+// i valori critici candidati sono gli zeri dei pivot per cui abbiamo diviso.
+// Se tutti i pivot restano ≠ 0 in k0, lo stesso cammino di eliminazione vale in k0
+// e struttura di pivot, ranghi e compatibilità restano quelli generici: ogni cambiamento
+// (rango di A, rango dell'aumentata, compatibilità) avviene NECESSARIAMENTE in uno
+// zero di un pivot. Per ciascun candidato si SOSTITUISCE e si ricalcola in modo esatto.
+
+function uniCoeffs(poly, v) {
+  const d = poly.degreeIn(v);
+  const arr = new Array(d + 1).fill(null).map(() => Fraction.ZERO);
+  for (const [k, c] of poly.terms) {
+    if (k === '') { arr[0] = arr[0].add(c); continue; }
+    const e = parseInt(k.split('^')[1], 10);
+    arr[e] = arr[e].add(c);
+  }
+  return arr;
+}
+function divisorsBig(nAbs) {
+  const out = [];
+  for (let i = 1n; i * i <= nAbs; i++) {
+    if (nAbs % i === 0n) { out.push(i); if (i !== nAbs / i) out.push(nAbs / i); }
+  }
+  return out.sort((a, b) => (a < b ? -1 : 1));
+}
+function rationalRoots(poly, v) {
+  let coeffs = uniCoeffs(poly, v);
+  let lcm = 1n;
+  const g = (a, b) => { a = a < 0n ? -a : a; b = b < 0n ? -b : b; while (b) { [a, b] = [b, a % b]; } return a; };
+  for (const c of coeffs) lcm = lcm / g(lcm, c.den) * c.den;
+  let ic = coeffs.map((c) => c.num * (lcm / c.den));
+  while (ic.length > 1 && ic[ic.length - 1] === 0n) ic.pop();
+  const roots = [];
+  while (ic.length > 1 && ic[0] === 0n) { roots.push(new Fraction(0n, 1n)); ic = ic.slice(1); }
+  if (ic.length <= 1) return { roots: dedupeFr(roots), residualDeg: 0 };
+  const a0 = ic[0] < 0n ? -ic[0] : ic[0];
+  const an = ic[ic.length - 1] < 0n ? -ic[ic.length - 1] : ic[ic.length - 1];
+  const ps = divisorsBig(a0), qs = divisorsBig(an);
+  const evalInt = (cands, x) => {
+    let acc = Fraction.ZERO;
+    let pw = Fraction.ONE;
+    for (let i = 0; i < cands.length; i++) { acc = acc.add(new Fraction(cands[i], 1n).mul(pw)); pw = pw.mul(x); }
+    return acc;
+  };
+  const tried = new Set();
+  for (const p of ps) for (const q of qs) for (const s of [1n, -1n]) {
+    const cand = new Fraction(s * p, q);
+    const key = cand.toString();
+    if (tried.has(key)) continue; tried.add(key);
+    if (evalInt(ic, cand).isZero()) roots.push(cand);
+  }
+  const uniq = dedupeFr(roots);
+  const residualDeg = Math.max(0, (poly.degreeIn(v)) - uniq.length);
+  return { roots: uniq, residualDeg };
+}
+function dedupeFr(arr) {
+  const seen = new Set(); const out = [];
+  for (const f of arr) { const k = f.toString(); if (!seen.has(k)) { seen.add(k); out.push(f); } }
+  return out;
+}
+
+function approxRealRoots(poly, v) {
+  let coeffs = uniCoeffs(poly, v);
+  let lcm = 1n;
+  const g = (a, b) => { a = a < 0n ? -a : a; b = b < 0n ? -b : b; while (b) { [a, b] = [b, a % b]; } return a; };
+  for (const c of coeffs) lcm = lcm / g(lcm, c.den) * c.den;
+  let ic = coeffs.map((c) => Number(c.num * (lcm / c.den)));
+  while (ic.length > 1 && ic[ic.length - 1] === 0) ic.pop();
+  const degree = ic.length - 1;
+  if (degree < 1) return { roots: [], degree: 0 };
+  const f = (x) => { let s = 0; for (let i = ic.length - 1; i >= 0; i--) s = s * x + ic[i]; return s; };
+  const an = Math.abs(ic[ic.length - 1]);
+  let bound = 1;
+  for (let i = 0; i < ic.length - 1; i++) bound = Math.max(bound, Math.abs(ic[i]) / an);
+  bound = 1 + bound;
+  const step = Math.min(0.01, (2 * bound) / 4000);
+  const roots = [];
+  let pk = -bound, pv = f(pk);
+  for (let x = -bound + step; x <= bound; x += step) {
+    const vv = f(x);
+    if (pv === 0) roots.push(pk);
+    else if (pv * vv < 0) {
+      let a = pk, b = x, fa = pv;
+      for (let i = 0; i < 100; i++) { const m = (a + b) / 2, fm = f(m); if (fa * fm <= 0) b = m; else { a = m; fa = fm; } }
+      roots.push((a + b) / 2);
+    }
+    pk = x; pv = vv;
+  }
+  const uniq = [];
+  for (const r of roots) if (!uniq.some((u) => Math.abs(u - r) < 1e-6)) uniq.push(r);
+  return { roots: uniq, degree };
+}
+
+function substituteMatrix(symMatrix, param, fr) {
+  return symMatrix.map((row) => row.map((rfEl) => rfEl.substitute(param, fr)));
+}
+function fieldOfSymMatrix(symMatrix) {
+  const vars = new Set();
+  for (const row of symMatrix) for (const e of row) for (const v of e.vars()) vars.add(v);
+  const list = [...vars].sort();
+  if (list.length === 0) {
+    const field = numericField;
+    const matrix = symMatrix.map((row) => row.map((e) => field.fromFraction(e.asFraction())));
+    return { matrix, field, vars: [] };
+  }
+  return { matrix: symMatrix.map((row) => row.map((e) => e.clone())), field: symbolicField(list), vars: list };
+}
+
+function analyzeParametricSystem(aug, field, n) {
+  const params = field.vars.slice();
+  const generic = closeSystem(aug, field, n);
+
+  const result = {
+    parameters: params,
+    multiParam: params.length > 1,
+    generic,
+    branches: [],
+    declaredConditions: [],
+  };
+
+  if (params.length === 1) {
+    const v = params[0];
+    const candSet = new Map();
+    for (const a of generic.assumptions) {
+      const num = a.element.num;
+      const { roots, residualDeg } = rationalRoots(num, v);
+      for (const r of roots) candSet.set(r.toString(), r);
+      if (residualDeg > 0) {
+        const { roots: rr, degree } = approxRealRoots(num, v);
+        result.declaredConditions.push({
+          kind: 'nonrational',
+          poly: num,
+          approx: rr.map((r) => (Math.abs(r) < 1e-9 ? '0' : r.toFixed(4))),
+          degree,
+          realCount: rr.length,
+        });
+      }
+    }
+    for (const val of candSet.values()) {
+      const subAug = substituteMatrix(aug, v, val);
+      const { matrix: numAug, field: numF } = fieldOfSymMatrix(subAug);
+      const closed = closeSystem(numAug, numF, n);
+      result.branches.push({
+        condition: { param: v, value: val },
+        closed,
+        subAug: numAug,
+        rankDropped: closed.rankA < generic.rankA,
+        compatChanged: closed.incompatible !== generic.incompatible,
+      });
+    }
+  } else if (params.length > 1) {
+    for (const a of generic.assumptions) {
+      const num = a.element.num;
+      const vs = num.vars();
+      if (num.totalDegree() === 1 && vs.length === 1) {
+        const v = vs[0];
+        const co = uniCoeffs(num, v);
+        const b0 = co[0], aCoef = co[1];
+        const val = b0.neg().div(aCoef);
+        const subAug = substituteMatrix(aug, v, val);
+        const { matrix: subM, field: subF } = fieldOfSymMatrix(subAug);
+        const closed = closeSystem(subM, subF, n);
+        result.branches.push({
+          condition: { param: v, value: val },
+          closed,
+          subAug: subM,
+          rankDropped: closed.rankA < generic.rankA,
+          compatChanged: closed.incompatible !== generic.incompatible,
+          residualParams: subF.vars || [],
+        });
+      } else {
+        result.declaredConditions.push({ kind: 'declared', poly: num });
+      }
+    }
+  }
+  return result;
+}
+
+// --- narrate ---
+// Narrazione didattica bilingue (it/en). Produce un array di blocchi { html?, tex? }:
+//   - html: paragrafo con math inline in \( \) (reso poi con renderMathInElement)
+//   - tex : formula/matrice in display (resa poi con katex.renderToString)
+
+// ----------------------------------------------------------------- helper LaTeX
+function matTex(M) {
+  if (!M.length) return '\\begin{pmatrix}\\end{pmatrix}';
+  const body = M.map((row) => row.map((e) => e.toLatex()).join(' & ')).join(' \\\\[3pt] ');
+  return `\\begin{pmatrix} ${body} \\end{pmatrix}`;
+}
+function colVecTex(v) {
+  return `\\begin{pmatrix} ${v.map((e) => e.toLatex()).join(' \\\\[3pt] ')} \\end{pmatrix}`;
+}
+function xVecTex(n) {
+  const xs = [];
+  for (let c = 0; c < n; c++) xs.push(`x_{${c + 1}}`);
+  return `\\begin{pmatrix} ${xs.join(' \\\\[3pt] ')} \\end{pmatrix}`;
+}
+// Matrice aumentata [A|b]: array con barra verticale prima dell'ultima colonna.
+function augTex(aug, n) {
+  if (!aug.length) return '\\left(\\begin{array}{c}\\end{array}\\right)';
+  const spec = 'c'.repeat(n) + '|c';
+  const body = aug.map((row) => row.map((e) => e.toLatex()).join(' & ')).join(' \\\\[3pt] ');
+  return `\\left(\\begin{array}{${spec}} ${body} \\end{array}\\right)`;
+}
+// Aumentata con le formule ORIGINALI ma il parametro sostituito col valore incorniciato.
+function augSubstTex(aug, n, param, valLatex) {
+  const subst = {}; subst[param] = `\\boxed{${valLatex}}`;
+  const spec = 'c'.repeat(n) + '|c';
+  const body = aug.map((row) => row.map((e) => {
+    const p = e.num ? e.num : e; // RationalFunction -> numeratore (den = 1 sugli input)
+    return p.toLatexSubst ? p.toLatexSubst(subst) : p.toLatex();
+  }).join(' & ')).join(' \\\\[3pt] ');
+  return `\\left(\\begin{array}{${spec}} ${body} \\end{array}\\right)`;
+}
+function basisTex(basis) {
+  if (!basis.length) return '\\{\\,\\mathbf{0}\\,\\}';
+  return `\\left\\{\\; ${basis.map(colVecTex).join(',\\;\\; ')} \\;\\right\\}`;
+}
+function condTex(poly) {
+  const { prim } = poly.primitivePart();
+  let p = prim;
+  if (p.toLatex().startsWith('-')) p = p.neg();
+  return p.toLatex();
+}
+// equazioni "x_pivot = (termine noto) - somma( R[riga][libera] x_libera )"
+function readingTexSys(R, pivotColsA, freeCols, n) {
+  const lines = [];
+  pivotColsA.forEach((pc, idx) => {
+    const parts = [];
+    const c0 = R[idx][n];
+    if (!c0.isZero()) parts.push(c0.toLatex());
+    for (const f of freeCols) {
+      const coeff = R[idx][f];
+      if (coeff.isZero()) continue;
+      const opp = coeff.neg();
+      const tex = opp.toLatex();
+      parts.push((tex.startsWith('-') ? '' : '+') + tex + `\\,x_{${f + 1}}`);
+    }
+    let rhs = parts.length ? parts.join(' ') : '0';
+    rhs = rhs.replace(/^\+/, '');
+    lines.push(`x_{${pc + 1}} &= \\textstyle ${rhs}`);
+  });
+  return `\\begin{aligned} ${lines.join(' \\\\[3pt] ')} \\end{aligned}`;
+}
+// Forma parametrica: x = x_p + Σ x_f · v_f, con le VARIABILI LIBERE come parametri.
+function paramFormTex(xp, kbasis, freeCols) {
+  if (!kbasis.length) return `\\mathbf{x} \\;=\\; ${colVecTex(xp)}`;
+  const terms = kbasis.map((v, i) => `\\;+\\; x_{${freeCols[i] + 1}}\\,${colVecTex(v)}`).join('');
+  const frees = freeCols.map((f) => `x_{${f + 1}}`).join(',\\,');
+  return `\\mathbf{x} \\;=\\; ${colVecTex(xp)}${terms},\\qquad ${frees}\\in K`;
+}
+
+function neg(texCoeff) {
+  if (texCoeff.startsWith('-')) return texCoeff.slice(1);
+  return '-' + texCoeff;
+}
+function fmtInf(d) { return d === 0 ? '1' : `\\infty^{${d}}`; }
+
+// ----------------------------------------------------------------- dizionario
+function T(lang) {
+  const it = {
+    title: 'Risoluzione di un sistema lineare',
+    m1: 'Compatibilit\u00e0 e numero di soluzioni (Rouch\u00e9-Capelli)',
+    m2: 'Ricerca delle scorciatoie',
+    m3: 'Valutazione delle scorciatoie',
+    m4: 'Risoluzione con Gauss-Jordan',
+    m5: 'Forma parametrica e conclusione',
+    mCases: 'Analisi per casi',
+
+    intro: (m, n) => `<p>Il sistema ha \\(${m}\\) ${m === 1 ? 'equazione' : 'equazioni'} e \\(${n}\\) ${n === 1 ? 'incognita' : 'incognite'}: in forma matriciale si scrive \\(A \\cdot \\mathbf{x}=\\mathbf{b}\\), con \\(A\\) di dimensione \\(${m}\\times ${n}\\).</p>`,
+    augLabel: `<p>Tutte le informazioni del sistema stanno nella <b>matrice aumentata</b> \\([A\\,|\\,\\mathbf{b}]\\), su cui lavoreremo:</p>`,
+
+    m1body: `<p>Per il <b>teorema di Rouch\u00e9-Capelli</b> il sistema \u00e8 compatibile se e solo se \\(\\operatorname{rank}(A)=\\operatorname{rank}([A\\,|\\,\\mathbf{b}])\\). Riducendo la matrice aumentata si contano i pivot: quelli che cadono nelle colonne di \\(A\\) danno il rango di \\(A\\), il totale d\u00e0 il rango dell'aumentata. Qui:</p>`,
+    m1tex: (ra, rg) => `\\operatorname{rank}(A)=${ra},\\qquad \\operatorname{rank}([A\\,|\\,\\mathbf{b}])=${rg}`,
+    m1incompat: `<p>I due ranghi sono <b>diversi</b>: il termine noto \\(\\mathbf{b}\\) non appartiene allo spazio generato dalle colonne di \\(A\\), quindi il sistema \u00e8 <b>impossibile</b>: \\(\\operatorname{Sol}=\\varnothing\\). Lo confermeremo con la via maestra, dove l'incompatibilit\u00e0 appare come una riga del tipo \\((0\\;\\cdots\\;0\\,|\\,1)\\), cio\u00e8 l'equazione \\(0=1\\).</p>`,
+    m1compat: `<p>I due ranghi coincidono: il sistema \u00e8 <b>compatibile</b>. Il numero di parametri liberi della soluzione generale \u00e8:</p>`,
+    m1dimTex: (n, k, d) => `d \\;=\\; n-\\operatorname{rank}(A)\\;=\\;${n}-${k}\\;=\\;${d}`,
+    m1unique: `<p>Poich\u00e9 \\(d=0\\), la soluzione \u00e8 <b>unica</b>. La determineremo con Gauss-Jordan.</p>`,
+    m1inf: (d) => `<p>Il sistema ha \\(\\infty^{${d}}\\) soluzioni. Questo numero \u00e8 la nostra bussola: la forma parametrica finale dovr\u00e0 avere esattamente \\(${d}\\) ${d === 1 ? 'parametro libero' : 'parametri liberi'} (una soluzione particolare pi\u00f9 \\(${d}\\) ${d === 1 ? 'vettore' : 'vettori'} del nucleo).</p>`,
+
+    m2intro: `<p>Prima della via maestra, tre controlli che si fanno a occhio: (1) <b>incompatibilit\u00e0 evidenti</b> \u2014 righe del tipo \\(0=c\\) con \\(c\\neq 0\\), o equazioni proporzionali a sinistra ma non a destra; (2) una <b>soluzione particolare</b> visibile \u2014 quando \\(\\mathbf{b}\\) \u00e8 nullo, oppure coincide con una colonna di \\(A\\), con un suo multiplo o con una combinazione semplice di colonne (se \\(\\sum_j \\lambda_j\\,\\mathbf{c}_j=\\mathbf{b}\\), allora \\(\\mathbf{x}\\) con \\(x_j=\\lambda_j\\) risolve il sistema); (3) <b>relazioni fra le colonne</b> di \\(A\\), che danno i vettori del nucleo, cio\u00e8 la parte omogenea della soluzione generale.</p>`,
+    relZeroRow: (i, c) => `<p>La riga \\(${i}\\) di \\(A\\) \u00e8 tutta nulla, ma il termine noto corrispondente vale \\(${c}\\neq 0\\): l'equazione si legge \\(0=${c}\\), che non ha soluzioni.</p>`,
+    relPropRows: (i, j, lam) => `<p>La riga \\(${j}\\) di \\(A\\) \u00e8 \\(\\left(${lam}\\right)\\) volte la riga \\(${i}\\), ma i termini noti non rispettano la stessa proporzione: sottraendo \\(\\left(${lam}\\right)\\) volte l'equazione \\(${i}\\) dall'equazione \\(${j}\\) resta \\(0=c\\) con \\(c\\neq0\\). Le due equazioni sono in contraddizione.</p>`,
+    m2incompFound: `<p>Basta questo per concludere <b>a occhio</b> che il sistema \u00e8 impossibile: \\(\\operatorname{Sol}=\\varnothing\\). \u00c8 inutile cercare soluzioni particolari o vettori del nucleo; la via maestra qui sotto servir\u00e0 da conferma rigorosa.</p>`,
+    m2noIncomp: `<p>Nessuna incompatibilit\u00e0 evidente a occhio.</p>`,
+    relBZero: `<p>Il termine noto \u00e8 \\(\\mathbf{b}=\\mathbf{0}\\): il sistema \u00e8 omogeneo, e \\(\\mathbf{x}=\\mathbf{0}\\) \u00e8 una soluzione (particolare) immediata.</p>`,
+    relBCol: (j) => `<p>Il termine noto coincide con la colonna \\(\\mathbf{c}_{${j}}\\): poich\u00e9 \\(A\\,\\mathbf{e}_{${j}}=\\mathbf{c}_{${j}}=\\mathbf{b}\\), il vettore \\(\\mathbf{e}_{${j}}\\) (con \\(1\\) in posizione \\(${j}\\) e \\(0\\) altrove) \u00e8 una soluzione particolare.</p>`,
+    relBMult: (j, lam) => `<p>Il termine noto \u00e8 multiplo della colonna \\(\\mathbf{c}_{${j}}\\): vale \\(\\mathbf{b}=\\left(${lam}\\right)\\mathbf{c}_{${j}}\\), quindi il vettore con \\(${lam}\\) in posizione \\(${j}\\) e \\(0\\) altrove \u00e8 una soluzione particolare.</p>`,
+    relBCombo: (parts) => `<p>Il termine noto \u00e8 combinazione lineare semplice di colonne di \\(A\\): \\(\\mathbf{b}=${parts.map((p) => `\\left(${p.coeff}\\right)\\mathbf{c}_{${p.col}}`).join('+')}\\). I coefficienti della combinazione, messi nelle posizioni corrispondenti, danno una soluzione particolare.</p>`,
+    xpLabel: `<p>La soluzione particolare individuata a occhio \u00e8:</p>`,
+    xpSym: '\\mathbf{x}_{\\text{occhio}}',
+    m2noPart: `<p>Nessuna soluzione particolare visibile a occhio (il termine noto non \u00e8 una combinazione semplice delle colonne).</p>`,
+    m2kerIntro: `<p>Passiamo alle relazioni fra le colonne di \\(A\\): ogni relazione \u00e8 un vettore del nucleo, cio\u00e8 una soluzione del sistema omogeneo associato, che serve per la parte \u201clibera\u201d della soluzione generale.</p>`,
+    relNull: (j) => `<p>La colonna \\(\\mathbf{c}_{${j}}\\) \u00e8 nulla. Poich\u00e9 \\(A\\,\\mathbf{e}_{${j}}=\\mathbf{c}_{${j}}=\\mathbf{0}\\), il vettore \\(\\mathbf{e}_{${j}}\\) appartiene al nucleo.</p>`,
+    relMult: (j, i, lam) => `<p>La colonna \\(\\mathbf{c}_{${j}}\\) \u00e8 multipla della precedente \\(\\mathbf{c}_{${i}}\\): vale \\(\\mathbf{c}_{${j}}=\\left(${lam}\\right)\\mathbf{c}_{${i}}\\), cio\u00e8 \\(\\mathbf{c}_{${j}}-\\left(${lam}\\right)\\mathbf{c}_{${i}}=\\mathbf{0}\\). Il vettore del nucleo ha \\(1\\) in posizione \\(${j}\\) e \\(${neg(lam)}\\) in posizione \\(${i}\\).</p>`,
+    relCombo: (j, parts) => `<p>La colonna \\(\\mathbf{c}_{${j}}\\) \u00e8 combinazione lineare di colonne precedenti: \\(\\mathbf{c}_{${j}}=${parts.map((p) => `\\left(${p.coeff}\\right)\\mathbf{c}_{${p.col}}`).join('+')}\\). Riscrivendola come \\(\\mathbf{c}_{${j}}-\\big(${parts.map((p) => `\\left(${p.coeff}\\right)\\mathbf{c}_{${p.col}}`).join('+')}\\big)=\\mathbf{0}\\) si ottiene un vettore del nucleo con \\(1\\) in posizione \\(${j}\\) e gli opposti dei coefficienti nelle posizioni coinvolte.</p>`,
+    relVecLabel: `<p>${'I vettori del nucleo individuati sono:'}</p>`,
+    m2foundKer: (r) => `<p>In totale le scorciatoie individuano \\(${r}\\) ${r === 1 ? 'vettore' : 'vettori'} del nucleo.</p>`,
+    m2noKer: `<p>Nessuna relazione semplice fra le colonne: nessuna scorciatoia per la parte omogenea.</p>`,
+    m2skipKer: `<p>Il sistema \u00e8 impossibile, quindi la ricerca di relazioni fra le colonne (che servirebbe alla parte omogenea della soluzione) qui non ha utilit\u00e0: la saltiamo.</p>`,
+
+    m3incomp: `<p>Le scorciatoie hanno gi\u00e0 chiuso il problema: il sistema \u00e8 impossibile. La via maestra qui sotto \u00e8 la conferma rigorosa (e mostra dove l'incompatibilit\u00e0 emerge nella riduzione).</p>`,
+    m3sysIncomp: `<p>Rouch\u00e9-Capelli dice che il sistema \u00e8 impossibile: nessuna scorciatoia poteva quindi trovare una soluzione particolare. Coerentemente, non ne abbiamo trovate. Procediamo con la via maestra per vedere dove nasce l'incompatibilit\u00e0.</p>`,
+    m3needs: (d) => d === 0
+      ? `<p>Bussola: essendo \\(d=0\\), per concludere serve solo l'unica soluzione (una \u201csoluzione particolare\u201d senza parte libera).</p>`
+      : `<p>Bussola: per scrivere la soluzione generale servono una <b>soluzione particolare</b> e \\(${d}\\) ${d === 1 ? 'vettore indipendente' : 'vettori indipendenti'} del <b>nucleo</b>.</p>`,
+    m3partYes: `<p>La soluzione particolare l'abbiamo gi\u00e0 trovata a occhio. \u2713</p>`,
+    m3partNo: `<p>La soluzione particolare non \u00e8 emersa a occhio: la fornir\u00e0 Gauss-Jordan.</p>`,
+    m3kerEq: (r, d) => `<p>Le scorciatoie hanno individuato \\(${r}\\) ${r === 1 ? 'vettore' : 'vettori'} del nucleo, e il nucleo deve avere dimensione \\(${d}\\): la parte omogenea \u00e8 gi\u00e0 completa (\u00e8 una <b>base candidata</b>). I vettori-scorciatoia sono indipendenti per costruzione, ciascuno ha l'\\(1\\) in una posizione diversa.</p>`,
+    m3kerPart: (r, d) => `<p>Le scorciatoie hanno individuato \\(${r}\\) ${r === 1 ? 'vettore' : 'vettori'} del nucleo, ma il nucleo ha dimensione \\(${d}\\): ne manca${d - r === 1 ? '' : 'no'} \\(${d - r}\\). Completeremo con Gauss-Jordan.</p>`,
+    m3kerNone: (d) => `<p>Nessuna scorciatoia per il nucleo, che ha dimensione \\(${d}\\): lo determiner\u00e0 Gauss-Jordan.</p>`,
+    m3go: `<p>In ogni caso, percorriamo per intero la <b>via maestra</b>: \u00e8 la conferma rigorosa di quanto trovato e produce la forma parametrica finale.</p>`,
+
+    m4intro: `<p>Riduciamo la matrice aumentata \\([A\\,|\\,\\mathbf{b}]\\) in forma a scala ridotta per righe (RREF) con Gauss-Jordan. La forma <i>ridotta</i> \u00e8 comoda perch\u00e9 permette di leggere subito le variabili pivot in funzione del termine noto e delle variabili libere. Lo svolgimento dettagliato delle mosse sulle righe \u00e8 quello del risolutore di Gauss-Jordan; qui ne usiamo il risultato.</p>`,
+    m4rref: `<p>La forma a scala ridotta per righe dell'aumentata \u00e8:</p>`,
+    m4badRow: (r) => `<p>La riga \\(${r}\\) della RREF \u00e8 del tipo \\((0\\;\\cdots\\;0\\,|\\,1)\\): si legge \\(0=1\\), un'equazione senza soluzioni. Il pivot cade nella colonna dei termini noti, esattamente il criterio di Rouch\u00e9-Capelli: il sistema \u00e8 <b>impossibile</b>.</p>`,
+    m4vars: (piv, free) => `<p>Le variabili <b>pivot</b> sono \\(${piv}\\); le variabili <b>libere</b> sono \\(${free}\\). Da ogni riga non nulla si ricava una variabile pivot in funzione del termine noto e delle variabili libere:</p>`,
+    m4unique: `<p>Non ci sono variabili libere: le equazioni della RREF danno direttamente il valore di ciascuna incognita. L'unica soluzione \u00e8:</p>`,
+    m4part: `<p>Ponendo tutte le variabili libere a \\(0\\) si ottiene la <b>soluzione particolare</b>:</p>`,
+    m4hom: (free) => `<p>Per la parte omogenea, si assegna a turno il valore \\(1\\) a una variabile libera e \\(0\\) alle altre (\\(${free}\\)): ogni assegnazione d\u00e0 un vettore del nucleo, e insieme formano una base:</p>`,
+
+    m5structIntro: `<p>La soluzione generale \u00e8 <b>soluzione particolare pi\u00f9 nucleo</b>: \\(\\operatorname{Sol}=\\mathbf{x}_p+\\operatorname{Ker}f\\), un sottospazio affine. In <b>forma parametrica</b>, usando come parametri le variabili libere stesse:</p>`,
+    m5checkXpEq: (ok) => ok
+      ? `<p>Verifica incrociata: la soluzione trovata a occhio coincide con quella di Gauss-Jordan. \u2713</p>`
+      : `<p>Attenzione: la soluzione trovata a occhio non coincide con quella di Gauss-Jordan \u2014 va ricontrollata.</p>`,
+    m5checkXp: (ok) => ok
+      ? `<p>Verifica incrociata: la soluzione particolare trovata a occhio pu\u00f2 differire da quella di Gauss-Jordan (una qualunque soluzione va bene come \\(\\mathbf{x}_p\\)). Controlliamo che la differenza fra le due appartenga al nucleo \u2014 aggiungendola alla base del nucleo il rango non cresce \u2014 ed \u00e8 cos\u00ec: entrambe descrivono lo stesso insieme di soluzioni. \u2713</p>`
+      : `<p>Attenzione: la differenza fra la soluzione a occhio e quella di Gauss-Jordan non appartiene al nucleo \u2014 una delle due va ricontrollata.</p>`,
+    m5checkKer: `<p>Le basi del nucleo (scorciatoie e Gauss-Jordan) possono non coincidere vettore per vettore: possono differire per segno, multiplo o combinazione lineare. Verifichiamo che generino lo <b>stesso sottospazio</b> tramite i ranghi:</p>`,
+    m5tex: (ra, rb, ru) => `\\operatorname{rank}(\\text{scorciatoie})=${ra},\\quad \\operatorname{rank}(\\text{standard})=${rb},\\quad \\operatorname{rank}(\\text{unione})=${ru}`,
+    m5same: `<p>I tre ranghi coincidono: le scorciatoie e la base standard generano esattamente lo stesso nucleo. \u2713</p>`,
+    m5conclIncomp: `<p><b>Conclusione.</b> Il sistema \u00e8 impossibile:</p>`,
+    m5conclIncompTex: `\\operatorname{Sol}=\\varnothing`,
+    m5conclUnique: `<p><b>Conclusione.</b> Il sistema ha un'unica soluzione:</p>`,
+    m5concl: (d) => `<p><b>Conclusione.</b> Il sistema ha \\(\\infty^{${d}}\\) soluzioni, descritte dalla forma parametrica:</p>`,
+
+    // parametrico
+    pGenericCompat: (ra, rg, d) => `<p>La matrice contiene un parametro. Riducendo l'aumentata con Gauss-Jordan dividiamo per i pivot, assumendo implicitamente che siano diversi da zero; sotto queste assunzioni \\(\\operatorname{rank}(A)=${ra}\\) e \\(\\operatorname{rank}([A\\,|\\,\\mathbf{b}])=${rg}\\): per valori <b>generici</b> del parametro il sistema \u00e8 <b>compatibile</b> con \\(${fmtInf(d)}\\) ${d === 0 ? 'soluzione (unica)' : 'soluzioni'}. I pivot espliciti, e quindi le condizioni di genericit\u00e0, li leggeremo dalla RREF.</p>`,
+    pGenericIncompat: (ra, rg) => `<p>La matrice contiene un parametro. Riducendo l'aumentata con Gauss-Jordan dividiamo per i pivot, assumendo implicitamente che siano diversi da zero; sotto queste assunzioni \\(\\operatorname{rank}(A)=${ra}\\) ma \\(\\operatorname{rank}([A\\,|\\,\\mathbf{b}])=${rg}\\): per valori <b>generici</b> del parametro il sistema \u00e8 <b>impossibile</b>. Solo i valori critici (dove qualche pivot si annulla) potranno eventualmente renderlo compatibile.</p>`,
+    pAllCompat: (ra, rg, d) => `<p>La matrice contiene un parametro, ma la riduzione non ha mai richiesto di dividere per un'espressione nel parametro (\u00e8 sempre esistito un pivot costante): \\(\\operatorname{rank}(A)=${ra}\\) e \\(\\operatorname{rank}([A\\,|\\,\\mathbf{b}])=${rg}\\) valgono per <b>ogni</b> valore del parametro. Il sistema \u00e8 <b>compatibile</b> con \\(${fmtInf(d)}\\) ${d === 0 ? 'soluzione (unica)' : 'soluzioni'} per ogni valore, senza casi da distinguere.</p>`,
+    pAllIncompat: (ra, rg) => `<p>La matrice contiene un parametro, ma la riduzione non ha mai richiesto di dividere per un'espressione nel parametro (\u00e8 sempre esistito un pivot costante): \\(\\operatorname{rank}(A)=${ra}\\) e \\(\\operatorname{rank}([A\\,|\\,\\mathbf{b}])=${rg}\\) valgono per <b>ogni</b> valore del parametro. Il sistema \u00e8 <b>impossibile</b> per ogni valore, senza casi da distinguere.</p>`,
+    pAssume: (list) => `<p>Le condizioni di genericit\u00e0 sono proprio i pivot per cui abbiamo diviso, che ritrovi come denominatori nella RREF qui sopra. Esplicitamente: \\(${list.map((s) => s + '\\neq 0').join(',\\quad ')}\\). I valori del parametro che le violano vanno esaminati a parte, perch\u00e9 l\u00ec rango e compatibilit\u00e0 possono cambiare.</p>`,
+    pNoAssume: `<p>Nessun pivot simbolico: non abbiamo mai diviso per espressioni nel parametro, quindi la RREF e le conclusioni valgono per <b>ogni</b> valore del parametro.</p>`,
+    pGenericSol: `<p>Sotto le assunzioni di genericit\u00e0, la lettura della RREF d\u00e0 la soluzione del caso generico:</p>`,
+    pAllSol: `<p>La lettura della RREF d\u00e0 la soluzione, valida per ogni valore del parametro:</p>`,
+    pCaseBecomesIncomp: (param, val) => `<p>Per \\(${param}=${val}\\) il sistema <b>diventa impossibile</b>: il rango di \\(A\\) cala ma quello dell'aumentata no. Sostituiamo il valore e verifichiamolo.</p>`,
+    pCaseBecomesCompat: (param, val, k, d) => `<p>Per \\(${param}=${val}\\) il sistema <b>diventa compatibile</b>: i due ranghi si allineano a \\(${k}\\), con \\(${fmtInf(d)}\\) ${d === 0 ? 'soluzione (unica)' : 'soluzioni'}. Sostituiamo il valore e risolviamo.</p>`,
+    pCaseDrop: (param, val, k, d) => `<p>Per \\(${param}=${val}\\) il sistema resta compatibile ma il rango cala a \\(${k}\\): le soluzioni diventano \\(${fmtInf(d)}\\). Sostituiamo il valore nella matrice e ricalcoliamo tutto da capo.</p>`,
+    pCaseStillIncomp: (param, val) => `<p>Per \\(${param}=${val}\\) il sistema resta <b>impossibile</b> (il valore era solo un candidato). Sostituiamo per verificarlo.</p>`,
+    pCaseNoChange: (param, val, k, d) => `<p>Per \\(${param}=${val}\\) non cambia nulla: il rango resta \\(${k}\\) e il sistema resta compatibile con \\(${fmtInf(d)}\\) ${d === 0 ? 'soluzione' : 'soluzioni'} (il valore era solo un candidato, perch\u00e9 un pivot intermedio si annulla). Sostituiamo per verificarlo e per ottenere una soluzione valida qui (le formule generiche possono avere denominatori che si annullano).</p>`,
+    pCaseSubst: (param, val) => `<p>Sostituiamo \\(${param}=${val}\\) nelle formule della matrice aumentata (valore incorniciato) e svolgiamo i conti:</p>`,
+    pCaseRref: `<p>e la sua forma a scala ridotta per righe (RREF) \u00e8:</p>`,
+    pCaseSolUnique: `<p>Non ci sono variabili libere: l'unica soluzione in questo caso \u00e8:</p>`,
+    pCaseSolParam: (d) => `<p>Da cui, in questo caso, \\(\\infty^{${d}}\\) soluzioni in forma parametrica:</p>`,
+    pNonRational: (tex, approx, degree, realCount) => {
+      let s = `<p>I restanti valori critici sono le radici dell'equazione \\(${tex}\\). Per questo polinomio sono <b>irrazionali</b>: non si possono scrivere come frazioni esatte, e chiuderle in forma esatta richiederebbe l'aritmetica sui numeri algebrici, fuori dalla portata di questo strumento, che lavora su numeri razionali. In corrispondenza di ciascuna, rango e compatibilit\u00e0 vanno ricontrollati.</p>`;
+      if (approx && approx.length) {
+        const more = degree > realCount ? ` (le altre \\(${degree - realCount}\\) radici non sono reali)` : '';
+        s += `<p>Per orientarti, ${realCount === 1 ? 'la radice reale vale' : 'le radici reali valgono'} circa \\(${approx.join(',\\quad ')}\\)${more}. Per studiare il sistema in uno di questi valori, sostituiscilo (anche in forma approssimata) e risolvi il sistema numerico, ad esempio con il risolutore di Gauss-Jordan.</p>`;
+      } else {
+        s += `<p>Questo polinomio non ha radici reali, quindi il caso non si presenta per valori reali del parametro.</p>`;
+      }
+      return s;
+    },
+    pDeclared: (tex) => `<p>La condizione \\(${tex}\\) coinvolge pi\u00f9 di un parametro: non la chiudo automaticamente, perch\u00e9 enumerarne tutti i sottocasi \u00e8 un problema molto pi\u00f9 ampio. Va analizzata a parte sostituendola nella matrice.</p>`,
+    pRecursion: (param, val, resid) => `<p>Sostituendo \\(${param}=${val}\\), la matrice resta in funzione ${resid.length ? `del parametro \\(${resid.join(',')}\\)` : 'di nessun altro parametro'}; si richiude il ragionamento generico su ci\u00f2 che rimane.</p>`,
+    quickGenericLabel: `<p><b>Caso generico:</b></p>`,
+    quickCaseLabel: (param, val) => `<p><b>Caso \\(${param}=${val}\\):</b></p>`,
+  };
+
+  const en = {
+    title: 'Solving a linear system',
+    m1: 'Compatibility and number of solutions (Rouch\u00e9-Capelli)',
+    m2: 'Searching for shortcuts',
+    m3: 'Evaluating the shortcuts',
+    m4: 'Solving with Gauss-Jordan',
+    m5: 'Parametric form and conclusion',
+    mCases: 'Case analysis',
+
+    intro: (m, n) => `<p>The system has \\(${m}\\) ${m === 1 ? 'equation' : 'equations'} and \\(${n}\\) ${n === 1 ? 'unknown' : 'unknowns'}: in matrix form it reads \\(A \\cdot \\mathbf{x}=\\mathbf{b}\\), with \\(A\\) of size \\(${m}\\times ${n}\\).</p>`,
+    augLabel: `<p>All the information of the system sits in the <b>augmented matrix</b> \\([A\\,|\\,\\mathbf{b}]\\), which we will work on:</p>`,
+
+    m1body: `<p>By the <b>Rouch\u00e9-Capelli theorem</b> the system is consistent if and only if \\(\\operatorname{rank}(A)=\\operatorname{rank}([A\\,|\\,\\mathbf{b}])\\). Reducing the augmented matrix we count pivots: those falling in the columns of \\(A\\) give the rank of \\(A\\), the total gives the rank of the augmented matrix. Here:</p>`,
+    m1tex: (ra, rg) => `\\operatorname{rank}(A)=${ra},\\qquad \\operatorname{rank}([A\\,|\\,\\mathbf{b}])=${rg}`,
+    m1incompat: `<p>The two ranks are <b>different</b>: \\(\\mathbf{b}\\) does not belong to the column space of \\(A\\), so the system is <b>inconsistent</b>: \\(\\operatorname{Sol}=\\varnothing\\). We will confirm this along the standard route, where the inconsistency shows up as a row of the form \\((0\\;\\cdots\\;0\\,|\\,1)\\), i.e. the equation \\(0=1\\).</p>`,
+    m1compat: `<p>The two ranks agree: the system is <b>consistent</b>. The number of free parameters of the general solution is:</p>`,
+    m1dimTex: (n, k, d) => `d \\;=\\; n-\\operatorname{rank}(A)\\;=\\;${n}-${k}\\;=\\;${d}`,
+    m1unique: `<p>Since \\(d=0\\), the solution is <b>unique</b>. We will determine it by Gauss-Jordan.</p>`,
+    m1inf: (d) => `<p>The system has \\(\\infty^{${d}}\\) solutions. This number is our compass: the final parametric form must have exactly \\(${d}\\) free ${d === 1 ? 'parameter' : 'parameters'} (one particular solution plus \\(${d}\\) kernel ${d === 1 ? 'vector' : 'vectors'}).</p>`,
+
+    m2intro: `<p>Before the standard route, three checks one does by eye: (1) <b>evident inconsistencies</b> \u2014 rows of the form \\(0=c\\) with \\(c\\neq 0\\), or equations proportional on the left but not on the right; (2) a visible <b>particular solution</b> \u2014 when \\(\\mathbf{b}\\) is zero, or coincides with a column of \\(A\\), a multiple of one, or a simple combination of columns (if \\(\\sum_j \\lambda_j\\,\\mathbf{c}_j=\\mathbf{b}\\), then \\(\\mathbf{x}\\) with \\(x_j=\\lambda_j\\) solves the system); (3) <b>relations among the columns</b> of \\(A\\), which give the kernel vectors, i.e. the homogeneous part of the general solution.</p>`,
+    relZeroRow: (i, c) => `<p>Row \\(${i}\\) of \\(A\\) is entirely zero, but the corresponding right-hand side is \\(${c}\\neq 0\\): the equation reads \\(0=${c}\\), which has no solutions.</p>`,
+    relPropRows: (i, j, lam) => `<p>Row \\(${j}\\) of \\(A\\) is \\(\\left(${lam}\\right)\\) times row \\(${i}\\), but the right-hand sides do not follow the same proportion: subtracting \\(\\left(${lam}\\right)\\) times equation \\(${i}\\) from equation \\(${j}\\) leaves \\(0=c\\) with \\(c\\neq0\\). The two equations contradict each other.</p>`,
+    m2incompFound: `<p>This alone shows <b>by eye</b> that the system is inconsistent: \\(\\operatorname{Sol}=\\varnothing\\). There is no point searching for particular solutions or kernel vectors; the standard route below will serve as a rigorous check.</p>`,
+    m2noIncomp: `<p>No evident inconsistency by eye.</p>`,
+    relBZero: `<p>The right-hand side is \\(\\mathbf{b}=\\mathbf{0}\\): the system is homogeneous, and \\(\\mathbf{x}=\\mathbf{0}\\) is an immediate (particular) solution.</p>`,
+    relBCol: (j) => `<p>The right-hand side coincides with column \\(\\mathbf{c}_{${j}}\\): since \\(A\\,\\mathbf{e}_{${j}}=\\mathbf{c}_{${j}}=\\mathbf{b}\\), the vector \\(\\mathbf{e}_{${j}}\\) (with \\(1\\) in position \\(${j}\\), \\(0\\) elsewhere) is a particular solution.</p>`,
+    relBMult: (j, lam) => `<p>The right-hand side is a multiple of column \\(\\mathbf{c}_{${j}}\\): \\(\\mathbf{b}=\\left(${lam}\\right)\\mathbf{c}_{${j}}\\), so the vector with \\(${lam}\\) in position \\(${j}\\) and \\(0\\) elsewhere is a particular solution.</p>`,
+    relBCombo: (parts) => `<p>The right-hand side is a simple linear combination of columns of \\(A\\): \\(\\mathbf{b}=${parts.map((p) => `\\left(${p.coeff}\\right)\\mathbf{c}_{${p.col}}`).join('+')}\\). The coefficients of the combination, placed in the corresponding positions, give a particular solution.</p>`,
+    xpLabel: `<p>The particular solution found by eye is:</p>`,
+    xpSym: '\\mathbf{x}_{\\text{eye}}',
+    m2noPart: `<p>No particular solution is visible by eye (the right-hand side is not a simple combination of the columns).</p>`,
+    m2kerIntro: `<p>We turn to the relations among the columns of \\(A\\): each relation is a kernel vector, i.e. a solution of the associated homogeneous system, needed for the \u201cfree\u201d part of the general solution.</p>`,
+    relNull: (j) => `<p>Column \\(\\mathbf{c}_{${j}}\\) is zero. Since \\(A\\,\\mathbf{e}_{${j}}=\\mathbf{c}_{${j}}=\\mathbf{0}\\), the vector \\(\\mathbf{e}_{${j}}\\) belongs to the kernel.</p>`,
+    relMult: (j, i, lam) => `<p>Column \\(\\mathbf{c}_{${j}}\\) is a multiple of the earlier \\(\\mathbf{c}_{${i}}\\): \\(\\mathbf{c}_{${j}}=\\left(${lam}\\right)\\mathbf{c}_{${i}}\\), i.e. \\(\\mathbf{c}_{${j}}-\\left(${lam}\\right)\\mathbf{c}_{${i}}=\\mathbf{0}\\). The kernel vector has \\(1\\) in position \\(${j}\\) and \\(${neg(lam)}\\) in position \\(${i}\\).</p>`,
+    relCombo: (j, parts) => `<p>Column \\(\\mathbf{c}_{${j}}\\) is a linear combination of previous columns: \\(\\mathbf{c}_{${j}}=${parts.map((p) => `\\left(${p.coeff}\\right)\\mathbf{c}_{${p.col}}`).join('+')}\\). Rewriting it as \\(\\mathbf{c}_{${j}}-\\big(${parts.map((p) => `\\left(${p.coeff}\\right)\\mathbf{c}_{${p.col}}`).join('+')}\\big)=\\mathbf{0}\\) gives a kernel vector with \\(1\\) in position \\(${j}\\) and the opposite coefficients in the positions involved.</p>`,
+    relVecLabel: `<p>The kernel vectors found are:</p>`,
+    m2foundKer: (r) => `<p>In all, the shortcuts find \\(${r}\\) kernel ${r === 1 ? 'vector' : 'vectors'}.</p>`,
+    m2noKer: `<p>No simple relation among the columns: no shortcut for the homogeneous part.</p>`,
+    m2skipKer: `<p>The system is inconsistent, so searching for relations among the columns (which would serve the homogeneous part of the solution) is of no use here: we skip it.</p>`,
+
+    m3incomp: `<p>The shortcuts have already settled the matter: the system is inconsistent. The standard route below is the rigorous confirmation (and shows where the inconsistency emerges in the reduction).</p>`,
+    m3sysIncomp: `<p>Rouch\u00e9-Capelli says the system is inconsistent: no shortcut could have found a particular solution. Consistently, none was found. We proceed with the standard route to see where the inconsistency arises.</p>`,
+    m3needs: (d) => d === 0
+      ? `<p>Compass: since \\(d=0\\), all we need is the unique solution (a \u201cparticular solution\u201d with no free part).</p>`
+      : `<p>Compass: to write the general solution we need one <b>particular solution</b> and \\(${d}\\) independent <b>kernel</b> ${d === 1 ? 'vector' : 'vectors'}.</p>`,
+    m3partYes: `<p>We already found the particular solution by eye. \u2713</p>`,
+    m3partNo: `<p>No particular solution emerged by eye: Gauss-Jordan will provide it.</p>`,
+    m3kerEq: (r, d) => `<p>The shortcuts found \\(${r}\\) kernel ${r === 1 ? 'vector' : 'vectors'}, and the kernel must have dimension \\(${d}\\): the homogeneous part is already complete (a <b>candidate basis</b>). The shortcut vectors are independent by construction, each has its \\(1\\) in a different position.</p>`,
+    m3kerPart: (r, d) => `<p>The shortcuts found \\(${r}\\) kernel ${r === 1 ? 'vector' : 'vectors'}, but the kernel has dimension \\(${d}\\): \\(${d - r}\\) ${d - r === 1 ? 'is' : 'are'} missing. We will complete with Gauss-Jordan.</p>`,
+    m3kerNone: (d) => `<p>No kernel shortcut; the kernel has dimension \\(${d}\\): Gauss-Jordan will determine it.</p>`,
+    m3go: `<p>In any case, we walk the full <b>standard route</b>: it rigorously confirms what we found and produces the final parametric form.</p>`,
+
+    m4intro: `<p>We reduce the augmented matrix \\([A\\,|\\,\\mathbf{b}]\\) to reduced row echelon form (RREF) by Gauss-Jordan. The <i>reduced</i> form is handy because it lets us read the pivot variables directly in terms of the right-hand side and the free variables. The detailed row operations are those of the Gauss-Jordan solver; here we use its result.</p>`,
+    m4rref: `<p>The reduced row echelon form of the augmented matrix is:</p>`,
+    m4badRow: (r) => `<p>Row \\(${r}\\) of the RREF has the form \\((0\\;\\cdots\\;0\\,|\\,1)\\): it reads \\(0=1\\), an equation with no solutions. The pivot falls in the right-hand-side column, exactly the Rouch\u00e9-Capelli criterion: the system is <b>inconsistent</b>.</p>`,
+    m4vars: (piv, free) => `<p>The <b>pivot</b> variables are \\(${piv}\\); the <b>free</b> variables are \\(${free}\\). Each non-zero row gives a pivot variable in terms of the right-hand side and the free variables:</p>`,
+    m4unique: `<p>There are no free variables: the RREF equations give the value of each unknown directly. The unique solution is:</p>`,
+    m4part: `<p>Setting all free variables to \\(0\\) yields the <b>particular solution</b>:</p>`,
+    m4hom: (free) => `<p>For the homogeneous part, set each free variable to \\(1\\) in turn and the others to \\(0\\) (\\(${free}\\)): each assignment gives a kernel vector, and together they form a basis:</p>`,
+
+    m5structIntro: `<p>The general solution is <b>particular solution plus kernel</b>: \\(\\operatorname{Sol}=\\mathbf{x}_p+\\operatorname{Ker}f\\), an affine subspace. In <b>parametric form</b>, using the free variables themselves as parameters:</p>`,
+    m5checkXpEq: (ok) => ok
+      ? `<p>Cross-check: the solution found by eye coincides with the Gauss-Jordan one. \u2713</p>`
+      : `<p>Warning: the solution found by eye does not coincide with the Gauss-Jordan one \u2014 it should be re-checked.</p>`,
+    m5checkXp: (ok) => ok
+      ? `<p>Cross-check: the particular solution found by eye may differ from the Gauss-Jordan one (any solution works as \\(\\mathbf{x}_p\\)). We check that their difference belongs to the kernel \u2014 adding it to the kernel basis does not increase the rank \u2014 and indeed it does: both describe the same solution set. \u2713</p>`
+      : `<p>Warning: the difference between the by-eye solution and the Gauss-Jordan one does not belong to the kernel \u2014 one of the two should be re-checked.</p>`,
+    m5checkKer: `<p>The two kernel bases (shortcuts and Gauss-Jordan) need not match vector by vector: they may differ by sign, scalar multiple or linear combination. We check that they span the <b>same subspace</b> via ranks:</p>`,
+    m5tex: (ra, rb, ru) => `\\operatorname{rank}(\\text{shortcuts})=${ra},\\quad \\operatorname{rank}(\\text{standard})=${rb},\\quad \\operatorname{rank}(\\text{union})=${ru}`,
+    m5same: `<p>The three ranks agree: the shortcuts and the standard basis span exactly the same kernel. \u2713</p>`,
+    m5conclIncomp: `<p><b>Conclusion.</b> The system is inconsistent:</p>`,
+    m5conclIncompTex: `\\operatorname{Sol}=\\varnothing`,
+    m5conclUnique: `<p><b>Conclusion.</b> The system has a unique solution:</p>`,
+    m5concl: (d) => `<p><b>Conclusion.</b> The system has \\(\\infty^{${d}}\\) solutions, described by the parametric form:</p>`,
+
+    pGenericCompat: (ra, rg, d) => `<p>The matrix contains a parameter. Reducing the augmented matrix with Gauss-Jordan divides by the pivots, implicitly assuming they are non-zero; under these assumptions \\(\\operatorname{rank}(A)=${ra}\\) and \\(\\operatorname{rank}([A\\,|\\,\\mathbf{b}])=${rg}\\): for <b>generic</b> parameter values the system is <b>consistent</b> with \\(${fmtInf(d)}\\) ${d === 0 ? 'solution (unique)' : 'solutions'}. The explicit pivots, hence the genericity conditions, we will read from the RREF.</p>`,
+    pGenericIncompat: (ra, rg) => `<p>The matrix contains a parameter. Reducing the augmented matrix with Gauss-Jordan divides by the pivots, implicitly assuming they are non-zero; under these assumptions \\(\\operatorname{rank}(A)=${ra}\\) but \\(\\operatorname{rank}([A\\,|\\,\\mathbf{b}])=${rg}\\): for <b>generic</b> parameter values the system is <b>inconsistent</b>. Only the critical values (where some pivot vanishes) may possibly restore consistency.</p>`,
+    pAllCompat: (ra, rg, d) => `<p>The matrix contains a parameter, but the reduction never required dividing by an expression in the parameter (a constant pivot was always available): \\(\\operatorname{rank}(A)=${ra}\\) and \\(\\operatorname{rank}([A\\,|\\,\\mathbf{b}])=${rg}\\) hold for <b>every</b> value of the parameter. The system is <b>consistent</b> with \\(${fmtInf(d)}\\) ${d === 0 ? 'solution (unique)' : 'solutions'} for every value, with no cases to distinguish.</p>`,
+    pAllIncompat: (ra, rg) => `<p>The matrix contains a parameter, but the reduction never required dividing by an expression in the parameter (a constant pivot was always available): \\(\\operatorname{rank}(A)=${ra}\\) and \\(\\operatorname{rank}([A\\,|\\,\\mathbf{b}])=${rg}\\) hold for <b>every</b> value of the parameter. The system is <b>inconsistent</b> for every value, with no cases to distinguish.</p>`,
+    pAssume: (list) => `<p>The genericity conditions are exactly the pivots we divided by, which you find as denominators in the RREF above. Explicitly: \\(${list.map((s) => s + '\\neq 0').join(',\\quad ')}\\). Parameter values violating them must be examined separately, since rank and consistency may change there.</p>`,
+    pNoAssume: `<p>No symbolic pivot: we never divided by expressions in the parameter, so the RREF and the conclusions hold for <b>every</b> value of the parameter.</p>`,
+    pGenericSol: `<p>Under the genericity assumptions, reading the RREF gives the generic-case solution:</p>`,
+    pAllSol: `<p>Reading the RREF gives the solution, valid for every value of the parameter:</p>`,
+    pCaseBecomesIncomp: (param, val) => `<p>For \\(${param}=${val}\\) the system <b>becomes inconsistent</b>: the rank of \\(A\\) drops but the rank of the augmented matrix does not. We substitute the value and verify it.</p>`,
+    pCaseBecomesCompat: (param, val, k, d) => `<p>For \\(${param}=${val}\\) the system <b>becomes consistent</b>: the two ranks align at \\(${k}\\), with \\(${fmtInf(d)}\\) ${d === 0 ? 'solution (unique)' : 'solutions'}. We substitute the value and solve.</p>`,
+    pCaseDrop: (param, val, k, d) => `<p>For \\(${param}=${val}\\) the system stays consistent but the rank drops to \\(${k}\\): the solutions become \\(${fmtInf(d)}\\). We substitute the value into the matrix and recompute everything from scratch.</p>`,
+    pCaseStillIncomp: (param, val) => `<p>For \\(${param}=${val}\\) the system stays <b>inconsistent</b> (the value was only a candidate). We substitute to verify it.</p>`,
+    pCaseNoChange: (param, val, k, d) => `<p>For \\(${param}=${val}\\) nothing changes: the rank stays \\(${k}\\) and the system stays consistent with \\(${fmtInf(d)}\\) ${d === 0 ? 'solution' : 'solutions'} (the value was only a candidate, since an intermediate pivot vanishes). We substitute to verify it and to obtain a solution valid here (the generic formulas may have vanishing denominators).</p>`,
+    pCaseSubst: (param, val) => `<p>We substitute \\(${param}=${val}\\) into the augmented matrix formulas (boxed value) and carry out the computation:</p>`,
+    pCaseRref: `<p>and its reduced row echelon form (RREF) is:</p>`,
+    pCaseSolUnique: `<p>There are no free variables: the unique solution in this case is:</p>`,
+    pCaseSolParam: (d) => `<p>Hence, in this case, \\(\\infty^{${d}}\\) solutions in parametric form:</p>`,
+    pNonRational: (tex, approx, degree, realCount) => {
+      let s = `<p>The remaining critical values are the roots of \\(${tex}\\). For this polynomial they are <b>irrational</b>: they cannot be written as exact fractions, and closing them exactly would require algebraic-number arithmetic, beyond the reach of this tool, which works over the rationals. At each of them, rank and consistency must be re-checked.</p>`;
+      if (approx && approx.length) {
+        const more = degree > realCount ? ` (the other \\(${degree - realCount}\\) roots are not real)` : '';
+        s += `<p>For orientation, ${realCount === 1 ? 'the real root is' : 'the real roots are'} about \\(${approx.join(',\\quad ')}\\)${more}. To study the system at one of these values, substitute it (even in approximate form) and solve the resulting numeric system, e.g. with the Gauss-Jordan solver.</p>`;
+      } else {
+        s += `<p>This polynomial has no real roots, so the case does not occur for real values of the parameter.</p>`;
+      }
+      return s;
+    },
+    pDeclared: (tex) => `<p>The condition \\(${tex}\\) involves more than one parameter: it is not closed automatically, since enumerating all its sub-cases is a much larger problem. Analyze it separately by substituting it into the matrix.</p>`,
+    pRecursion: (param, val, resid) => `<p>Substituting \\(${param}=${val}\\), the matrix still depends ${resid.length ? `on the parameter \\(${resid.join(',')}\\)` : 'on no further parameter'}; we re-close the generic reasoning on what remains.</p>`,
+    quickGenericLabel: `<p><b>Generic case:</b></p>`,
+    quickCaseLabel: (param, val) => `<p><b>Case \\(${param}=${val}\\):</b></p>`,
+  };
+
+  return lang === 'en' ? en : it;
+}
+
+// ----------------------------------------------------------------- orchestratore
+function buildNarration(aCells, bCells, lang = 'it') {
+  const t = T(lang);
+  const { A, b, aug, field, vars } = buildSystem(aCells, bCells);
+  const m = A.length, n = m ? A[0].length : 0;
+  const blocks = [];
+  const push = (html, tex) => blocks.push(tex !== undefined ? { html, tex } : { html });
+
+  push(`<h2>${t.title}</h2>` + t.intro(m, n),
+    `A \\cdot \\mathbf{x}=\\mathbf{b}:\\qquad ${matTex(A)} \\cdot ${xVecTex(n)} \\;=\\; ${colVecTex(b)}`);
+  push(t.augLabel, `[A\\,|\\,\\mathbf{b}] \\;=\\; ${augTex(aug, n)}`);
+
+  if (vars.length > 0) return blocks.concat(narrateParametric(A, b, aug, field, vars, n, t));
+  return blocks.concat(narrateNumeric(A, b, aug, field, n, t));
+}
+
+// versione sintetica: solo sistema + soluzione finale, senza la narrazione dei passaggi
+function buildQuickResult(aCells, bCells, lang = 'it') {
+  const t = T(lang);
+  const { A, b, aug, field, vars } = buildSystem(aCells, bCells);
+  const m = A.length, n = m ? A[0].length : 0;
+  const blocks = [];
+  const push = (html, tex) => blocks.push(tex !== undefined ? { html, tex } : { html });
+
+  push(`<h2>${t.title}</h2>`,
+    `A \\cdot \\mathbf{x}=\\mathbf{b}:\\qquad ${matTex(A)} \\cdot ${xVecTex(n)} \\;=\\; ${colVecTex(b)}`);
+
+  if (vars.length === 0) {
+    const sys = closeSystem(aug, field, n);
+    if (sys.incompatible) { push(t.m5conclIncomp, t.m5conclIncompTex); return blocks; }
+    if (sys.nullity === 0) push(t.m5conclUnique, `\\mathbf{x} \\;=\\; ${colVecTex(sys.xp)}`);
+    else push(t.m5concl(sys.nullity), paramFormTex(sys.xp, sys.kbasis, sys.freeCols));
+    return blocks;
+  }
+
+  const a = analyzeParametricSystem(aug, field, n);
+  const g = a.generic;
+  push(t.quickGenericLabel);
+  if (g.incompatible) push(t.m5conclIncomp, t.m5conclIncompTex);
+  else if (g.nullity === 0) push(t.m5conclUnique, `\\mathbf{x} \\;=\\; ${colVecTex(g.xp)}`);
+  else push(t.m5concl(g.nullity), paramFormTex(g.xp, g.kbasis, g.freeCols));
+  if (g.assumptions.length) push(t.pAssume(g.assumptions.map((x) => condTex(x.element.num))));
+
+  for (const br of a.branches) {
+    push(t.quickCaseLabel(br.condition.param, br.condition.value.toLatex()));
+    const c = br.closed;
+    if (c.incompatible) push(t.m5conclIncomp, t.m5conclIncompTex);
+    else if (c.nullity === 0) push(t.m5conclUnique, `\\mathbf{x} \\;=\\; ${colVecTex(c.xp)}`);
+    else push(t.m5concl(c.nullity), paramFormTex(c.xp, c.kbasis, c.freeCols));
+  }
+  for (const dc of a.declaredConditions) {
+    const tex = condTex(dc.poly) + ' = 0';
+    if (dc.kind === 'nonrational') push(t.pNonRational(tex, dc.approx, dc.degree, dc.realCount));
+    else push(t.pDeclared(tex));
+  }
+  return blocks;
+}
+
+// scorciatoie (comuni a numerico e parametrico): narrazione dei momenti 2 e 3.
+// Ritorna anche i dati per i confronti del momento 5.
+function narrateShortcuts(A, b, field, d, sysIncompatible, t, push) {
+  push(`<h3>${t.m2}</h3>` + t.m2intro);
+
+  // (a) incompatibilità evidenti
+  const eyeInc = findEyeIncompatibilities(A, b, field);
+  let eyePart = null;
+  let colSc = { relations: [], vectors: [], count: 0 };
+
+  if (eyeInc.length > 0) {
+    for (const inc of eyeInc) {
+      if (inc.kind === 'zeroRow') push(t.relZeroRow(inc.row + 1, inc.rhs.toLatex()));
+      else push(t.relPropRows(inc.i + 1, inc.j + 1, inc.lam.toLatex()));
+    }
+    push(t.m2incompFound);
+  } else {
+    push(t.m2noIncomp);
+
+    // (b) soluzione particolare a occhio
+    eyePart = findEyeParticular(A, b, field);
+    if (eyePart) {
+      if (eyePart.kind === 'bzero') push(t.relBZero);
+      else if (eyePart.kind === 'bcol') push(t.relBCol(eyePart.parts[0].col + 1));
+      else if (eyePart.kind === 'bmult') push(t.relBMult(eyePart.parts[0].col + 1, eyePart.parts[0].coeff.toLatex()));
+      else push(t.relBCombo(eyePart.parts.map((p) => ({ col: p.col + 1, coeff: p.coeff.toLatex() }))));
+      push(t.xpLabel, `${t.xpSym} \\;=\\; ${colVecTex(eyePart.xp)}`);
+    } else {
+      push(t.m2noPart);
+    }
+
+    // (c) relazioni fra colonne (parte omogenea) — solo se il sistema può avere soluzioni
+    if (sysIncompatible) {
+      push(t.m2skipKer);
+    } else {
+      push(t.m2kerIntro);
+      colSc = findColumnShortcuts(A, field);
+      if (colSc.count === 0) {
+        push(t.m2noKer);
+      } else {
+        for (const rel of colSc.relations) {
+          const j = rel.target + 1;
+          if (rel.type === 'null') push(t.relNull(j));
+          else if (rel.type === 'multiple') push(t.relMult(j, rel.parts[0].col + 1, rel.parts[0].coeff.toLatex()));
+          else push(t.relCombo(j, rel.parts.map((p) => ({ col: p.col + 1, coeff: p.coeff.toLatex() }))));
+        }
+        push(t.relVecLabel, basisTex(colSc.vectors));
+        push(t.m2foundKer(colSc.count));
+      }
+    }
+  }
+
+  // --- Momento 3: valutazione
+  push(`<h3>${t.m3}</h3>`);
+  if (eyeInc.length > 0) {
+    push(t.m3incomp);
+  } else if (sysIncompatible) {
+    push(t.m3sysIncomp);
+  } else {
+    push(t.m3needs(d));
+    push(eyePart ? t.m3partYes : t.m3partNo);
+    if (d > 0) {
+      if (colSc.count === 0) push(t.m3kerNone(d));
+      else if (colSc.count === d) push(t.m3kerEq(colSc.count, d));
+      else push(t.m3kerPart(colSc.count, d));
+    }
+    push(t.m3go);
+  }
+  return { eyeInc, eyePart, colSc };
+}
+
+// lettura della RREF + soluzione (particolare, nucleo, forma parametrica) di un sistema chiuso.
+// labels: { unique, part, hom } per riusare gli stessi testi nel caso generico e nei rami.
+function narrateSolutionFromRref(sys, n, t, push, opts = {}) {
+  if (sys.nullity === 0) {
+    push(opts.uniqueLabel || t.m4unique, `\\mathbf{x} \\;=\\; ${colVecTex(sys.xp)}`);
+    return;
+  }
+  const pivNames = sys.pivotColsA.map((c) => `x_{${c + 1}}`).join(',\\,');
+  const freeNames = sys.freeCols.map((c) => `x_{${c + 1}}`).join(',\\,');
+  push(t.m4vars(pivNames, freeNames), readingTexSys(sys.R, sys.pivotColsA, sys.freeCols, n));
+  push(t.m4part, `\\mathbf{x}_p \\;=\\; ${colVecTex(sys.xp)}`);
+  push(t.m4hom(freeNames), basisTex(sys.kbasis));
+}
+
+function narrateNumeric(A, b, aug, field, n, t) {
+  const blocks = [];
+  const push = (html, tex) => blocks.push(tex !== undefined ? { html, tex } : { html });
+
+  const sys = closeSystem(aug, field, n);
+  const d = sys.nullity;
+
+  // --- Momento 1: Rouché-Capelli
+  push(`<h3>${t.m1}</h3>` + t.m1body, t.m1tex(sys.rankA, sys.rankAug));
+  if (sys.incompatible) {
+    push(t.m1incompat);
+  } else {
+    push(t.m1compat, t.m1dimTex(n, sys.rankA, d));
+    push(d === 0 ? t.m1unique : t.m1inf(d));
+  }
+
+  // --- Momenti 2 e 3: scorciatoie e valutazione
+  const { eyePart, colSc } = narrateShortcuts(A, b, field, d, sys.incompatible, t, push);
+
+  // --- Momento 4: Gauss-Jordan sull'aumentata
+  push(`<h3>${t.m4}</h3>` + t.m4intro);
+  push(t.m4rref, `[A\\,|\\,\\mathbf{b}]_{\\text{RREF}} \\;=\\; ${augTex(sys.R, n)}`);
+  if (sys.incompatible) {
+    const badRow = sys.pivotCols.indexOf(n) + 1;
+    push(t.m4badRow(badRow));
+  } else {
+    narrateSolutionFromRref(sys, n, t, push);
+  }
+
+  // --- Momento 5: forma parametrica e conclusione
+  push(`<h3>${t.m5}</h3>`);
+  if (sys.incompatible) {
+    push(t.m5conclIncomp, t.m5conclIncompTex);
+    return blocks;
+  }
+  // confronti incrociati con le scorciatoie
+  if (eyePart) {
+    if (d === 0) {
+      const same = eyePart.xp.every((e, i) => e.equals(sys.xp[i]));
+      push(t.m5checkXpEq(same));
+    } else {
+      const diff = eyePart.xp.map((e, i) => e.sub(sys.xp[i]));
+      const rk = rankOfVectors(sys.kbasis, field);
+      const rku = rankOfVectors([...sys.kbasis, diff], field);
+      push(t.m5checkXp(rk === rku));
+    }
+  }
+  if (colSc.count > 0 && d > 0) {
+    const ra = rankOfVectors(colSc.vectors, field);
+    const rb = rankOfVectors(sys.kbasis, field);
+    const ru = rankOfVectors([...colSc.vectors, ...sys.kbasis], field);
+    push(t.m5checkKer, t.m5tex(ra, rb, ru));
+    if (sameSpan(colSc.vectors, sys.kbasis, field)) push(t.m5same);
+  }
+  if (d === 0) {
+    push(t.m5conclUnique, `\\mathbf{x} \\;=\\; ${colVecTex(sys.xp)}`);
+  } else {
+    push(t.m5structIntro);
+    push(t.m5concl(d), paramFormTex(sys.xp, sys.kbasis, sys.freeCols));
+  }
+  return blocks;
+}
+
+function narrateParametric(A, b, aug, field, vars, n, t) {
+  const blocks = [];
+  const push = (html, tex) => blocks.push(tex !== undefined ? { html, tex } : { html });
+  const a = analyzeParametricSystem(aug, field, n);
+  const g = a.generic;
+  const d = g.nullity;
+
+  // --- Momento 1 (generico; se non ci sono assunzioni, vale per OGNI valore)
+  const noAssume = g.assumptions.length === 0;
+  push(`<h3>${t.m1}</h3>` + t.m1body, t.m1tex(g.rankA, g.rankAug));
+  if (g.incompatible) push(noAssume ? t.pAllIncompat(g.rankA, g.rankAug) : t.pGenericIncompat(g.rankA, g.rankAug));
+  else {
+    push(noAssume ? t.pAllCompat(g.rankA, g.rankAug, d) : t.pGenericCompat(g.rankA, g.rankAug, d),
+      t.m1dimTex(n, g.rankA, d));
+  }
+
+  // --- Momenti 2 e 3: scorciatoie (fatti COSTANTI, validi per ogni valore del parametro)
+  const { eyePart, colSc } = narrateShortcuts(A, b, field, d, g.incompatible, t, push);
+
+  // --- Momento 4: RREF generica (PRIMA delle condizioni, così si vede da dove escono)
+  push(`<h3>${t.m4}</h3>` + t.m4intro);
+  push(t.m4rref, `[A\\,|\\,\\mathbf{b}]_{\\text{RREF}} \\;=\\; ${augTex(g.R, n)}`);
+  if (g.assumptions.length) push(t.pAssume(g.assumptions.map((x) => condTex(x.element.num))));
+  else push(t.pNoAssume);
+  if (g.incompatible) {
+    const badRow = g.pivotCols.indexOf(n) + 1;
+    push(t.m4badRow(badRow));
+  } else {
+    push(noAssume ? t.pAllSol : t.pGenericSol);
+    narrateSolutionFromRref(g, n, t, push);
+  }
+
+  // --- Momento 5 (generico)
+  push(`<h3>${t.m5}</h3>`);
+  if (g.incompatible) {
+    push(t.m5conclIncomp, t.m5conclIncompTex);
+  } else {
+    if (eyePart) {
+      if (d === 0) {
+        const same = eyePart.xp.every((e, i) => e.equals(g.xp[i]));
+        push(t.m5checkXpEq(same));
+      } else {
+        const diff = eyePart.xp.map((e, i) => e.sub(g.xp[i]));
+        const rk = rankOfVectors(g.kbasis, field);
+        const rku = rankOfVectors([...g.kbasis, diff], field);
+        push(t.m5checkXp(rk === rku));
+      }
+    }
+    if (colSc.count > 0 && d > 0) {
+      const ra = rankOfVectors(colSc.vectors, field);
+      const rb = rankOfVectors(g.kbasis, field);
+      const ru = rankOfVectors([...colSc.vectors, ...g.kbasis], field);
+      push(t.m5checkKer, t.m5tex(ra, rb, ru));
+      if (sameSpan(colSc.vectors, g.kbasis, field)) push(t.m5same);
+    }
+    if (d === 0) push(t.m5conclUnique, `\\mathbf{x} \\;=\\; ${colVecTex(g.xp)}`);
+    else {
+      push(t.m5structIntro);
+      push(t.m5concl(d), paramFormTex(g.xp, g.kbasis, g.freeCols));
+    }
+  }
+
+  // --- Analisi per casi
+  if (a.branches.length || a.declaredConditions.length) push(`<h3>${t.mCases}</h3>`);
+  for (const br of a.branches) {
+    const param = br.condition.param, val = br.condition.value.toLatex();
+    const c = br.closed;
+    // verdetto del ramo rispetto al generico
+    if (g.incompatible && !c.incompatible) push(t.pCaseBecomesCompat(param, val, c.rankA, c.nullity));
+    else if (!g.incompatible && c.incompatible) push(t.pCaseBecomesIncomp(param, val));
+    else if (g.incompatible && c.incompatible) push(t.pCaseStillIncomp(param, val));
+    else if (c.rankA < g.rankA) push(t.pCaseDrop(param, val, c.rankA, c.nullity));
+    else push(t.pCaseNoChange(param, val, c.rankA, c.nullity));
+
+    push(t.pCaseSubst(param, val),
+      `[A\\,|\\,\\mathbf{b}] \\;=\\; ${augSubstTex(aug, n, br.condition.param, val)} \\;=\\; ${augTex(br.subAug, n)}`);
+    push(t.pCaseRref, `[A\\,|\\,\\mathbf{b}]_{\\text{RREF}} \\;=\\; ${augTex(c.R, n)}`);
+
+    if (c.incompatible) {
+      const badRow = c.pivotCols.indexOf(n) + 1;
+      push(t.m4badRow(badRow));
+      push(t.m5conclIncomp, t.m5conclIncompTex);
+    } else if (c.nullity === 0) {
+      push(t.pCaseSolUnique, `\\mathbf{x} \\;=\\; ${colVecTex(c.xp)}`);
+    } else {
+      const pivNames = c.pivotColsA.map((x) => `x_{${x + 1}}`).join(',\\,');
+      const freeNames = c.freeCols.map((x) => `x_{${x + 1}}`).join(',\\,');
+      push(t.m4vars(pivNames, freeNames), readingTexSys(c.R, c.pivotColsA, c.freeCols, n));
+      push(t.pCaseSolParam(c.nullity), paramFormTex(c.xp, c.kbasis, c.freeCols));
+    }
+    if (br.residualParams && br.residualParams.length) push(t.pRecursion(param, val, br.residualParams));
+  }
+  for (const dc of a.declaredConditions) {
+    const tex = condTex(dc.poly) + ' = 0';
+    if (dc.kind === 'nonrational') push(t.pNonRational(tex, dc.approx, dc.degree, dc.realCount));
+    else push(t.pDeclared(tex));
+  }
+  return blocks;
+}
+
+// ====================================================================== WIRING
+const __lsRoot = typeof document !== 'undefined' ? document.querySelector('.ls-root') : null;
+if (__lsRoot) initLinearSystemSolver(__lsRoot);
+
+function initLinearSystemSolver(root) {
+  const LANG = (root.dataset.lang || document.documentElement.lang || 'it')
+    .toLowerCase().startsWith('en') ? 'en' : 'it';
+  const S = {
+    it: { parseErr: (msg) => 'Cella non valida: ' + msg },
+    en: { parseErr: (msg) => 'Invalid cell: ' + msg },
+  }[LANG];
+
+  const inRows = root.querySelector('#lsRows');
+  const inCols = root.querySelector('#lsCols');
+  const gridHost = root.querySelector('#lsGrid');
+  const bHost = root.querySelector('#lsBGrid');
+  const parenAL = root.querySelector('.ls-paren-al');
+  const parenAR = root.querySelector('.ls-paren-ar');
+  const parenBL = root.querySelector('.ls-paren-bl');
+  const parenBR = root.querySelector('.ls-paren-br');
+  const xeq = root.querySelector('#lsXeq');
+  const statusEl = root.querySelector('#lsStatus');
+  const out = root.querySelector('#lsOut');
+
+  let rows = 3, cols = 3;
+
+  const KOPTS = { throwOnError: false, displayMode: true };
+  const RMOPTS = {
+    throwOnError: false,
+    delimiters: [
+      { left: '\\(', right: '\\)', display: false },
+      { left: '\\[', right: '\\]', display: true },
+    ],
+  };
+  function renderKatexBlock(tex) {
+    const safe = tex.replace(/\\mspace/g, '\\mkern');
+    try { return katex.renderToString(safe, KOPTS); }
+    catch (e) { return '<span style="color:#e55">[KaTeX error]</span>'; }
+  }
+  function renderInline(el) { try { renderMathInElement(el, RMOPTS); } catch (e) {} }
+  function tip(msg) { statusEl.textContent = msg; statusEl.className = 'ls-status ls-error'; }
+  function unTip() { statusEl.textContent = ''; statusEl.className = 'ls-status'; }
+  function reveal(el) { el.hidden = false; el.style.display = 'block'; requestAnimationFrame(() => el.classList.add('ls-visible')); }
+
+  function buildGrid() {
+    rows = Math.max(1, Math.min(8, parseInt(inRows.value, 10) || 1));
+    cols = Math.max(1, Math.min(8, parseInt(inCols.value, 10) || 1));
+    let table = '<table class="ls-grid"><tbody>';
+    for (let r = 0; r < rows; r++) {
+      table += '<tr>';
+      for (let c = 0; c < cols; c++) {
+        table += '<td><input class="ls-cell" type="text" inputmode="text" autocomplete="off" '
+          + 'data-row="' + r + '" data-col="' + c + '" value="0"></td>';
+      }
+      table += '</tr>';
+    }
+    table += '</tbody></table>';
+    gridHost.innerHTML = table;
+
+    let btable = '<table class="ls-grid"><tbody>';
+    for (let r = 0; r < rows; r++) {
+      btable += '<tr><td><input class="ls-cell ls-cell-b" type="text" inputmode="text" autocomplete="off" '
+        + 'data-brow="' + r + '" value="0"></td></tr>';
+    }
+    btable += '</tbody></table>';
+    bHost.innerHTML = btable;
+
+    renderXeq();
+    fitBrackets();
+  }
+
+  function renderXeq() {
+    const xv = [];
+    for (let c = 0; c < cols; c++) xv.push('x_{' + (c + 1) + '}');
+    const tex = '\\;\\cdot\\;\\begin{pmatrix}' + xv.join('\\\\') + '\\end{pmatrix}\\;=\\;';
+    try { xeq.innerHTML = katex.renderToString(tex, { throwOnError: false, displayMode: false }); }
+    catch (e) { xeq.innerHTML = ''; }
+  }
+
+  // ---- Parentesi SVG: path matematico reale di KaTeX (tallDelim), come KernelSolver ----
+  const PAREN_VBW = 875;
+  const PAREN_CAP_HEIGHT = 3600;
+  function lsLparenPath(midHeight) {
+    return `M863,9c0,-2,-2,-5,-6,-9c0,0,-17,0,-17,0c-12.7,0,-19.3,0.3,-20,1
+c-5.3,5.3,-10.3,11,-15,17c-242.7,294.7,-395.3,682,-458,1162c-21.3,163.3,-33.3,349,
+-36,557 l0,${midHeight + 84}c0.2,6,0,26,0,60c2,159.3,10,310.7,24,454c53.3,528,210,
+949.7,470,1265c4.7,6,9.7,11.7,15,17c0.7,0.7,7,1,19,1c0,0,18,0,18,0c4,-4,6,-7,6,-9
+c0,-2.7,-3.3,-8.7,-10,-18c-135.3,-192.7,-235.5,-414.3,-300.5,-665c-65,-250.7,-102.5,
+-544.7,-112.5,-882c-2,-104,-3,-167,-3,-189
+l0,-${midHeight + 92}c0,-162.7,5.7,-314,17,-454c20.7,-272,63.7,-513,129,-723c65.3,
+-210,155.3,-396.3,270,-559c6.7,-9.3,10,-15.3,10,-18z`;
+  }
+  function lsRparenPath(midHeight) {
+    return `M76,0c-16.7,0,-25,3,-25,9c0,2,2,6.3,6,13c21.3,28.7,42.3,60.3,
+63,95c96.7,156.7,172.8,332.5,228.5,527.5c55.7,195,92.8,416.5,111.5,664.5
+c11.3,139.3,17,290.7,17,454c0,28,1.7,43,3.3,45l0,${midHeight + 9}
+c-3,4,-3.3,16.7,-3.3,38c0,162,-5.7,313.7,-17,455c-18.7,248,-55.8,469.3,-111.5,664
+c-55.7,194.7,-131.8,370.3,-228.5,527c-20.7,34.7,-41.7,66.3,-63,95c-2,3.3,-4,7,-6,11
+c0,7.3,5.7,11,17,11c0,0,11,0,11,0c9.3,0,14.3,-0.3,15,-1c5.3,-5.3,10.3,-11,15,-17
+c242.7,-294.7,395.3,-681.7,458,-1161c21.3,-164.7,33.3,-350.7,36,-558
+l0,-${midHeight + 144}c-2,-159.3,-10,-310.7,-24,-454c-53.3,-528,-210,-949.7,
+-470,-1265c-4.7,-6,-9.7,-11.7,-15,-17c-0.7,-0.7,-6.7,-1,-18,-1z`;
+  }
+  function lsParenSvg(side, heightPx, widthPx) {
+    const k = widthPx / PAREN_VBW;
+    let viewBoxHeight = Math.round(heightPx / k);
+    let midHeight = viewBoxHeight - PAREN_CAP_HEIGHT;
+    if (midHeight < 0) midHeight = 0;
+    viewBoxHeight = PAREN_CAP_HEIGHT + midHeight;
+    const renderedHeight = viewBoxHeight * k;
+    const d = side === 'l' ? lsLparenPath(midHeight) : lsRparenPath(midHeight);
+    const w = widthPx.toFixed(2), h = renderedHeight.toFixed(2);
+    const style = `display:block !important;flex:0 0 auto;`
+      + `width:${w}px !important;height:${h}px !important;`
+      + `max-width:none !important;opacity:1 !important;visibility:visible !important`;
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${PAREN_VBW} ${viewBoxHeight}" width="${w}" height="${h}" preserveAspectRatio="none" style="${style}" aria-hidden="true"><path d="${d}" fill="currentColor"/></svg>`;
+  }
+
+  function fitBrackets(tries) {
+    tries = tries || 0;
+    requestAnimationFrame(() => {
+      const gridA = gridHost.querySelector('.ls-grid');
+      const gridB = bHost.querySelector('.ls-grid');
+      if (!gridA || gridA.getBoundingClientRect().height <= 0
+        || !gridB || gridB.getBoundingClientRect().height <= 0) {
+        if (tries < 12) fitBrackets(tries + 1);
+        return;
+      }
+      const fontSizePx = parseFloat(getComputedStyle(parenAL).fontSize) || 16;
+      const widthPx = fontSizePx * 0.875;
+      const hA = gridA.getBoundingClientRect().height;
+      const hB = gridB.getBoundingClientRect().height;
+      parenAL.innerHTML = lsParenSvg('l', hA, widthPx);
+      parenAR.innerHTML = lsParenSvg('r', hA, widthPx);
+      parenBL.innerHTML = lsParenSvg('l', hB, widthPx);
+      parenBR.innerHTML = lsParenSvg('r', hB, widthPx);
+    });
+  }
+
+  function gatherCells() {
+    const aData = [];
+    for (let r = 0; r < rows; r++) {
+      const row = [];
+      for (let c = 0; c < cols; c++) {
+        const inp = gridHost.querySelector('.ls-cell[data-row="' + r + '"][data-col="' + c + '"]');
+        row.push(inp ? inp.value : '0');
+      }
+      aData.push(row);
+    }
+    const bData = [];
+    for (let r = 0; r < rows; r++) {
+      const inp = bHost.querySelector('.ls-cell[data-brow="' + r + '"]');
+      bData.push(inp ? inp.value : '0');
+    }
+    return { aData, bData };
+  }
+
+  function clearOut() { out.innerHTML = ''; out.classList.remove('ls-visible'); out.hidden = true; out.style.display = 'none'; }
+
+  function renderBlocks(blocks) {
+    out.innerHTML = '';
+    for (const bl of blocks) {
+      if (bl.html) {
+        const div = document.createElement('div');
+        div.className = 'ls-text';
+        div.innerHTML = bl.html.replace(/\\mspace/g, '\\mkern');
+        out.appendChild(div);
+        renderInline(div);
+      }
+      if (bl.tex !== undefined) {
+        const wrap = document.createElement('div');
+        wrap.className = 'ls-katex';
+        wrap.innerHTML = renderKatexBlock(bl.tex);
+        out.appendChild(wrap);
+      }
+    }
+    reveal(out);
+  }
+
+  let lsRandomUsed = false;
+
+  function lsTrack(mode) {
+    const paramsUsed = [...root.querySelectorAll('.ls-cell')].some((el) => /[a-zA-Z]/.test(el.value));
+    if (window.umami) umami.track('linearsystem-solve', { mode, rows, cols, randomUsed: lsRandomUsed, paramsUsed });
+  }
+
+  function step() {
+    unTip();
+    const { aData, bData } = gatherCells();
+    let blocks;
+    try { blocks = buildNarration(aData, bData, LANG); }
+    catch (e) { tip(S.parseErr(e.message || String(e))); return; }
+    renderBlocks(blocks);
+    lsTrack('steps');
+  }
+
+  function quick() {
+    unTip();
+    const { aData, bData } = gatherCells();
+    let blocks;
+    try { blocks = buildQuickResult(aData, bData, LANG); }
+    catch (e) { tip(S.parseErr(e.message || String(e))); return; }
+    renderBlocks(blocks);
+    lsTrack('quick');
+  }
+
+  function reset() {
+    root.querySelectorAll('.ls-cell').forEach((inp) => { inp.value = '0'; });
+    clearOut(); unTip();
+    lsRandomUsed = false;
+  }
+  function randomize() {
+    gridHost.querySelectorAll('.ls-cell').forEach((inp) => {
+      inp.value = String(Math.floor(Math.random() * 7) - 3); // -3..3
+    });
+    bHost.querySelectorAll('.ls-cell').forEach((inp) => {
+      inp.value = String(Math.floor(Math.random() * 9) - 4); // -4..4
+    });
+    clearOut(); unTip();
+    lsRandomUsed = true;
+  }
+
+  // allargamento cella in focus (porting da KernelSolver / Gauss-Jordan)
+  let blurTimer = null;
+  function setFocus(cell) {
+    root.querySelectorAll('.ls-cell').forEach((el) => el.classList.toggle('ls-cell-wide', el === cell));
+  }
+  function onFocusIn(e) {
+    if (e.target.classList && e.target.classList.contains('ls-cell')) {
+      if (blurTimer) { clearTimeout(blurTimer); blurTimer = null; }
+      setFocus(e.target);
+    }
+  }
+  function onFocusOut() {
+    if (blurTimer) clearTimeout(blurTimer);
+    blurTimer = setTimeout(() => { setFocus(null); blurTimer = null; }, 0);
+  }
+  gridHost.addEventListener('focusin', onFocusIn);
+  gridHost.addEventListener('focusout', onFocusOut);
+  bHost.addEventListener('focusin', onFocusIn);
+  bHost.addEventListener('focusout', onFocusOut);
+
+  inRows.addEventListener('input', () => { buildGrid(); clearOut(); });
+  inCols.addEventListener('input', () => { buildGrid(); clearOut(); });
+  root.querySelector('#lsBtnReset').addEventListener('click', reset);
+  root.querySelector('#lsBtnRandom').addEventListener('click', randomize);
+  root.querySelector('#lsBtnQuick').addEventListener('click', quick);
+  root.querySelector('#lsBtnStep').addEventListener('click', step);
+
+  buildGrid();
+  renderInline(root);
+  fitBrackets();
+  window.addEventListener('resize', fitBrackets);
+}
+
+</script>

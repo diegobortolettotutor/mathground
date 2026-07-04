@@ -1,0 +1,33 @@
+---
+title: Gram-Schmidt
+description: Online Gram-Schmidt orthonormalization solver, computes an orthonormal basis from vectors with exact fractions, step by step.
+sidebar:
+  hidden: false
+  label: Gram-Schmidt
+  order: 4
+tableOfContents: false
+---
+
+import GramSchmidt from '@components/GramSchmidt.astro';
+
+This tool applies the **Gram-Schmidt procedure** to a set of vectors in
+$\mathbb{R}^n$ and returns an **orthonormal basis** of the space they span.
+
+Enter the vectors as columns (integers or fractions, e.g. `1/2`, `-3`), choose
+how many there are ($k$) and which space they live in ($n$), then press
+**SYNTHETIC RESULT** for just the final basis, or **STEP-BY-STEP SOLUTION** to
+see every intermediate calculation: projections, orthogonal parts, squared
+norms and versors, with the common factor highlighted whenever a
+simpler-coordinate representative is chosen.
+
+If one of the vectors turns out to be **linearly dependent** on the previous
+ones, the tool flags it and discards it automatically: the final orthonormal
+basis will then have fewer than $k$ elements.
+
+**Do not use it for**: sets with more than 8 vectors or in dimension higher
+than 8 (the tool's limit), nor to get a purely *orthogonal* basis (without
+normalization) — for that there is the
+[dedicated solver](/en/risolutori/gram-schmid-solo-orto/), which is faster
+because it avoids radicals.
+
+<GramSchmidt />
