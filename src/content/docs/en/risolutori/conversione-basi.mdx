@@ -1,0 +1,21 @@
+---
+title: Base conversions (2, 10, 16)
+description: Online converter between base 2, base 10 and base 16, with a step-by-step explanation of the three different methods (positional expansion, successive division, 4-bit grouping) and LaTeX notation.
+sidebar:
+  hidden: false
+  label: Base conversion
+  order: 8
+tableOfContents: false
+---
+
+import BaseConverter from '@components/BaseConverter.astro';
+
+This tool converts an integer between **base 2**, **base 10** and **base 16**,
+showing each time the correct method for the chosen pair of bases: **positional
+expansion** (towards base 10), **successive division** by the target base (from
+base 10), or **4-bit grouping** for direct conversion between base 2 and base
+16. In every case the coefficients that multiply the powers of the base are
+highlighted, to make the link between the digits of the starting number and
+the calculation that uses them immediately clear.
+
+<BaseConverter />

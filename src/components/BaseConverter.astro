@@ -1,0 +1,1085 @@
+---
+/**
+ * BaseConverter.astro — Conversioni tra basi numeriche (2, 10, 16), nativo,
+ * responsive, bilingue (it/en).
+ *
+ * Dipendenze:
+ *   npm install katex
+ *
+ * Uso in una pagina .mdx di Starlight:
+ *   import BaseConverter from '../../../components/BaseConverter.astro';
+ *   <BaseConverter />
+ *
+ * Metodo (tre schemi didattici distinti, a seconda della coppia di basi):
+ *   1) X -> 10 (X in {2,16}):  espansione posizionale. Ogni cifra vale
+ *      "cifra * base^posizione"; i coefficienti (le cifre) sono evidenziati
+ *      in rosso e boxati, la potenza della base resta in nero. Sopra ogni
+ *      coppia (cifra, potenza) compare la cifra originale con una graffa
+ *      che scende verso il termine, per legare visivamente la scomposizione
+ *      al numero di partenza.
+ *   2) 10 -> X (X in {2,16}):  divisioni successive per la base di arrivo,
+ *      in una tabella Dividendo | Quoziente | Resto; il risultato si legge
+ *      dai resti dal basso verso l'alto.
+ *   3) 2 <-> 16 (diretta, senza passare per il 10): dato che 16 = 2^4, si
+ *      raggruppano le cifre binarie a blocchi di 4 (o si espande ogni cifra
+ *      esadecimale in 4 bit). Se i bit non sono multipli di 4 si aggiunge
+ *      un padding di zeri iniziali, evidenziato come tale.
+ *
+ * Limiti: interi non negativi, al piu' 16 bit (0..65535), per restare in un
+ * intervallo comodo da maneggiare a mano in classe.
+ *
+ * Note:
+ *  - Rendering matematico con KaTeX (coerente col resto del sito).
+ *  - Aritmetica su Number nativi (il limite di 16 bit resta sempre ben
+ *    dentro l'intervallo sicuro dei float a doppia precisione).
+ *  - Stato tenuto in un modello JS; nessuna variabile globale condivisa.
+ */
+
+import 'katex/dist/katex.min.css';
+
+const lang = (Astro.currentLocale ?? 'it').toLowerCase().startsWith('en') ? 'en' : 'it';
+
+const UI = {
+  it: {
+    title: 'Conversioni tra basi numeriche',
+    subtitle: 'Tra base \\(2\\), base \\(10\\) e base \\(16\\)',
+    step1: 'Step 1 — SCEGLI LA CONVERSIONE',
+    convLabel: 'Conversione',
+    opt_2_10: 'Binario (2) → Decimale (10)',
+    opt_10_2: 'Decimale (10) → Binario (2)',
+    opt_16_10: 'Esadecimale (16) → Decimale (10)',
+    opt_10_16: 'Decimale (10) → Esadecimale (16)',
+    opt_2_16: 'Binario (2) → Esadecimale (16)',
+    opt_16_2: 'Esadecimale (16) → Binario (2)',
+    step2: 'Step 2 — INSERISCI IL NUMERO',
+    numLabel: 'Numero',
+    ph_2: 'es. 1011',
+    ph_10: 'es. 173',
+    ph_16: 'es. A3F',
+    btnReset: 'AZZERA VALORI',
+    btnRandom: 'VALORE CASUALE',
+    btnQuick: 'RISULTATO SINTETICO',
+    btnStep: 'SVOLGIMENTO PASSO-PASSO',
+  },
+  en: {
+    title: 'Base conversions',
+    subtitle: 'Between base \\(2\\), base \\(10\\) and base \\(16\\)',
+    step1: 'Step 1 — CHOOSE THE CONVERSION',
+    convLabel: 'Conversion',
+    opt_2_10: 'Binary (2) → Decimal (10)',
+    opt_10_2: 'Decimal (10) → Binary (2)',
+    opt_16_10: 'Hexadecimal (16) → Decimal (10)',
+    opt_10_16: 'Decimal (10) → Hexadecimal (16)',
+    opt_2_16: 'Binary (2) → Hexadecimal (16)',
+    opt_16_2: 'Hexadecimal (16) → Binary (2)',
+    step2: 'Step 2 — ENTER THE NUMBER',
+    numLabel: 'Number',
+    ph_2: 'e.g. 1011',
+    ph_10: 'e.g. 173',
+    ph_16: 'e.g. A3F',
+    btnReset: 'RESET VALUE',
+    btnRandom: 'RANDOM VALUE',
+    btnQuick: 'QUICK RESULT',
+    btnStep: 'STEP-BY-STEP SOLUTION',
+  },
+}[lang];
+---
+
+<div class="bc-root" data-lang={lang}>
+  <!-- Step 1: scelta della conversione -->
+  <section class="bc-panel">
+    <h3 class="bc-steplabel">{UI.step1}</h3>
+    <div class="bc-convrow">
+      <label for="bcConv" class="bc-convlabel">{UI.convLabel}</label>
+      <select id="bcConv" class="bc-select">
+        <option value="2-10">{UI.opt_2_10}</option>
+        <option value="10-2">{UI.opt_10_2}</option>
+        <option value="16-10">{UI.opt_16_10}</option>
+        <option value="10-16">{UI.opt_10_16}</option>
+        <option value="2-16">{UI.opt_2_16}</option>
+        <option value="16-2">{UI.opt_16_2}</option>
+      </select>
+    </div>
+  </section>
+
+  <!-- Step 2: inserimento del numero -->
+  <section class="bc-panel">
+    <h3 class="bc-steplabel">{UI.step2}</h3>
+    <div class="bc-numrow">
+      <label for="bcNum" class="bc-numlabel">{UI.numLabel}</label>
+      <input id="bcNum" class="bc-numinput" type="text" inputmode="text" autocomplete="off" spellcheck="false" value="" />
+    </div>
+    <div id="bcStatus" class="bc-status" role="alert" aria-live="polite"></div>
+  </section>
+
+  <!-- Azioni -->
+  <div class="bc-actions">
+    <button id="bcBtnReset" class="bc-btn bc-btn-ghost" type="button">{UI.btnReset}</button>
+    <button id="bcBtnRandom" class="bc-btn bc-btn-ghost" type="button">{UI.btnRandom}</button>
+    <button id="bcBtnQuick" class="bc-btn bc-btn-ghost" type="button">{UI.btnQuick}</button>
+  </div>
+  <div class="bc-secondary">
+    <button id="bcBtnStep" class="bc-btn bc-btn-ghost bc-btn-wide" type="button">{UI.btnStep}</button>
+  </div>
+
+  <!-- Output -->
+  <section id="bcQuick" class="bc-result" hidden></section>
+  <section id="bcFull" class="bc-result" hidden></section>
+</div>
+
+<style is:global>
+  .bc-root {
+    --bc-radius: 12px;
+    --bc-surface: var(--sl-color-gray-6, #1a1a1a);
+    --bc-border: var(--sl-color-gray-5, #383838);
+    --bc-accent: var(--sl-color-accent, #4f7cff);
+    --bc-red: #d11111;
+    --bc-green: #1f9d55;
+    --bc-accent-hi: var(--sl-color-accent-high, #b8c8ff);
+    --bc-faint: var(--sl-color-gray-3, #888);
+    font-size: 1rem;
+    line-height: 1.5;
+    color: var(--sl-color-text, inherit);
+    width: 100%;
+    min-width: 330px;
+    margin: 1.5rem 0;
+    text-align: center;
+  }
+  .bc-root *,
+  .bc-root *::before,
+  .bc-root *::after { box-sizing: border-box; }
+
+  /* reset difensivo: Starlight inietta margin-top sugli elementi "fratelli"
+     dentro il contenuto markdown (regola tipo "* + *"): senza azzerarlo, il
+     primo elemento del DOM in board/tabella/gruppi resta piu' in alto di
+     tutti gli altri, che invece vengono spinti in basso. Stesso identico fix
+     gia' usato nei bottoni di GramSchmidt/GaussJordan/DivisionePolinomiale,
+     qui esteso a ogni contenitore che costruiamo dinamicamente via JS. */
+  .bc-root[data-lang] .bc-convrow,
+  .bc-root[data-lang] .bc-convlabel,
+  .bc-root[data-lang] .bc-select,
+  .bc-root[data-lang] .bc-numrow,
+  .bc-root[data-lang] .bc-numlabel,
+  .bc-root[data-lang] .bc-numinput,
+  .bc-root[data-lang] .bc-grid,
+  .bc-root[data-lang] .bc-cell,
+  .bc-root[data-lang] .bc-board-scroller,
+  .bc-root[data-lang] .bc-term,
+  .bc-root[data-lang] .bc-plus,
+  .bc-root[data-lang] .bc-poslabel,
+  .bc-root[data-lang] .bc-groups-outer,
+  .bc-root[data-lang] .bc-groups-prefix,
+  .bc-root[data-lang] .bc-groups-grid,
+  .bc-root[data-lang] .bc-group-result,
+  .bc-root[data-lang] .bc-group,
+  .bc-root[data-lang] .bc-group-bits,
+  .bc-root[data-lang] .bc-groups-sep,
+  .bc-root[data-lang] .bc-groupswrap,
+  .bc-root[data-lang] .bc-tablewrap,
+  .bc-root[data-lang] .bc-booktable,
+  .bc-root[data-lang] .bc-booktable th,
+  .bc-root[data-lang] .bc-booktable td,
+  .bc-root[data-lang] .bc-remainder-box,
+  .bc-root[data-lang] .bc-readarrow,
+  .bc-root[data-lang] .bc-readarrow-head,
+  .bc-root[data-lang] .bc-coef {
+    margin: 0 !important;
+  }
+
+  .bc-panel {
+    background: var(--bc-surface);
+    border: 1px solid var(--bc-border);
+    border-radius: var(--bc-radius);
+    padding: 1.25rem 1rem;
+    margin: 1.25rem 0;
+  }
+  .bc-steplabel {
+    margin: 0 0 1rem;
+    font-size: clamp(0.85rem, 2.4vw, 1rem);
+    letter-spacing: 0.02em;
+    color: var(--sl-color-text-accent, var(--bc-accent-hi));
+  }
+
+  /* riga conversione */
+  .bc-convrow { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 0.9rem; }
+  .bc-convlabel { font-size: 1rem; line-height: 1.5rem; }
+  .bc-select {
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    background-color: var(--sl-color-bg, #000);
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' stroke='%23888' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+    background-repeat: no-repeat;
+    background-position: right 0.75rem center;
+    background-size: 10px 6px;
+    color: var(--sl-color-text, #fff);
+    border: 1.5px solid var(--bc-border);
+    border-radius: 6px;
+    padding: 0.5rem 2rem 0.5rem 0.7rem;
+    font: inherit;
+    line-height: 1.5rem;
+    max-width: 100%;
+    cursor: pointer;
+    transition: border-color 0.15s ease, background-color 0.15s ease;
+  }
+  .bc-select:hover { border-color: var(--bc-accent); outline: none; }
+  .bc-select:focus { border-color: var(--bc-accent); outline: none; }
+  .bc-select:focus-visible { outline: none; }
+
+  /* riga numero */
+  .bc-numrow { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 0.9rem; }
+  .bc-numinput {
+    background: var(--sl-color-bg, #000);
+    color: var(--sl-color-text, #fff);
+    border: 1.5px solid var(--bc-border);
+    border-radius: 6px;
+    text-align: center;
+    padding: 0.45rem 0.6rem;
+    font: inherit;
+    font-family: var(--__sl-font-mono, ui-monospace, monospace);
+    letter-spacing: 0.04em;
+    width: 12rem;
+    max-width: 100%;
+    transition: background-color 0.15s ease, border-color 0.15s ease;
+  }
+  .bc-numinput:hover { border-color: var(--bc-accent); background: color-mix(in srgb, var(--bc-accent) 10%, var(--sl-color-bg, #000)); }
+  .bc-numinput:focus { border-color: var(--bc-accent); outline: none; }
+
+  .bc-status { margin: 0.6rem 0 0; font-size: 0.95rem; }
+  .bc-status.bc-error {
+    padding: 0.6rem 0.8rem;
+    border-left: 4px solid var(--bc-red);
+    background: color-mix(in srgb, var(--bc-red) 8%, transparent);
+    border-radius: 4px;
+  }
+
+  /* pulsanti */
+  .bc-actions {
+    display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.75rem; align-items: stretch; margin: 1.25rem auto; max-width: 48rem;
+  }
+  .bc-actions .bc-btn {
+    box-sizing: border-box; width: 100%; margin: 0;
+    height: 3.6rem; padding: 0 1rem; line-height: 1.2;
+    display: inline-flex; align-items: center; justify-content: center; text-align: center;
+  }
+  .bc-secondary { margin-top: 1.25rem; }
+  .bc-btn {
+    font: inherit; font-weight: 600; cursor: pointer;
+    border-radius: 999px; padding: 0.7rem 1.4rem; border: 1.5px solid transparent;
+    transition: transform 0.1s ease, background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+  }
+  .bc-btn:active { transform: scale(0.96); }
+  .bc-btn-ghost { background: transparent; color: var(--sl-color-text, inherit); border-color: var(--bc-border); }
+  .bc-btn-ghost:hover { border-color: var(--bc-accent); color: var(--bc-accent); }
+  .bc-btn-wide { padding: 0.9rem 1.4rem; width: 100%; margin: 0 0 1rem; }
+
+  /* output */
+  .bc-result {
+    background: var(--bc-surface); border: 1px solid var(--bc-border);
+    border-radius: var(--bc-radius); margin-top: 1.5rem; padding: 1.5rem 1rem;
+    opacity: 0; transition: opacity 0.3s ease; text-align: left;
+  }
+  .bc-result.bc-visible { opacity: 1; }
+  .bc-result h2 { text-align: center; }
+  .bc-result h5 {
+    margin: 2.25rem 0 1rem; padding-top: 1rem;
+    font-size: 0.95rem; letter-spacing: 0.03em; color: var(--sl-color-text-accent, var(--bc-accent-hi));
+  }
+  .bc-result h5:first-child { margin-top: 0; padding-top: 0; }
+  .bc-text p { margin: 0.7rem 0; }
+  .bc-tip {
+    background: var(--sl-color-gray-6, rgba(255,255,255,0.04));
+    border-left: 4px solid var(--bc-accent);
+    border-radius: 6px; padding: 0.9rem 1rem; margin: 1.25rem 0;
+  }
+  .bc-katex { overflow-x: auto; overflow-y: hidden; padding: 0.75rem 0.25rem; margin: 1.25rem 0; }
+  .bc-katex .katex-display { margin: 0; }
+
+  /* ----- board posizionale (X -> 10) ----- */
+  .bc-board-scroller { overflow-x: auto; padding: 0.5rem 0.25rem 0.75rem; margin: 1.25rem 0; }
+  .bc-grid {
+    display: inline-grid;
+    align-items: center;
+    justify-content: center;
+    column-gap: 0.35rem;
+    row-gap: 0.3rem;
+    margin: 0 auto;
+  }
+  .bc-cell { white-space: nowrap; text-align: center; }
+  .bc-digit {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.6rem;
+    height: 1.6rem;
+    padding: 0 0.3rem;
+    border: 2px solid var(--bc-border);
+    border-radius: 4px;
+    font-family: var(--__sl-font-mono, ui-monospace, monospace);
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: var(--bc-red);
+  }
+  .bc-poslabel {
+    font-size: 0.78rem;
+    color: var(--bc-faint);
+  }
+  .bc-poslabel .bc-green { color: var(--bc-green); font-weight: 700; }
+  .bc-term { display: flex; align-items: center; justify-content: center; gap: 0.15rem; }
+  .bc-coef {
+    color: var(--bc-red);
+    font-family: var(--__sl-font-mono, ui-monospace, monospace);
+    font-weight: 700;
+    font-size: 1rem;
+  }
+  .bc-plus { align-self: center; padding: 0 0.1rem; opacity: 0.85; }
+  .bc-pad-note { color: var(--bc-faint); font-style: italic; }
+
+  /* ----- tabelle in stile "libro": poche righe, zebra, centrate.
+     Condivisa da: tabella divisioni successive (10 -> X) e tabella di
+     richiamo 2/16/10 (X -> 10, 2 <-> 16). ----- */
+  .bc-tablewrap { display: flex; justify-content: center; overflow-x: auto; margin: 1.25rem 0; padding: 0.25rem; }
+  .bc-booktable {
+    border-collapse: collapse;
+    margin: 0 auto;
+    font-family: var(--__sl-font-mono, ui-monospace, monospace);
+    font-size: 0.92rem;
+  }
+  .bc-booktable th, .bc-booktable td {
+    border: none;
+    padding: 0.22rem 1.1rem;
+    text-align: center;
+    white-space: nowrap;
+  }
+  .bc-booktable thead tr {
+    border-top: 1.5px solid var(--sl-color-text, currentColor);
+    border-bottom: 1.5px solid var(--sl-color-text, currentColor);
+  }
+  .bc-booktable th {
+    font-family: var(--sl-font, inherit);
+    font-weight: 700;
+    color: var(--sl-color-text-accent, var(--bc-accent-hi));
+    padding-top: 0.4rem;
+    padding-bottom: 0.4rem;
+  }
+  .bc-booktable tbody tr:last-child {
+    border-bottom: 1.5px solid var(--sl-color-text, currentColor);
+  }
+  .bc-booktable tbody tr:nth-child(even) {
+    background: color-mix(in srgb, var(--sl-color-gray-5, #888) 18%, transparent);
+  }
+  .bc-divtable td.bc-remainder {
+    color: var(--sl-color-text, #111);
+    font-weight: 700;
+  }
+  .bc-remainder-box {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 1.5rem; height: 1.5rem; padding: 0 0.25rem;
+    border: 2px solid var(--sl-color-text, #111);
+    border-radius: 4px;
+  }
+  .bc-red-strong { color: var(--bc-red); }
+  /* freccia rossa verticale (in una cella con rowspan su tutta la tabella)
+     che indica il verso di lettura dei resti, dal basso verso l'alto.
+     - L'altezza dell'asta NON puo' essere una percentuale: dentro una cella
+       con rowspan il browser non la considera un'altezza "specificata" e
+       collassa a 0. Viene quindi impostata in px via JS (fitReadArrows) una
+       volta che la tabella e' visibile e la sua altezza reale e' misurabile,
+       leggermente piu' corta della cella per lasciare un margine sopra e
+       sotto (il centraggio verticale lo fa da solo "vertical-align:middle").
+     - Lo sfondo zebrato della tabella non attraversa questa cella (e' un
+       unico elemento con rowspan, non una riga per riga): viene ricreato via
+       JS con un repeating-linear-gradient a bande alte quanto le righe vere,
+       cosi' risulta continuo con le colonne accanto. */
+  .bc-divtable td.bc-readarrow-cell {
+    border: none;
+    padding: 0 0.6rem;
+    vertical-align: middle;
+    position: relative;
+  }
+  .bc-readarrow {
+    position: relative;
+    width: 3px;
+    margin: 0 auto;
+    background: var(--bc-red);
+  }
+  .bc-readarrow-head {
+    position: absolute;
+    top: -4px; /* vertice del chevron: i due tratti scendono e si agganciano sull'asta */
+    left: 50%;
+    width: 0;
+    height: 0;
+  }
+  .bc-readarrow-head::before,
+  .bc-readarrow-head::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 3px;
+    height: 10px;
+    background: var(--bc-red);
+    border-radius: 1.5px;
+    transform-origin: top center;
+  }
+  .bc-readarrow-head::before { transform: translateX(-50%) rotate(-24deg); }
+  .bc-readarrow-head::after { transform: translateX(-50%) rotate(24deg); }
+
+  /* ----- gruppi a 4 bit (2 <-> 16) -----
+     Griglia (stesso pattern della board posizionale): colonne dispari = un
+     gruppo (riga 1) + il suo risultato (riga 2, stessa colonna -> sempre
+     centrato sotto, qualunque sia la larghezza del contenuto); colonne pari
+     = separatore verticale "|" che attraversa entrambe le righe. */
+  .bc-groupswrap { overflow-x: auto; margin: 1.25rem 0; padding: 0.25rem; }
+  .bc-groups-outer {
+    display: inline-flex;
+    align-items: flex-start;
+    gap: 0.6rem;
+    margin: 0 auto;
+  }
+  .bc-groups-prefix { display: inline-flex; align-items: center; padding-top: calc(0.4rem + 1.5px); }
+  .bc-groups-grid {
+    display: inline-grid;
+    column-gap: 0.6rem;
+    row-gap: 0.4rem;
+    justify-items: center;
+    align-items: center;
+    margin: 0 auto;
+    font-family: var(--__sl-font-mono, ui-monospace, monospace);
+    font-size: 1.1rem; font-weight: 700;
+  }
+  .bc-group {
+    display: inline-flex; flex-direction: column; align-items: center; gap: 0.3rem;
+    padding: 0.4rem 0.6rem;
+    border: 1.5px solid var(--bc-border);
+    border-radius: 6px;
+  }
+  .bc-group-bits span.bc-padbit { opacity: 0.4; }
+  .bc-group-arrow { opacity: 0.7; font-family: var(--sl-font, inherit); font-weight: 400; }
+  .bc-group-digit { color: var(--bc-red); font-size: 1.2rem; }
+  .bc-groups-sep { align-self: stretch; display: flex; align-items: center; opacity: 0.5; font-weight: 400; }
+  .bc-group-result {
+    display: inline-flex; align-items: center; justify-content: center;
+    padding: 0.2rem 0.6rem;
+    color: var(--bc-red);
+  }
+
+  @media (max-width: 600px) {
+    .bc-root { font-size: 0.95rem; }
+    .bc-actions { grid-template-columns: 1fr; }
+    .bc-actions .bc-btn, .bc-btn-wide { width: 100%; }
+    .bc-result { padding: 1rem 0.5rem; }
+    .bc-numinput { width: 100%; }
+    .bc-numrow, .bc-convrow { flex-direction: column; align-items: stretch; }
+    .bc-select { width: 100%; }
+  }
+</style>
+
+<script>
+  import katex from 'katex';
+  import renderMathInElement from 'katex/contrib/auto-render';
+
+  const root = document.querySelector('.bc-root');
+  if (root) initBaseConverter(root);
+
+  function initBaseConverter(root) {
+    const LANG = (root.dataset.lang || document.documentElement.lang || 'it')
+      .toLowerCase().startsWith('en') ? 'en' : 'it';
+
+    const RED = '#d11111';
+    const GREEN = '#1f9d55';
+    const MAXVAL = 65535; // 16 bit: comodo per esercizi, entro Number.isSafeInteger senza sforzo
+    const HEXCH = '0123456789ABCDEF';
+    const digitVal = (ch) => HEXCH.indexOf(ch.toUpperCase());
+    const valDigit = (v) => HEXCH[v];
+
+    // ============================================================= i18n
+    const D = {
+      it: {
+        titleQuick: 'Risultato sintetico',
+        titleStep: 'Svolgimento passo-passo',
+        posLabel: 'posizione',
+        errEmpty: 'Inserisci un numero.',
+        errInvalid: (base) => `Cifre non valide per la base ${base}.`,
+        errTooLarge: (max) => `Numero troppo grande: il valore decimale deve restare entro ${max}.`,
+
+        // ---- schema A: X -> 10 (espansione posizionale) ----
+        aIntro: (numTex, base) =>
+          `<p>Il numero \\( ${numTex} \\) è scritto in base \\( ${base} \\): ogni cifra vale tanto quanto la cifra stessa moltiplicata per la potenza della base corrispondente alla sua posizione, contando da destra a partire da \\( 0 \\).</p>`,
+        hexRefIntro: '<p>Richiamiamo la corrispondenza tra le cifre esadecimali (da \\( 0 \\) a \\( \\text{F} \\)) e i numeri binari e decimali da \\( 0 \\) a \\( 15 \\):</p>',
+        hexRefHead: { bin: 'Base 2', hex: 'Base 16', dec: 'Base 10' },
+        aBoardIntro: '<p>Scomponiamo ogni cifra nel proprio termine posizionale (in rosso) moltiplicato per la base (in nero) elevata alla posizione (in verde):</p>',
+        aSumIntro: '<p>Sommando tutti i termini si ottiene il valore in base \\( 10 \\):</p>',
+        aFinal: (numTex, result) => `<p>Quindi \\( ${numTex} = ${result}_{10} \\).</p>`,
+        aFinalQuick: (numTex, result) => `<p>Risultato: \\( ${numTex} = ${result}_{10} \\)</p>`,
+        aQuickIntro: (numTex, base) => `<p>Espansione posizionale di \\( ${numTex} \\) in base \\( ${base} \\):</p>`,
+
+        // ---- schema B: 10 -> X (divisioni successive) ----
+        bIntro: (value, base) =>
+          `<p>Dividiamo ripetutamente \\( ${value} \\) per la base di arrivo \\( ${base} \\), annotando ogni volta quoziente e resto, finché il quoziente non diventa \\( 0 \\):</p>`,
+        bTableHead: { div: 'Dividendo', quo: 'Quoziente', rem: 'Resto' },
+        bReadIntro: '<p>Il numero nella nuova base si legge prendendo i resti <b class="bc-red-strong">dal basso verso l\'alto</b>:</p>',
+        bFinal: (value, base, resultTex) => `<p>Quindi \\( ${value}_{10} = ${resultTex}_{${base}} \\).</p>`,
+        bFinalQuick: (value, base, resultTex) => `<p>Risultato: \\( ${value}_{10} = ${resultTex}_{${base}} \\)</p>`,
+        bQuickIntro: (value, base) => `<p>Divisioni successive di \\( ${value} \\) per \\( ${base} \\):</p>`,
+
+        // ---- schema C: 2 <-> 16 (raggruppamento a 4 bit) ----
+        cIntro: '<p>Poiché \\( 16 = 2^{4} \\), la conversione tra base \\( 2 \\) e base \\( 16 \\) si può fare direttamente, senza passare per la base \\( 10 \\): basta raggruppare le cifre binarie a blocchi di \\( 4 \\) bit (da destra verso sinistra); ogni blocco corrisponde esattamente a una cifra esadecimale, e viceversa.</p>',
+        cPadNote: (padLen) =>
+          `<p>Il numero binario non ha un numero di cifre multiplo di \\( 4 \\): aggiungiamo \\( ${padLen} \\) ${padLen === 1 ? 'zero iniziale' : 'zeri iniziali'} (evidenziat${padLen === 1 ? 'o' : 'i'} in grigio) per completare il primo blocco, senza cambiare il valore del numero.</p>`,
+        cGroupsIntroBin: '<p>Raggruppiamo le cifre in blocchi di \\( 4 \\) bit e convertiamo ciascun blocco nella cifra esadecimale corrispondente:</p>',
+        cGroupsIntroHex: '<p>Espandiamo ogni cifra esadecimale nel proprio blocco di \\( 4 \\) bit:</p>',
+        cInfatti: '<p>Infatti, dalla tabella di conversione si ottiene subito che:</p>',
+        cFinalBinToHex: (numTex, resultTex) => `<p>Concatenando le cifre esadecimali ottenute (nell'ordine dei blocchi) si ottiene \\( ${numTex} = ${resultTex}_{16} \\).</p>`,
+        cFinalHexToBin: (numTex, fullTex, trimmedTex) =>
+          `<p>Concatenando i blocchi di \\( 4 \\) bit si ottiene \\( ${fullTex} \\); gli eventuali zeri iniziali dell'intero numero (quelli esterni partendo da sinistra) si possono togliere senza cambiarne il valore, quindi \\( ${numTex} = ${trimmedTex}_{2} \\).</p>`,
+        cFinalQuickBinToHex: (numTex, resultTex) => `<p>Risultato: \\( ${numTex} = ${resultTex}_{16} \\)</p>`,
+        cFinalQuickHexToBin: (numTex, trimmedTex) => `<p>Risultato: \\( ${numTex} = ${trimmedTex}_{2} \\)</p>`,
+        cQuickIntroBin: (numTex) => `<p>Raggruppamento a \\( 4 \\) bit di \\( ${numTex} \\):</p>`,
+        cQuickIntroHex: (numTex) => `<p>Espansione a \\( 4 \\) bit di ogni cifra di \\( ${numTex} \\):</p>`,
+      },
+      en: {
+        titleQuick: 'Quick result',
+        titleStep: 'Step-by-step solution',
+        posLabel: 'position',
+        errEmpty: 'Enter a number.',
+        errInvalid: (base) => `Invalid digits for base ${base}.`,
+        errTooLarge: (max) => `Number too large: the decimal value must stay within ${max}.`,
+
+        aIntro: (numTex, base) =>
+          `<p>The number \\( ${numTex} \\) is written in base \\( ${base} \\): each digit is worth as much as the digit itself multiplied by the power of the base corresponding to its position, counting from the right starting at \\( 0 \\).</p>`,
+        hexRefIntro: '<p>Quick reference: correspondence between the hexadecimal digits (from \\( 0 \\) to \\( \\text{F} \\)) and the binary and decimal numbers from \\( 0 \\) to \\( 15 \\):</p>',
+        hexRefHead: { bin: 'Base 2', hex: 'Base 16', dec: 'Base 10' },
+        aBoardIntro: '<p>We break down each digit into its positional term (in red) multiplied by the base (in black) raised to the position (in green):</p>',
+        aSumIntro: '<p>Adding all the terms gives the value in base \\( 10 \\):</p>',
+        aFinal: (numTex, result) => `<p>So \\( ${numTex} = ${result}_{10} \\).</p>`,
+        aFinalQuick: (numTex, result) => `<p>Result: \\( ${numTex} = ${result}_{10} \\)</p>`,
+        aQuickIntro: (numTex, base) => `<p>Positional expansion of \\( ${numTex} \\) in base \\( ${base} \\):</p>`,
+
+        bIntro: (value, base) =>
+          `<p>We repeatedly divide \\( ${value} \\) by the target base \\( ${base} \\), writing down the quotient and remainder each time, until the quotient becomes \\( 0 \\):</p>`,
+        bTableHead: { div: 'Dividend', quo: 'Quotient', rem: 'Remainder' },
+        bReadIntro: '<p>The number in the new base is read by taking the remainders <b class="bc-red-strong">from bottom to top</b>:</p>',
+        bFinal: (value, base, resultTex) => `<p>So \\( ${value}_{10} = ${resultTex}_{${base}} \\).</p>`,
+        bFinalQuick: (value, base, resultTex) => `<p>Result: \\( ${value}_{10} = ${resultTex}_{${base}} \\)</p>`,
+        bQuickIntro: (value, base) => `<p>Successive division of \\( ${value} \\) by \\( ${base} \\):</p>`,
+
+        cIntro: '<p>Since \\( 16 = 2^{4} \\), converting between base \\( 2 \\) and base \\( 16 \\) can be done directly, without going through base \\( 10 \\): simply group the binary digits into blocks of \\( 4 \\) bits (from right to left); each block corresponds exactly to one hexadecimal digit, and vice versa.</p>',
+        cPadNote: (padLen) =>
+          `<p>The binary number does not have a number of digits that is a multiple of \\( 4 \\): we add \\( ${padLen} \\) leading zero${padLen === 1 ? '' : 's'} (highlighted in grey) to complete the first block, without changing the value of the number.</p>`,
+        cGroupsIntroBin: '<p>We group the digits into blocks of \\( 4 \\) bits and convert each block into the corresponding hexadecimal digit:</p>',
+        cGroupsIntroHex: '<p>We expand each hexadecimal digit into its own block of \\( 4 \\) bits:</p>',
+        cInfatti: '<p>Indeed, from the conversion table we immediately get that:</p>',
+        cFinalBinToHex: (numTex, resultTex) => `<p>Concatenating the hexadecimal digits obtained (in block order) gives \\( ${numTex} = ${resultTex}_{16} \\).</p>`,
+        cFinalHexToBin: (numTex, fullTex, trimmedTex) =>
+          `<p>Concatenating the \\( 4 \\)-bit blocks gives \\( ${fullTex} \\); any leading zeros of the whole number (the outer ones, counting from the left) can be dropped without changing its value, so \\( ${numTex} = ${trimmedTex}_{2} \\).</p>`,
+        cFinalQuickBinToHex: (numTex, resultTex) => `<p>Result: \\( ${numTex} = ${resultTex}_{16} \\)</p>`,
+        cFinalQuickHexToBin: (numTex, trimmedTex) => `<p>Result: \\( ${numTex} = ${trimmedTex}_{2} \\)</p>`,
+        cQuickIntroBin: (numTex) => `<p>\\( 4 \\)-bit grouping of \\( ${numTex} \\):</p>`,
+        cQuickIntroHex: (numTex) => `<p>\\( 4 \\)-bit expansion of every digit of \\( ${numTex} \\):</p>`,
+      },
+    }[LANG];
+    const L = D;
+
+    // ---------------------------------------------------------- riferimenti DOM
+    const convSel = root.querySelector('#bcConv');
+    const numInput = root.querySelector('#bcNum');
+    const statusEl = root.querySelector('#bcStatus');
+    const quickEl = root.querySelector('#bcQuick');
+    const fullEl = root.querySelector('#bcFull');
+
+    const PLACEHOLDERS = {
+      it: { 2: 'es. 1011', 10: 'es. 173', 16: 'es. A3F' },
+      en: { 2: 'e.g. 1011', 10: 'e.g. 173', 16: 'e.g. A3F' },
+    }[LANG];
+
+    // --------------------------------------------------------- helper rendering
+    const KOPTS_DISPLAY = { throwOnError: false, displayMode: true };
+    const KOPTS_INLINE = { throwOnError: false, displayMode: false };
+    const RMOPTS = {
+      throwOnError: false,
+      delimiters: [
+        { left: '\\(', right: '\\)', display: false },
+        { left: '\\[', right: '\\]', display: true },
+      ],
+    };
+    function kx(tex, display) {
+      try { return katex.renderToString(tex, display ? KOPTS_DISPLAY : KOPTS_INLINE); }
+      catch (e) { return '<span style="color:#e55">[KaTeX error]</span>'; }
+    }
+    function renderInline(el) { try { renderMathInElement(el, RMOPTS); } catch (e) {} }
+    function reveal(el) {
+      el.hidden = false; el.style.display = 'block';
+      requestAnimationFrame(() => el.classList.add('bc-visible'));
+    }
+    function hide(el) { el.classList.remove('bc-visible'); el.style.display = 'none'; el.hidden = true; }
+    function tip(msg) { statusEl.textContent = msg; statusEl.className = 'bc-status bc-error'; }
+    function unTip() { statusEl.textContent = ''; statusEl.className = 'bc-status'; }
+
+    function emit(target, html, tex) {
+      if (html) { const d = document.createElement('div'); d.className = 'bc-text'; d.innerHTML = html; target.appendChild(d); renderInline(d); }
+      if (tex) { const w = document.createElement('div'); w.className = 'bc-katex'; w.innerHTML = kx(tex, true); target.appendChild(w); }
+    }
+    function appendNode(target, node) { target.appendChild(node); }
+    function clearResults() { quickEl.innerHTML = ''; fullEl.innerHTML = ''; hide(quickEl); hide(fullEl); }
+
+    // helper LaTeX: cifre come testo eretto con base a pedice, es. \text{A3F}_{16}
+    const numTexOf = (digits, base) => `\\text{${digits}}_{${base}}`;
+
+    // ============================================================= validazione input
+    function currentFromBase() { return parseInt(convSel.value.split('-')[0], 10); }
+    function currentToBase() { return parseInt(convSel.value.split('-')[1], 10); }
+
+    function parseInBase(raw, base) {
+      const clean = String(raw).trim().toUpperCase().replace(/\s+/g, '');
+      if (!clean) return { error: 'empty' };
+      const re = base === 2 ? /^[01]+$/ : base === 10 ? /^[0-9]+$/ : /^[0-9A-F]+$/;
+      if (!re.test(clean)) return { error: 'invalid' };
+      const value = base === 10 ? parseInt(clean, 10) : parseInt(clean, base);
+      if (!Number.isFinite(value) || value > MAXVAL) return { error: 'toolarge' };
+      return { ok: true, clean, value };
+    }
+
+    function updatePlaceholder() {
+      numInput.placeholder = PLACEHOLDERS[currentFromBase()];
+    }
+
+    // ============================================================= motore di conversione
+    // Ritorna un oggetto con tutto il necessario per narrare il passaggio scelto.
+    function computeConversion(fromBase, toBase, clean, value) {
+      if (toBase === 10) {
+        return { scheme: 'A', fromBase, toBase, value, sourceDigits: clean.split(''), resultDigits: String(value).split('') };
+      }
+      if (fromBase === 10) {
+        const rows = [];
+        let q = value;
+        if (q === 0) {
+          rows.push({ dividend: 0, quotient: 0, remainder: 0 });
+        } else {
+          while (q > 0) {
+            const r = q % toBase;
+            const nq = Math.floor(q / toBase);
+            rows.push({ dividend: q, quotient: nq, remainder: r });
+            q = nq;
+          }
+        }
+        const digits = rows.map((r) => valDigit(r.remainder)).reverse();
+        return { scheme: 'B', fromBase, toBase, value, rows, resultDigits: digits };
+      }
+      // 2 <-> 16 diretta
+      if (fromBase === 2) {
+        const bin = clean;
+        const padLen = (4 - (bin.length % 4)) % 4;
+        const padded = '0'.repeat(padLen) + bin;
+        const groups = [];
+        for (let i = 0; i < padded.length; i += 4) groups.push(padded.slice(i, i + 4));
+        const hexDigits = groups.map((g) => valDigit(parseInt(g, 2)));
+        return { scheme: 'C', direction: 'binToHex', fromBase, toBase, value, sourceDigits: bin.split(''), padLen, padded, groups, resultDigits: hexDigits };
+      }
+      const hex = clean;
+      const groups = hex.split('').map((ch) => digitVal(ch).toString(2).padStart(4, '0'));
+      const full = groups.join('');
+      const trimmed = full.replace(/^0+(?=.)/, '');
+      return { scheme: 'C', direction: 'hexToBin', fromBase, toBase, value, sourceDigits: hex.split(''), groups, full, trimmed, resultDigits: trimmed.split('') };
+    }
+
+    // ============================================================= schema A: X -> 10
+    function buildPositionalBoard(digitsArr, base) {
+      const n = digitsArr.length;
+      const scroller = document.createElement('div');
+      scroller.className = 'bc-board-scroller';
+      const grid = document.createElement('div');
+      grid.className = 'bc-grid';
+      const nCols = 2 * n - 1;
+      grid.style.gridTemplateColumns = `repeat(${nCols}, auto)`;
+      digitsArr.forEach((d, idx) => {
+        const power = n - 1 - idx;
+        const col = 2 * idx + 1;
+
+        const digitCell = document.createElement('div');
+        digitCell.className = 'bc-cell bc-digit';
+        digitCell.style.gridColumn = String(col);
+        digitCell.style.gridRow = '1';
+        digitCell.textContent = d;
+        grid.appendChild(digitCell);
+
+        const posLabel = document.createElement('div');
+        posLabel.className = 'bc-cell bc-poslabel';
+        posLabel.style.gridColumn = String(col);
+        posLabel.style.gridRow = '2';
+        posLabel.innerHTML = `${L.posLabel} <span class="bc-green">${power}</span>`;
+        grid.appendChild(posLabel);
+
+        const termCell = document.createElement('div');
+        termCell.className = 'bc-cell bc-term';
+        termCell.style.gridColumn = String(col);
+        termCell.style.gridRow = '3';
+        const coefSpan = document.createElement('span');
+        coefSpan.className = 'bc-coef';
+        coefSpan.textContent = d;
+        const powSpan = document.createElement('span');
+        powSpan.innerHTML = kx(`\\cdot ${base}^{\\textcolor{${GREEN}}{${power}}}`, false);
+        termCell.appendChild(coefSpan);
+        termCell.appendChild(powSpan);
+        grid.appendChild(termCell);
+
+        if (idx < n - 1) {
+          const plus = document.createElement('div');
+          plus.className = 'bc-cell bc-plus';
+          plus.style.gridColumn = String(col + 1);
+          plus.style.gridRow = '3';
+          plus.innerHTML = kx('+', false);
+          grid.appendChild(plus);
+        }
+      });
+      scroller.appendChild(grid);
+      return scroller;
+    }
+
+    // formula finale su piu' righe (a capo dopo ogni "="): la prima riga parte
+    // dal numero originale (in base di partenza) e mostra subito i termini,
+    // le righe successive proseguono con "= ..." fino al risultato.
+    function sumAlignedTex(numTex, termsTex, valuesTex, value) {
+      return `\\begin{aligned} ${numTex} &= ${termsTex} \\\\ & = ${valuesTex} \\\\ & = ${value}_{10} \\end{aligned}`;
+    }
+
+    // tabella di richiamo 0..15 in base 2 / 16 / 10, utile prima di leggere
+    // le cifre esadecimali (in particolare A..F) nella board posizionale.
+    function buildHexRefTable() {
+      const wrap = document.createElement('div');
+      wrap.className = 'bc-tablewrap';
+      const table = document.createElement('table');
+      table.className = 'bc-booktable bc-hexreftable';
+      const thead = document.createElement('thead');
+      thead.innerHTML = `<tr><th>${L.hexRefHead.bin}</th><th>${L.hexRefHead.hex}</th><th>${L.hexRefHead.dec}</th></tr>`;
+      table.appendChild(thead);
+      const tbody = document.createElement('tbody');
+      for (let v = 0; v <= 15; v++) {
+        const tr = document.createElement('tr');
+        const tdBin = document.createElement('td'); tdBin.textContent = v.toString(2).padStart(4, '0');
+        const tdHex = document.createElement('td'); tdHex.textContent = valDigit(v);
+        const tdDec = document.createElement('td'); tdDec.textContent = String(v);
+        tr.appendChild(tdBin); tr.appendChild(tdHex); tr.appendChild(tdDec);
+        tbody.appendChild(tr);
+      }
+      table.appendChild(tbody);
+      wrap.appendChild(table);
+      return wrap;
+    }
+
+    function schemeA(target, quick, data) {
+      const { fromBase, toBase, value, sourceDigits, resultDigits } = data;
+      const numTex = numTexOf(sourceDigits.join(''), fromBase);
+      const n = sourceDigits.length;
+      const termsTex = sourceDigits.map((d, idx) => `${d}\\cdot ${fromBase}^{${n - 1 - idx}}`).join(' + ');
+      const valuesTex = sourceDigits.map((d, idx) => `${parseInt(d, fromBase)}\\cdot ${Math.pow(fromBase, n - 1 - idx)}`).join(' + ');
+      const sumTex = sumAlignedTex(numTex, termsTex, valuesTex, value);
+
+      if (quick) {
+        emit(target, L.aFinalQuick(numTex, value));
+        return;
+      }
+      emit(target, L.aIntro(numTex, fromBase));
+      if (fromBase === 16) {
+        emit(target, L.hexRefIntro);
+        appendNode(target, buildHexRefTable());
+      }
+      emit(target, L.aBoardIntro);
+      appendNode(target, buildPositionalBoard(sourceDigits, fromBase));
+      emit(target, L.aSumIntro, sumTex);
+      emit(target, L.aFinal(numTex, value));
+    }
+
+    // ============================================================= schema B: 10 -> X
+    function buildDivisionTable(rows, toBase) {
+      const wrap = document.createElement('div');
+      wrap.className = 'bc-tablewrap';
+      const table = document.createElement('table');
+      table.className = 'bc-booktable bc-divtable';
+      const thead = document.createElement('thead');
+      thead.innerHTML = `<tr><th>${L.bTableHead.div}</th><th></th><th>${L.bTableHead.quo}</th><th>${L.bTableHead.rem}</th><th></th></tr>`;
+      table.appendChild(thead);
+      const tbody = document.createElement('tbody');
+      rows.forEach((r, idx) => {
+        const tr = document.createElement('tr');
+        const tdDiv = document.createElement('td'); tdDiv.textContent = String(r.dividend);
+        const tdOp = document.createElement('td'); tdOp.innerHTML = kx(`\\div ${toBase} \\;=\\;`, false);
+        const tdQuo = document.createElement('td'); tdQuo.textContent = String(r.quotient);
+        const tdRem = document.createElement('td'); tdRem.className = 'bc-remainder';
+        const box = document.createElement('span'); box.className = 'bc-remainder-box'; box.textContent = valDigit(r.remainder);
+        tdRem.appendChild(box);
+        tr.appendChild(tdDiv); tr.appendChild(tdOp); tr.appendChild(tdQuo); tr.appendChild(tdRem);
+        if (idx === 0) {
+          // un'unica cella (rowspan su tutta la tabella) con la freccia rossa
+          // che sale dall'ultimo resto al primo: indica visivamente il verso
+          // di lettura "dal basso verso l'alto", senza ripetere le cifre.
+          const tdArrow = document.createElement('td');
+          tdArrow.className = 'bc-readarrow-cell';
+          tdArrow.rowSpan = rows.length;
+          const arrow = document.createElement('div');
+          arrow.className = 'bc-readarrow';
+          const head = document.createElement('div');
+          head.className = 'bc-readarrow-head';
+          arrow.appendChild(head);
+          tdArrow.appendChild(arrow);
+          tr.appendChild(tdArrow);
+        }
+        tbody.appendChild(tr);
+      });
+      table.appendChild(tbody);
+      wrap.appendChild(table);
+      return wrap;
+    }
+
+    function schemeB(target, quick, data) {
+      const { toBase, value, rows, resultDigits } = data;
+      const resultTex = `\\text{${resultDigits.join('')}}`;
+
+      if (quick) {
+        emit(target, L.bFinalQuick(value, toBase, resultTex));
+        return;
+      }
+      emit(target, L.bIntro(value, toBase));
+      appendNode(target, buildDivisionTable(rows, toBase));
+      emit(target, L.bReadIntro, `\\Longrightarrow\\; ${resultTex}`);
+      emit(target, L.bFinal(value, toBase, resultTex));
+    }
+
+    // ============================================================= schema C: 2 <-> 16
+    function buildGroups(groups, kind, padLen, results, prefixTex) {
+      const wrap = document.createElement('div');
+      wrap.className = 'bc-groupswrap';
+      const outer = document.createElement('div');
+      outer.className = 'bc-groups-outer';
+
+      if (prefixTex) {
+        const prefix = document.createElement('span');
+        prefix.className = 'bc-groups-prefix';
+        prefix.innerHTML = kx(prefixTex, false);
+        outer.appendChild(prefix);
+      }
+
+      const n = groups.length;
+      const grid = document.createElement('div');
+      grid.className = 'bc-groups-grid';
+      const nCols = 2 * n - 1;
+      grid.style.gridTemplateColumns = `repeat(${nCols}, auto)`;
+      groups.forEach((g, idx) => {
+        const col = 2 * idx + 1;
+        const box = document.createElement('div');
+        box.className = 'bc-group';
+        box.style.gridColumn = String(col);
+        box.style.gridRow = '1';
+        const bitsEl = document.createElement('div');
+        bitsEl.className = 'bc-group-bits';
+        if (kind === 'bin' && idx === 0 && padLen > 0) {
+          for (let i = 0; i < g.length; i++) {
+            const span = document.createElement('span');
+            span.textContent = g[i];
+            if (i < padLen) span.className = 'bc-padbit';
+            bitsEl.appendChild(span);
+          }
+        } else if (kind === 'raw') {
+          bitsEl.innerHTML = kx(g, false);
+        } else {
+          bitsEl.textContent = g;
+        }
+        box.appendChild(bitsEl);
+        grid.appendChild(box);
+
+        if (idx < n - 1) {
+          const sep = document.createElement('span');
+          sep.className = 'bc-groups-sep';
+          sep.style.gridColumn = String(col + 1);
+          sep.style.gridRow = '1'; // resta sulla riga dei blocchi, mai a meta' strada
+          sep.textContent = '|';
+          grid.appendChild(sep);
+        }
+      });
+
+      // riga dei risultati (es. le cifre esadecimali, o i blocchi a 4 bit):
+      // ogni risultato condivide la STESSA colonna del proprio raggruppamento,
+      // quindi resta centrato sotto di esso qualunque sia la larghezza del
+      // contenuto (un blocco a 4 cifre e una singola cifra hanno larghezze
+      // diverse: mettendoli in colonne separate non si allineano da soli).
+      if (results && results.length) {
+        results.forEach((res, idx) => {
+          const col = 2 * idx + 1;
+          const box = document.createElement('div');
+          box.className = 'bc-group-result';
+          box.style.gridColumn = String(col);
+          box.style.gridRow = '2';
+          box.textContent = res;
+          grid.appendChild(box);
+        });
+      }
+
+      outer.appendChild(grid);
+      wrap.appendChild(outer);
+      return wrap;
+    }
+
+    function schemeC(target, quick, data) {
+      const { direction, fromBase, sourceDigits, groups, resultDigits } = data;
+      const numTex = numTexOf(sourceDigits.join(''), fromBase);
+
+      if (direction === 'binToHex') {
+        const { padLen, padded } = data;
+        const resultTex = `\\text{${resultDigits.join('')}}`;
+        if (quick) {
+          emit(target, L.cFinalQuickBinToHex(numTex, resultTex));
+          return;
+        }
+        emit(target, L.cIntro);
+        emit(target, L.hexRefIntro);
+        appendNode(target, buildHexRefTable());
+        if (padLen > 0) emit(target, L.cPadNote(padLen));
+        emit(target, L.cGroupsIntroBin);
+        appendNode(target, buildGroups(groups, 'bin', padLen, resultDigits, `\\text{${padded}} \\;=\\;`));
+        emit(target, L.cInfatti);
+        groups.forEach((g, idx) => {
+          const bits = g.split('');
+          const sumTex = bits.map((b, j) => `${b}\\cdot 2^{${3 - j}}`).join('+');
+          const valuesTex = bits.map((b, j) => `${b}\\cdot ${Math.pow(2, 3 - j)}`).join('+');
+          const value = parseInt(g, 2);
+          const hexDigit = valDigit(value);
+          emit(target, '', `\\text{${g}} \\;=\\; ${sumTex} \\;=\\; ${valuesTex} \\;=\\; ${value}_{10} \\;=\\; \\textcolor{${RED}}{\\text{${hexDigit}}}_{16}`);
+        });
+        emit(target, L.cFinalBinToHex(numTex, resultTex));
+        return;
+      }
+
+      // hexToBin
+      const { full, trimmed } = data;
+      if (quick) {
+        emit(target, L.cFinalQuickHexToBin(numTex, `\\text{${trimmed}}`));
+        return;
+      }
+      emit(target, L.cIntro);
+      emit(target, L.hexRefIntro);
+      appendNode(target, buildHexRefTable());
+      emit(target, L.cGroupsIntroHex);
+      appendNode(target, buildGroups(sourceDigits, 'hex', 0, groups, `\\text{${sourceDigits.join('')}} \\;=\\;`));
+      emit(target, L.cInfatti);
+      sourceDigits.forEach((ch, idx) => {
+        const value = digitVal(ch);
+        const bits = groups[idx];
+        emit(target, '', `\\text{${ch}}_{16} \\;=\\; ${value}_{10} \\;=\\; \\textcolor{${RED}}{\\text{${bits}}}_{2}`);
+      });
+      const fullTex = `\\text{${full}}`;
+      const trimmedTex = `\\text{${trimmed}}`;
+      emit(target, L.cFinalHexToBin(numTex, fullTex, trimmedTex));
+    }
+
+    // misura l'altezza reale della/e cella/e con rowspan (bc-readarrow-cell)
+    // e applica: 1) l'altezza dell'asta in px, un po' piu' corta della cella
+    // per lasciare respiro sopra/sotto (il centraggio verticale e' automatico
+    // grazie a "vertical-align:middle" sulla cella); 2) uno sfondo a bande
+    // (repeating-linear-gradient) che ricrea la zebratura riga per riga,
+    // altrimenti questa colonna resterebbe vuota perche' e' un'unica cella
+    // con rowspan e non riceve lo sfondo di "tr:nth-child(even)".
+    const READARROW_INSET = 18; // px totali di respiro (in alto + in basso)
+    function fitReadArrows(tries) {
+      tries = tries || 0;
+      requestAnimationFrame(() => {
+        const cells = root.querySelectorAll('.bc-readarrow-cell');
+        if (!cells.length) return;
+        let pending = false;
+        cells.forEach((cell) => {
+          const line = cell.querySelector('.bc-readarrow');
+          if (!line) return;
+          const h = cell.getBoundingClientRect().height;
+          if (h <= 0) { pending = true; return; }
+          line.style.height = Math.max(0, h - READARROW_INSET) + 'px';
+
+          const rowsCount = parseInt(cell.getAttribute('rowspan'), 10) || 1;
+          const rowH = h / rowsCount;
+          const table = cell.closest('table');
+          const evenRow = table ? table.querySelector('tbody tr:nth-child(2)') : null;
+          const tint = evenRow ? getComputedStyle(evenRow).backgroundColor : 'transparent';
+          cell.style.backgroundImage =
+            `repeating-linear-gradient(to bottom, transparent 0px, transparent ${rowH}px, ${tint} ${rowH}px, ${tint} ${2 * rowH}px)`;
+        });
+        if (pending && tries < 12) fitReadArrows(tries + 1);
+      });
+    }
+
+    // ============================================================= orchestratore
+    let bcRandomUsed = false;
+    function bcTrack(mode) {
+      if (window.umami) {
+        umami.track('baseconverter-solve', { mode, conversion: convSel.value, randomUsed: bcRandomUsed });
+      }
+    }
+    function elabora(quick) {
+      const target = quick ? quickEl : fullEl;
+      const other = quick ? fullEl : quickEl;
+      quickEl.innerHTML = ''; fullEl.innerHTML = '';
+
+      const fromBase = currentFromBase();
+      const toBase = currentToBase();
+      const parsed = parseInBase(numInput.value, fromBase);
+      if (parsed.error === 'empty') { tip(L.errEmpty); return; }
+      if (parsed.error === 'invalid') { tip(L.errInvalid(fromBase)); return; }
+      if (parsed.error === 'toolarge') { tip(L.errTooLarge(MAXVAL)); return; }
+      unTip();
+
+      const data = computeConversion(fromBase, toBase, parsed.clean, parsed.value);
+
+      emit(target, `<h2>${quick ? L.titleQuick : L.titleStep}</h2>`);
+      if (data.scheme === 'A') schemeA(target, quick, data);
+      else if (data.scheme === 'B') schemeB(target, quick, data);
+      else schemeC(target, quick, data);
+
+      hide(other);
+      reveal(target);
+      fitReadArrows();
+      bcTrack(quick ? 'quick' : 'steps');
+    }
+
+    // -------------------------------------------------------------- interazioni
+    // valore casuale "didattico": dipende dalla COPPIA di conversione scelta,
+    // non solo dalla base di partenza, cosi' ogni conversione puo' avere un
+    // intervallo su misura (es. numeri ne' troppo corti ne' troppo lunghi
+    // per mostrare bene lo specifico procedimento).
+    function randomInRange(min, max) { return min + Math.floor(Math.random() * (max - min + 1)); }
+    function randomForConversion(fromBase, toBase) {
+      const key = `${fromBase}-${toBase}`;
+      if (key === '2-16') return randomInRange(255, 1023).toString(2);
+      if (key === '16-2') return randomInRange(255, 1023).toString(16).toUpperCase();
+      if (key === '10-16') return String(randomInRange(700, 12000));
+      // fallback invariato per le altre combinazioni (dipende solo dalla base di partenza)
+      if (fromBase === 2) return Math.floor(Math.random() * 256).toString(2).padStart(8, '0');
+      if (fromBase === 10) return String(Math.floor(Math.random() * 256));
+      return Math.floor(Math.random() * 4096).toString(16).toUpperCase();
+    }
+
+    // azzera il campo e mostra subito, in grigio, il numero di esempio (placeholder)
+    // adatto alla base attualmente selezionata: usata sia dal bottone "reset" sia
+    // al cambio di conversione sia all'avvio, cosi' il comportamento e' sempre lo stesso.
+    function resetAll() {
+      numInput.value = '';
+      updatePlaceholder();
+      clearResults();
+      unTip();
+      bcRandomUsed = false;
+    }
+
+    convSel.addEventListener('change', () => resetAll());
+    numInput.addEventListener('input', () => { clearResults(); unTip(); });
+    root.querySelector('#bcBtnReset').addEventListener('click', () => resetAll());
+    root.querySelector('#bcBtnRandom').addEventListener('click', () => {
+      numInput.value = randomForConversion(currentFromBase(), currentToBase());
+      clearResults(); unTip();
+      bcRandomUsed = true;
+    });
+    root.querySelector('#bcBtnQuick').addEventListener('click', () => elabora(true));
+    root.querySelector('#bcBtnStep').addEventListener('click', () => elabora(false));
+
+    // ------------------------------------------------------------- avvio
+    resetAll();
+    window.addEventListener('resize', () => fitReadArrows());
+    renderInline(root);
+  }
+</script>
