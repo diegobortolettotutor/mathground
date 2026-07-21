@@ -1,38 +1,36 @@
 ---
 /**
- * BaseConverter.astro — Conversioni tra basi numeriche (2, 10, 16), nativo,
- * responsive, bilingue (it/en).
+ * BaseConverter.astro — Conversioni tra basi numeriche arbitrarie (2..64),
+ * nativo, responsive, bilingue (it/en).
  *
- * Dipendenze:
- *   npm install katex
+ * Dipendenze:  npm install katex
  *
  * Uso in una pagina .mdx di Starlight:
- *   import BaseConverter from '../../../components/BaseConverter.astro';
+ *   import BaseConverter from '@components/BaseConverter.astro';
  *   <BaseConverter />
  *
- * Metodo (tre schemi didattici distinti, a seconda della coppia di basi):
- *   1) X -> 10 (X in {2,16}):  espansione posizionale. Ogni cifra vale
- *      "cifra * base^posizione"; i coefficienti (le cifre) sono evidenziati
- *      in rosso e boxati, la potenza della base resta in nero. Sopra ogni
- *      coppia (cifra, potenza) compare la cifra originale con una graffa
- *      che scende verso il termine, per legare visivamente la scomposizione
- *      al numero di partenza.
- *   2) 10 -> X (X in {2,16}):  divisioni successive per la base di arrivo,
- *      in una tabella Dividendo | Quoziente | Resto; il risultato si legge
- *      dai resti dal basso verso l'alto.
- *   3) 2 <-> 16 (diretta, senza passare per il 10): dato che 16 = 2^4, si
- *      raggruppano le cifre binarie a blocchi di 4 (o si espande ogni cifra
- *      esadecimale in 4 bit). Se i bit non sono multipli di 4 si aggiunge
- *      un padding di zeri iniziali, evidenziato come tale.
+ * ── Alfabeto ────────────────────────────────────────────────────────────
+ *   Cifre 0-9 (valori 0..9), lettere A-Z (10..35), lettere a-z (36..61).
+ *   Case-sensitive. Le basi 63 e 64 non hanno abbastanza simboli: usano la
+ *   notazione a parentesi (v)(v)(v), dove ogni gruppo e' il valore decimale
+ *   della cifra. In input e' ammessa una forma "ibrida": simboli nudi e
+ *   gruppi (n) mescolati liberamente (es. in base 32 "(10)A17(17)" == "AA17H").
+ *   Regola di lettura non ambigua: fuori dalle parentesi ogni singolo
+ *   carattere e' una cifra; (n) racchiude un valore decimale a piu' cifre.
  *
- * Limiti: interi non negativi, al piu' 16 bit (0..65535), per restare in un
- * intervallo comodo da maneggiare a mano in classe.
+ * ── Metodo (in ordine di priorita') ─────────────────────────────────────
+ *   1) arrivo = 10        -> espansione posizionale diretta
+ *   2) partenza = 10      -> divisioni successive dirette
+ *   3) 2 <-> 16           -> scorciatoia a 4 bit  +  anche il metodo generale
+ *   4) entrambe non 10    -> ponte esplicito m -> 10 -> n (posizionale, poi
+ *                            divisioni successive), i due processi accodati
+ *   Il ponte decimale intermedio e' sempre in cifre 0-9; simboli/parentesi
+ *   compaiono solo agli estremi (partenza e arrivo).
  *
- * Note:
- *  - Rendering matematico con KaTeX (coerente col resto del sito).
- *  - Aritmetica su Number nativi (il limite di 16 bit resta sempre ben
- *    dentro l'intervallo sicuro dei float a doppia precisione).
- *  - Stato tenuto in un modello JS; nessuna variabile globale condivisa.
+ * ── Limiti ──────────────────────────────────────────────────────────────
+ *   Interi non negativi. Numero massimo di cifre/gruppi in input: 12 per
+ *   basi 2..20, 8 per basi 21..64. Aritmetica in BigInt (esatta a qualsiasi
+ *   dimensione, coerente col resto del progetto).
  */
 
 import 'katex/dist/katex.min.css';
@@ -41,42 +39,28 @@ const lang = (Astro.currentLocale ?? 'it').toLowerCase().startsWith('en') ? 'en'
 
 const UI = {
   it: {
-    title: 'Conversioni tra basi numeriche',
-    subtitle: 'Tra base \\(2\\), base \\(10\\) e base \\(16\\)',
-    step1: 'Step 1 — SCEGLI LA CONVERSIONE',
-    convLabel: 'Conversione',
-    opt_2_10: 'Binario (2) → Decimale (10)',
-    opt_10_2: 'Decimale (10) → Binario (2)',
-    opt_16_10: 'Esadecimale (16) → Decimale (10)',
-    opt_10_16: 'Decimale (10) → Esadecimale (16)',
-    opt_2_16: 'Binario (2) → Esadecimale (16)',
-    opt_16_2: 'Esadecimale (16) → Binario (2)',
+    step1: 'Step 1 — SCEGLI LE BASI',
+    fromLabel: 'Base di partenza',
+    toLabel: 'Base di arrivo',
+    swapTitle: 'Scambia le basi',
     step2: 'Step 2 — INSERISCI IL NUMERO',
     numLabel: 'Numero',
-    ph_2: 'es. 1011',
-    ph_10: 'es. 173',
-    ph_16: 'es. A3F',
+    inputHelp1: 'Puoi inserire il numero usando cifre e lettere (maiuscole e minuscole hanno valori diversi).',
+    inputHelp2: 'Puoi anche usare le parentesi: ogni gruppo come (12) rappresenta una cifra col suo valore decimale; le due forme si possono mescolare.',
     btnReset: 'AZZERA VALORI',
     btnRandom: 'VALORE CASUALE',
     btnQuick: 'RISULTATO SINTETICO',
     btnStep: 'SVOLGIMENTO PASSO-PASSO',
   },
   en: {
-    title: 'Base conversions',
-    subtitle: 'Between base \\(2\\), base \\(10\\) and base \\(16\\)',
-    step1: 'Step 1 — CHOOSE THE CONVERSION',
-    convLabel: 'Conversion',
-    opt_2_10: 'Binary (2) → Decimal (10)',
-    opt_10_2: 'Decimal (10) → Binary (2)',
-    opt_16_10: 'Hexadecimal (16) → Decimal (10)',
-    opt_10_16: 'Decimal (10) → Hexadecimal (16)',
-    opt_2_16: 'Binary (2) → Hexadecimal (16)',
-    opt_16_2: 'Hexadecimal (16) → Binary (2)',
+    step1: 'Step 1 — CHOOSE THE BASES',
+    fromLabel: 'Source base',
+    toLabel: 'Target base',
+    swapTitle: 'Swap bases',
     step2: 'Step 2 — ENTER THE NUMBER',
     numLabel: 'Number',
-    ph_2: 'e.g. 1011',
-    ph_10: 'e.g. 173',
-    ph_16: 'e.g. A3F',
+    inputHelp1: 'You can enter the number using digits and letters (upper- and lower-case have different values).',
+    inputHelp2: 'You can also use parentheses: each group like (12) represents one digit by its decimal value; the two forms can be mixed.',
     btnReset: 'RESET VALUE',
     btnRandom: 'RANDOM VALUE',
     btnQuick: 'QUICK RESULT',
@@ -86,19 +70,26 @@ const UI = {
 ---
 
 <div class="bc-root" data-lang={lang}>
-  <!-- Step 1: scelta della conversione -->
+  <!-- Step 1: scelta delle basi -->
   <section class="bc-panel">
     <h3 class="bc-steplabel">{UI.step1}</h3>
-    <div class="bc-convrow">
-      <label for="bcConv" class="bc-convlabel">{UI.convLabel}</label>
-      <select id="bcConv" class="bc-select">
-        <option value="2-10">{UI.opt_2_10}</option>
-        <option value="10-2">{UI.opt_10_2}</option>
-        <option value="16-10">{UI.opt_16_10}</option>
-        <option value="10-16">{UI.opt_10_16}</option>
-        <option value="2-16">{UI.opt_2_16}</option>
-        <option value="16-2">{UI.opt_16_2}</option>
-      </select>
+    <div class="bc-basesrow">
+      <div class="bc-baseblock">
+        <label for="bcFrom" class="bc-convlabel">{UI.fromLabel}</label>
+        <select id="bcFrom" class="bc-select"></select>
+      </div>
+      <button id="bcSwap" type="button" class="bc-arrow-sep" data-tooltip={UI.swapTitle} aria-label={UI.swapTitle}>
+        <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <polyline points="17 1 21 5 17 9"></polyline>
+          <path d="M3 11V9a4 4 0 0 1 4-4h14"></path>
+          <polyline points="7 23 3 19 7 15"></polyline>
+          <path d="M21 13v2a4 4 0 0 1-4 4H3"></path>
+        </svg>
+      </button>
+      <div class="bc-baseblock">
+        <label for="bcTo" class="bc-convlabel">{UI.toLabel}</label>
+        <select id="bcTo" class="bc-select"></select>
+      </div>
     </div>
   </section>
 
@@ -107,7 +98,14 @@ const UI = {
     <h3 class="bc-steplabel">{UI.step2}</h3>
     <div class="bc-numrow">
       <label for="bcNum" class="bc-numlabel">{UI.numLabel}</label>
-      <input id="bcNum" class="bc-numinput" type="text" inputmode="text" autocomplete="off" spellcheck="false" value="" />
+      <div class="bc-numblock">
+        <input id="bcNum" class="bc-numinput" type="text" inputmode="text" autocomplete="off" spellcheck="false" value="" />
+        <div id="bcSymHint" class="bc-symhint"></div>
+      </div>
+    </div>
+    <div class="bc-help">
+      <p>{UI.inputHelp1}</p>
+      <p>{UI.inputHelp2}</p>
     </div>
     <div id="bcStatus" class="bc-status" role="alert" aria-live="polite"></div>
   </section>
@@ -126,7 +124,6 @@ const UI = {
   <section id="bcQuick" class="bc-result" hidden></section>
   <section id="bcFull" class="bc-result" hidden></section>
 </div>
-
 <style is:global>
   .bc-root {
     --bc-radius: 12px;
@@ -155,12 +152,17 @@ const UI = {
      tutti gli altri, che invece vengono spinti in basso. Stesso identico fix
      gia' usato nei bottoni di GramSchmidt/GaussJordan/DivisionePolinomiale,
      qui esteso a ogni contenitore che costruiamo dinamicamente via JS. */
-  .bc-root[data-lang] .bc-convrow,
+  .bc-root[data-lang] .bc-basesrow,
+  .bc-root[data-lang] .bc-baseblock,
+  .bc-root[data-lang] .bc-arrow-sep,
   .bc-root[data-lang] .bc-convlabel,
   .bc-root[data-lang] .bc-select,
   .bc-root[data-lang] .bc-numrow,
+  .bc-root[data-lang] .bc-numblock,
   .bc-root[data-lang] .bc-numlabel,
   .bc-root[data-lang] .bc-numinput,
+  .bc-root[data-lang] .bc-symhint,
+  .bc-root[data-lang] .bc-help,
   .bc-root[data-lang] .bc-grid,
   .bc-root[data-lang] .bc-cell,
   .bc-root[data-lang] .bc-board-scroller,
@@ -175,14 +177,12 @@ const UI = {
   .bc-root[data-lang] .bc-group-bits,
   .bc-root[data-lang] .bc-groups-sep,
   .bc-root[data-lang] .bc-groupswrap,
-  .bc-root[data-lang] .bc-tablewrap,
   .bc-root[data-lang] .bc-booktable,
   .bc-root[data-lang] .bc-booktable th,
   .bc-root[data-lang] .bc-booktable td,
   .bc-root[data-lang] .bc-remainder-box,
   .bc-root[data-lang] .bc-readarrow,
-  .bc-root[data-lang] .bc-readarrow-head,
-  .bc-root[data-lang] .bc-coef {
+  .bc-root[data-lang] .bc-readarrow-head {
     margin: 0 !important;
   }
 
@@ -200,9 +200,68 @@ const UI = {
     color: var(--sl-color-text-accent, var(--bc-accent-hi));
   }
 
-  /* riga conversione */
-  .bc-convrow { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 0.9rem; }
-  .bc-convlabel { font-size: 1rem; line-height: 1.5rem; }
+  /* riga basi: due selettori partenza -> arrivo */
+  .bc-basesrow { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: center; gap: 1rem; }
+  .bc-baseblock { display: flex; flex-direction: column; align-items: center; gap: 0.4rem; min-width: 9.5rem; }
+  .bc-arrow-sep {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.6875rem; /* stessa altezza del select: 2*1.5px bordo + 2*0.5rem padding + 1.5rem line-height */
+    height: 2.6875rem;
+    flex: 0 0 auto;
+    color: var(--sl-color-text, inherit);
+    align-self: flex-end;
+    background-color: var(--bc-surface);
+    border: 1.5px solid var(--bc-border);
+    border-radius: 6px;
+    padding: 0;
+    cursor: pointer;
+    transition: border-color 0.15s ease, color 0.15s ease, background-color 0.15s ease, transform 0.15s ease;
+  }
+  .bc-arrow-sep svg { display: block; }
+  .bc-arrow-sep:hover,
+  .bc-arrow-sep:focus-visible {
+    color: var(--bc-accent);
+    border-color: var(--bc-accent);
+    background-color: color-mix(in srgb, var(--bc-accent) 14%, var(--bc-surface));
+    outline: none;
+  }
+  .bc-arrow-sep:active { transform: scale(0.88); }
+  .bc-arrow-sep {
+    position: relative;
+  }
+  .bc-arrow-sep::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%) translateY(-6px);
+    background: var(--bc-surface);
+    color: var(--sl-color-text, inherit);
+    border: 1px solid var(--bc-border);
+    border-radius: 6px;
+    padding: 0.3rem 0.6rem;
+    font-size: 0.78rem;
+    font-family: var(--sl-font, inherit);
+    font-weight: 400;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.05s ease;
+    z-index: 5;
+  }
+  .bc-arrow-sep:hover::after,
+  .bc-arrow-sep:focus-visible::after {
+    opacity: 1;
+  }
+  .bc-convlabel { font-size: 0.95rem; line-height: 1.4rem; color: var(--sl-color-text-accent, var(--bc-accent-hi)); }
+  /* le basi "speciali" (2,10,16) nel menu hanno sfondo piu' scuro per il
+     riconoscimento rapido: applicato via classe sull'<option> dallo script */
+  .bc-select option.bc-opt-special {
+    background-color: var(--sl-color-gray-4, #4a4a4a);
+    font-weight: 700;
+  }
   .bc-select {
     appearance: none;
     -webkit-appearance: none;
@@ -222,12 +281,22 @@ const UI = {
     cursor: pointer;
     transition: border-color 0.15s ease, background-color 0.15s ease;
   }
+  .bc-symhint {
+    font-size: 0.9rem;
+    color: var(--bc-faint);
+    font-family: var(--__sl-font-mono, ui-monospace, monospace);
+  }
+  .bc-symhint .bc-symhint-label { font-family: var(--sl-font, inherit); }
+  .bc-help { margin-top: 0.5rem; font-size: 0.82rem; color: var(--bc-faint); }
+  .bc-help p { margin: 0.25rem 0; }
   .bc-select:hover { border-color: var(--bc-accent); outline: none; }
   .bc-select:focus { border-color: var(--bc-accent); outline: none; }
   .bc-select:focus-visible { outline: none; }
 
   /* riga numero */
-  .bc-numrow { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 0.9rem; }
+  .bc-numrow { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: center; gap: 0.9rem; }
+  .bc-numlabel { padding-top: calc(0.45rem + 1.5px); line-height: 1.5rem; }
+  .bc-numblock { display: flex; flex-direction: column; align-items: center; gap: 0.5rem; }
   .bc-numinput {
     background: var(--sl-color-bg, #000);
     color: var(--sl-color-text, #fff);
@@ -236,6 +305,7 @@ const UI = {
     text-align: center;
     padding: 0.45rem 0.6rem;
     font: inherit;
+    line-height: 1.5rem;
     font-family: var(--__sl-font-mono, ui-monospace, monospace);
     letter-spacing: 0.04em;
     width: 12rem;
@@ -293,6 +363,14 @@ const UI = {
     border-left: 4px solid var(--bc-accent);
     border-radius: 6px; padding: 0.9rem 1rem; margin: 1.25rem 0;
   }
+  /* stacco tra la scorciatoia a 4 bit e il metodo generale (2<->16):
+     margine ampio e simmetrico, cosi' la riga cade esattamente a meta'
+     dello spazio verticale creato */
+  .bc-divider {
+    border: none;
+    border-top: 1.5px solid var(--bc-border);
+    margin: 3rem 0 !important;
+  }
   .bc-katex { overflow-x: auto; overflow-y: hidden; padding: 0.75rem 0.25rem; margin: 1.25rem 0; }
   .bc-katex .katex-display { margin: 0; }
 
@@ -327,19 +405,13 @@ const UI = {
   }
   .bc-poslabel .bc-green { color: var(--bc-green); font-weight: 700; }
   .bc-term { display: flex; align-items: center; justify-content: center; gap: 0.15rem; }
-  .bc-coef {
-    color: var(--bc-red);
-    font-family: var(--__sl-font-mono, ui-monospace, monospace);
-    font-weight: 700;
-    font-size: 1rem;
-  }
   .bc-plus { align-self: center; padding: 0 0.1rem; opacity: 0.85; }
   .bc-pad-note { color: var(--bc-faint); font-style: italic; }
 
   /* ----- tabelle in stile "libro": poche righe, zebra, centrate.
      Condivisa da: tabella divisioni successive (10 -> X) e tabella di
      richiamo 2/16/10 (X -> 10, 2 <-> 16). ----- */
-  .bc-tablewrap { display: flex; justify-content: center; overflow-x: auto; margin: 1.25rem 0; padding: 0.25rem; }
+  .bc-tablewrap { display: flex; justify-content: center; overflow-x: auto; margin: 3rem 0 !important; padding: 0.25rem; }
   .bc-booktable {
     border-collapse: collapse;
     margin: 0 auto;
@@ -367,7 +439,7 @@ const UI = {
     border-bottom: 1.5px solid var(--sl-color-text, currentColor);
   }
   .bc-booktable tbody tr:nth-child(even) {
-    background: color-mix(in srgb, var(--sl-color-gray-5, #888) 18%, transparent);
+    background: color-mix(in srgb, var(--sl-color-gray-5, #888) 32%, transparent);
   }
   .bc-divtable td.bc-remainder {
     color: var(--sl-color-text, #111);
@@ -471,11 +543,16 @@ const UI = {
     .bc-actions .bc-btn, .bc-btn-wide { width: 100%; }
     .bc-result { padding: 1rem 0.5rem; }
     .bc-numinput { width: 100%; }
-    .bc-numrow, .bc-convrow { flex-direction: column; align-items: stretch; }
+    .bc-numrow { flex-direction: column; align-items: stretch; }
+    .bc-numlabel { padding-top: 0; }
+    .bc-numblock { align-items: stretch; }
+    .bc-basesrow { flex-direction: column; align-items: stretch; }
+    .bc-baseblock { align-items: stretch; }
+    .bc-arrow-sep { transform: rotate(90deg); align-self: center; line-height: 1; }
+    .bc-arrow-sep:active { transform: rotate(90deg) scale(0.88); }
     .bc-select { width: 100%; }
   }
 </style>
-
 <script>
   import katex from 'katex';
   import renderMathInElement from 'katex/contrib/auto-render';
@@ -489,10 +566,93 @@ const UI = {
 
     const RED = '#d11111';
     const GREEN = '#1f9d55';
-    const MAXVAL = 65535; // 16 bit: comodo per esercizi, entro Number.isSafeInteger senza sforzo
-    const HEXCH = '0123456789ABCDEF';
-    const digitVal = (ch) => HEXCH.indexOf(ch.toUpperCase());
-    const valDigit = (v) => HEXCH[v];
+    const SPECIAL_BASES = [2, 10, 16];
+    const MIN_BASE = 2, MAX_BASE = 64;
+    const maxDigitsFor = (base) => (base <= 20 ? 12 : 8);
+
+    // ── alfabeto esteso ──────────────────────────────────────────────
+    const ALPHA = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
+    const valueOfSymbol = (ch) => ALPHA.indexOf(ch);
+    const symbolOfValue = (v) => (v < ALPHA.length ? ALPHA[v] : null);
+
+    // NOTA: la decisione simbolo-vs-parentesi dipende dal VALORE della
+    // cifra (0..61 hanno un simbolo in ALPHA, 62 e 63 no), non dalla base:
+    // anche in base 63/64 la maggior parte delle cifre usa lettere/numeri
+    // normalmente, le parentesi servono solo per i due valori senza simbolo.
+    function renderDigit(v) {
+      return v < ALPHA.length ? symbolOfValue(v) : `(${v})`;
+    }
+    // array di valori-cifra (dal piu' significativo) di un BigInt in una base
+    function digitsOf(valueBig, base) {
+      const b = BigInt(base);
+      if (valueBig === 0n) return [0];
+      const out = [];
+      let q = valueBig;
+      while (q > 0n) { out.push(Number(q % b)); q = q / b; }
+      return out.reverse();
+    }
+    // stringa completa di un BigInt in una base (con simboli o parentesi)
+    function renderNumber(valueBig, base) {
+      return digitsOf(valueBig, base).map((v) => renderDigit(v, base)).join('');
+    }
+    // valore BigInt a partire da array di valori-cifra
+    function digitsToValue(digits, base) {
+      const b = BigInt(base);
+      let acc = 0n;
+      for (const d of digits) acc = acc * b + BigInt(d);
+      return acc;
+    }
+    // simboli leciti per una base (per il suggerimento sotto l'input).
+    // Ritorna { symbols, extraValues }: extraValues elenca i soli valori
+    // (62, 63) che in questa base esistono ma non hanno un simbolo, quindi
+    // vanno scritti tra parentesi — vuoto per le basi fino a 62.
+    function allowedSymbolsHint(base) {
+      const maxVal = base - 1;
+      const symCap = Math.min(maxVal, ALPHA.length - 1); // 61 al massimo
+      const parts = [];
+      if (symCap <= 9) {
+        parts.push(`0-${symCap}`);
+      } else {
+        parts.push('0-9');
+        const upTo = Math.min(35, symCap);
+        parts.push(`A-${symbolOfValue(upTo)}`);
+        if (symCap >= 36) parts.push(`a-${symbolOfValue(symCap)}`);
+      }
+      const extraValues = [];
+      for (let v = ALPHA.length; v <= maxVal; v++) extraValues.push(v);
+      return { symbols: parts.join(', '), extraValues };
+    }
+
+    // ── parsing ibrido: simboli nudi + gruppi (n) mescolati ──────────
+    function parseHybrid(raw, base) {
+      const s = String(raw).trim().replace(/\s+/g, '');
+      if (!s) return { error: 'empty' };
+      const digits = [];
+      let i = 0;
+      while (i < s.length) {
+        const ch = s[i];
+        if (ch === '(') {
+          const close = s.indexOf(')', i);
+          if (close === -1) return { error: 'malformed' };
+          const inner = s.slice(i + 1, close);
+          if (!/^[0-9]+$/.test(inner)) return { error: 'malformed' };
+          const v = parseInt(inner, 10);
+          if (v >= base) return { error: 'digit_too_big', detail: v };
+          digits.push(v);
+          i = close + 1;
+        } else if (ch === ')') {
+          return { error: 'malformed' };
+        } else {
+          const v = valueOfSymbol(ch);
+          if (v === -1) return { error: 'bad_symbol', detail: ch };
+          if (v >= base) return { error: 'digit_too_big', detail: v };
+          digits.push(v);
+          i++;
+        }
+      }
+      if (digits.length > maxDigitsFor(base)) return { error: 'too_long', detail: maxDigitsFor(base) };
+      return { ok: true, digits };
+    }
 
     // ============================================================= i18n
     const D = {
@@ -500,101 +660,115 @@ const UI = {
         titleQuick: 'Risultato sintetico',
         titleStep: 'Svolgimento passo-passo',
         posLabel: 'posizione',
+        symHintLabel: 'Simboli ammessi:',
+        symHintExtra: 'più, tra parentesi, i valori senza simbolo:',
         errEmpty: 'Inserisci un numero.',
-        errInvalid: (base) => `Cifre non valide per la base ${base}.`,
-        errTooLarge: (max) => `Numero troppo grande: il valore decimale deve restare entro ${max}.`,
+        errBadSymbol: (ch) => `Il simbolo "${ch}" non è una cifra valida.`,
+        errDigitTooBig: (base) => `Ogni cifra deve essere minore della base (${base}).`,
+        errMalformed: 'Parentesi non valide: usa la forma (numero), es. (12).',
+        errTooLong: (max) => `Numero troppo lungo: al massimo ${max} cifre per questa base.`,
 
-        // ---- schema A: X -> 10 (espansione posizionale) ----
+        // schema A: m -> 10 (espansione posizionale)
         aIntro: (numTex, base) =>
           `<p>Il numero \\( ${numTex} \\) è scritto in base \\( ${base} \\): ogni cifra vale tanto quanto la cifra stessa moltiplicata per la potenza della base corrispondente alla sua posizione, contando da destra a partire da \\( 0 \\).</p>`,
-        hexRefIntro: '<p>Richiamiamo la corrispondenza tra le cifre esadecimali (da \\( 0 \\) a \\( \\text{F} \\)) e i numeri binari e decimali da \\( 0 \\) a \\( 15 \\):</p>',
-        hexRefHead: { bin: 'Base 2', hex: 'Base 16', dec: 'Base 10' },
-        aBoardIntro: '<p>Scomponiamo ogni cifra nel proprio termine posizionale (in rosso) moltiplicato per la base (in nero) elevata alla posizione (in verde):</p>',
+        aBoardIntro: (base) => `<p>Scomponiamo ogni cifra nel proprio termine posizionale (in rosso) moltiplicato per la base (\\( ${base} \\)) elevata alla posizione (in verde):</p>`,
         aSumIntro: '<p>Sommando tutti i termini si ottiene il valore in base \\( 10 \\):</p>',
-        aFinal: (numTex, result) => `<p>Quindi \\( ${numTex} = ${result}_{10} \\).</p>`,
-        aFinalQuick: (numTex, result) => `<p>Risultato: \\( ${numTex} = ${result}_{10} \\)</p>`,
-        aQuickIntro: (numTex, base) => `<p>Espansione posizionale di \\( ${numTex} \\) in base \\( ${base} \\):</p>`,
+        aFinal: (numTex, base, result) => `<p>Quindi \\( ${numTex} = ${result}_{10} \\).</p>`,
 
-        // ---- schema B: 10 -> X (divisioni successive) ----
+        // schema B: 10 -> n (divisioni successive)
         bIntro: (value, base) =>
           `<p>Dividiamo ripetutamente \\( ${value} \\) per la base di arrivo \\( ${base} \\), annotando ogni volta quoziente e resto, finché il quoziente non diventa \\( 0 \\):</p>`,
         bTableHead: { div: 'Dividendo', quo: 'Quoziente', rem: 'Resto' },
         bReadIntro: '<p>Il numero nella nuova base si legge prendendo i resti <b class="bc-red-strong">dal basso verso l\'alto</b>:</p>',
         bFinal: (value, base, resultTex) => `<p>Quindi \\( ${value}_{10} = ${resultTex}_{${base}} \\).</p>`,
-        bFinalQuick: (value, base, resultTex) => `<p>Risultato: \\( ${value}_{10} = ${resultTex}_{${base}} \\)</p>`,
-        bQuickIntro: (value, base) => `<p>Divisioni successive di \\( ${value} \\) per \\( ${base} \\):</p>`,
 
-        // ---- schema C: 2 <-> 16 (raggruppamento a 4 bit) ----
-        cIntro: '<p>Poiché \\( 16 = 2^{4} \\), la conversione tra base \\( 2 \\) e base \\( 16 \\) si può fare direttamente, senza passare per la base \\( 10 \\): basta raggruppare le cifre binarie a blocchi di \\( 4 \\) bit (da destra verso sinistra); ogni blocco corrisponde esattamente a una cifra esadecimale, e viceversa.</p>',
+        // richiamo tabella (solo 2<->16)
+        hexRefIntro: '<p>Richiamiamo la corrispondenza tra le cifre esadecimali (da \\( 0 \\) a \\( \\text{F} \\)) e i numeri binari e decimali da \\( 0 \\) a \\( 15 \\):</p>',
+        hexRefHead: { bin: 'Base 2', hex: 'Base 16', dec: 'Base 10' },
+
+        // schema C: 2 <-> 16 (scorciatoia 4 bit)
+        cIntro: '<p>Poiché \\( 16 = 2^{4} \\), la conversione tra base \\( 2 \\) e base \\( 16 \\) si può fare anche direttamente, senza passare per la base \\( 10 \\): basta raggruppare le cifre binarie a blocchi di \\( 4 \\) bit (da destra verso sinistra); ogni blocco corrisponde esattamente a una cifra esadecimale, e viceversa.</p>',
         cPadNote: (padLen) =>
-          `<p>Il numero binario non ha un numero di cifre multiplo di \\( 4 \\): aggiungiamo \\( ${padLen} \\) ${padLen === 1 ? 'zero iniziale' : 'zeri iniziali'} (evidenziat${padLen === 1 ? 'o' : 'i'} in grigio) per completare il primo blocco, senza cambiare il valore del numero.</p>`,
+          `<p>Il numero binario non ha un numero di cifre multiplo di \\( 4 \\): aggiungiamo \\( ${padLen} \\) ${padLen === 1 ? 'zero iniziale' : 'zeri iniziali'} per completare il primo blocco, senza cambiare il valore del numero.</p>`,
         cGroupsIntroBin: '<p>Raggruppiamo le cifre in blocchi di \\( 4 \\) bit e convertiamo ciascun blocco nella cifra esadecimale corrispondente:</p>',
         cGroupsIntroHex: '<p>Espandiamo ogni cifra esadecimale nel proprio blocco di \\( 4 \\) bit:</p>',
         cInfatti: '<p>Infatti, dalla tabella di conversione si ottiene subito che:</p>',
         cFinalBinToHex: (numTex, resultTex) => `<p>Concatenando le cifre esadecimali ottenute (nell'ordine dei blocchi) si ottiene \\( ${numTex} = ${resultTex}_{16} \\).</p>`,
         cFinalHexToBin: (numTex, fullTex, trimmedTex) =>
           `<p>Concatenando i blocchi di \\( 4 \\) bit si ottiene \\( ${fullTex} \\); gli eventuali zeri iniziali dell'intero numero (quelli esterni partendo da sinistra) si possono togliere senza cambiarne il valore, quindi \\( ${numTex} = ${trimmedTex}_{2} \\).</p>`,
-        cFinalQuickBinToHex: (numTex, resultTex) => `<p>Risultato: \\( ${numTex} = ${resultTex}_{16} \\)</p>`,
-        cFinalQuickHexToBin: (numTex, trimmedTex) => `<p>Risultato: \\( ${numTex} = ${trimmedTex}_{2} \\)</p>`,
-        cQuickIntroBin: (numTex) => `<p>Raggruppamento a \\( 4 \\) bit di \\( ${numTex} \\):</p>`,
-        cQuickIntroHex: (numTex) => `<p>Espansione a \\( 4 \\) bit di ogni cifra di \\( ${numTex} \\):</p>`,
+        cAltroMetodo: '<p>In alternativa, si può usare il metodo generale passando per la base \\( 10 \\):</p>',
+
+        // ponte m -> 10 -> n
+        bridgeIntro: (fromBase, toBase) =>
+          `<p>Le basi di partenza e di arrivo sono entrambe diverse da \\( 10 \\): conviene allora passare per la base \\( 10 \\) come ponte, cioè convertire prima da base \\( ${fromBase} \\) a base \\( 10 \\), e poi da base \\( 10 \\) a base \\( ${toBase} \\).</p>`,
+        bridgeStep1: (fromBase) => `<p><b>Primo passo:</b> da base \\( ${fromBase} \\) a base \\( 10 \\) (espansione posizionale).</p>`,
+        bridgeStep2: (toBase) => `<p><b>Secondo passo:</b> da base \\( 10 \\) a base \\( ${toBase} \\) (divisioni successive).</p>`,
+        bridgeFinal: (numTex, fromBase, midValue, resultTex, toBase) =>
+          `<p>Mettendo insieme i due passaggi: \\( ${numTex} = ${midValue}_{10} = ${resultTex}_{${toBase}} \\).</p>`,
+
+        // risultato sintetico (per tutti gli schemi)
+        finalQuick: (numTex, fromBase, resultTex, toBase) => `<p>Risultato: \\( ${numTex} = ${resultTex}_{${toBase}} \\)</p>`,
       },
       en: {
         titleQuick: 'Quick result',
         titleStep: 'Step-by-step solution',
         posLabel: 'position',
+        symHintLabel: 'Allowed symbols:',
+        symHintExtra: 'plus, in parentheses, the values with no symbol:',
         errEmpty: 'Enter a number.',
-        errInvalid: (base) => `Invalid digits for base ${base}.`,
-        errTooLarge: (max) => `Number too large: the decimal value must stay within ${max}.`,
+        errBadSymbol: (ch) => `The symbol "${ch}" is not a valid digit.`,
+        errDigitTooBig: (base) => `Each digit must be smaller than the base (${base}).`,
+        errMalformed: 'Invalid parentheses: use the form (number), e.g. (12).',
+        errTooLong: (max) => `Number too long: at most ${max} digits for this base.`,
 
         aIntro: (numTex, base) =>
           `<p>The number \\( ${numTex} \\) is written in base \\( ${base} \\): each digit is worth as much as the digit itself multiplied by the power of the base corresponding to its position, counting from the right starting at \\( 0 \\).</p>`,
-        hexRefIntro: '<p>Quick reference: correspondence between the hexadecimal digits (from \\( 0 \\) to \\( \\text{F} \\)) and the binary and decimal numbers from \\( 0 \\) to \\( 15 \\):</p>',
-        hexRefHead: { bin: 'Base 2', hex: 'Base 16', dec: 'Base 10' },
-        aBoardIntro: '<p>We break down each digit into its positional term (in red) multiplied by the base (in black) raised to the position (in green):</p>',
+        aBoardIntro: (base) => `<p>We break down each digit into its positional term (in red) multiplied by the base (\\( ${base} \\)) raised to the position (in green):</p>`,
         aSumIntro: '<p>Adding all the terms gives the value in base \\( 10 \\):</p>',
-        aFinal: (numTex, result) => `<p>So \\( ${numTex} = ${result}_{10} \\).</p>`,
-        aFinalQuick: (numTex, result) => `<p>Result: \\( ${numTex} = ${result}_{10} \\)</p>`,
-        aQuickIntro: (numTex, base) => `<p>Positional expansion of \\( ${numTex} \\) in base \\( ${base} \\):</p>`,
+        aFinal: (numTex, base, result) => `<p>So \\( ${numTex} = ${result}_{10} \\).</p>`,
 
         bIntro: (value, base) =>
           `<p>We repeatedly divide \\( ${value} \\) by the target base \\( ${base} \\), writing down the quotient and remainder each time, until the quotient becomes \\( 0 \\):</p>`,
         bTableHead: { div: 'Dividend', quo: 'Quotient', rem: 'Remainder' },
         bReadIntro: '<p>The number in the new base is read by taking the remainders <b class="bc-red-strong">from bottom to top</b>:</p>',
         bFinal: (value, base, resultTex) => `<p>So \\( ${value}_{10} = ${resultTex}_{${base}} \\).</p>`,
-        bFinalQuick: (value, base, resultTex) => `<p>Result: \\( ${value}_{10} = ${resultTex}_{${base}} \\)</p>`,
-        bQuickIntro: (value, base) => `<p>Successive division of \\( ${value} \\) by \\( ${base} \\):</p>`,
 
-        cIntro: '<p>Since \\( 16 = 2^{4} \\), converting between base \\( 2 \\) and base \\( 16 \\) can be done directly, without going through base \\( 10 \\): simply group the binary digits into blocks of \\( 4 \\) bits (from right to left); each block corresponds exactly to one hexadecimal digit, and vice versa.</p>',
+        hexRefIntro: '<p>Recall the correspondence between hexadecimal digits (from \\( 0 \\) to \\( \\text{F} \\)) and the binary and decimal numbers from \\( 0 \\) to \\( 15 \\):</p>',
+        hexRefHead: { bin: 'Base 2', hex: 'Base 16', dec: 'Base 10' },
+
+        cIntro: '<p>Since \\( 16 = 2^{4} \\), converting between base \\( 2 \\) and base \\( 16 \\) can also be done directly, without going through base \\( 10 \\): simply group the binary digits into blocks of \\( 4 \\) bits (from right to left); each block corresponds exactly to one hexadecimal digit, and vice versa.</p>',
         cPadNote: (padLen) =>
-          `<p>The binary number does not have a number of digits that is a multiple of \\( 4 \\): we add \\( ${padLen} \\) leading zero${padLen === 1 ? '' : 's'} (highlighted in grey) to complete the first block, without changing the value of the number.</p>`,
+          `<p>The binary number does not have a number of digits that is a multiple of \\( 4 \\): we add \\( ${padLen} \\) leading zero${padLen === 1 ? '' : 's'} to complete the first block, without changing the value of the number.</p>`,
         cGroupsIntroBin: '<p>We group the digits into blocks of \\( 4 \\) bits and convert each block into the corresponding hexadecimal digit:</p>',
         cGroupsIntroHex: '<p>We expand each hexadecimal digit into its own block of \\( 4 \\) bits:</p>',
         cInfatti: '<p>Indeed, from the conversion table we immediately get that:</p>',
         cFinalBinToHex: (numTex, resultTex) => `<p>Concatenating the hexadecimal digits obtained (in block order) gives \\( ${numTex} = ${resultTex}_{16} \\).</p>`,
         cFinalHexToBin: (numTex, fullTex, trimmedTex) =>
           `<p>Concatenating the \\( 4 \\)-bit blocks gives \\( ${fullTex} \\); any leading zeros of the whole number (the outer ones, counting from the left) can be dropped without changing its value, so \\( ${numTex} = ${trimmedTex}_{2} \\).</p>`,
-        cFinalQuickBinToHex: (numTex, resultTex) => `<p>Result: \\( ${numTex} = ${resultTex}_{16} \\)</p>`,
-        cFinalQuickHexToBin: (numTex, trimmedTex) => `<p>Result: \\( ${numTex} = ${trimmedTex}_{2} \\)</p>`,
-        cQuickIntroBin: (numTex) => `<p>\\( 4 \\)-bit grouping of \\( ${numTex} \\):</p>`,
-        cQuickIntroHex: (numTex) => `<p>\\( 4 \\)-bit expansion of every digit of \\( ${numTex} \\):</p>`,
+        cAltroMetodo: '<p>Alternatively, you can use the general method going through base \\( 10 \\):</p>',
+
+        bridgeIntro: (fromBase, toBase) =>
+          `<p>The source and target bases are both different from \\( 10 \\): it is then convenient to go through base \\( 10 \\) as a bridge, i.e. first convert from base \\( ${fromBase} \\) to base \\( 10 \\), and then from base \\( 10 \\) to base \\( ${toBase} \\).</p>`,
+        bridgeStep1: (fromBase) => `<p><b>First step:</b> from base \\( ${fromBase} \\) to base \\( 10 \\) (positional expansion).</p>`,
+        bridgeStep2: (toBase) => `<p><b>Second step:</b> from base \\( 10 \\) to base \\( ${toBase} \\) (successive division).</p>`,
+        bridgeFinal: (numTex, fromBase, midValue, resultTex, toBase) =>
+          `<p>Putting the two steps together: \\( ${numTex} = ${midValue}_{10} = ${resultTex}_{${toBase}} \\).</p>`,
+
+        finalQuick: (numTex, fromBase, resultTex, toBase) => `<p>Result: \\( ${numTex} = ${resultTex}_{${toBase}} \\)</p>`,
       },
     }[LANG];
     const L = D;
 
-    // ---------------------------------------------------------- riferimenti DOM
-    const convSel = root.querySelector('#bcConv');
+    // ── riferimenti DOM ──────────────────────────────────────────────
+    const fromSel = root.querySelector('#bcFrom');
+    const toSel = root.querySelector('#bcTo');
     const numInput = root.querySelector('#bcNum');
+    const symHint = root.querySelector('#bcSymHint');
     const statusEl = root.querySelector('#bcStatus');
     const quickEl = root.querySelector('#bcQuick');
     const fullEl = root.querySelector('#bcFull');
 
-    const PLACEHOLDERS = {
-      it: { 2: 'es. 1011', 10: 'es. 173', 16: 'es. A3F' },
-      en: { 2: 'e.g. 1011', 10: 'e.g. 173', 16: 'e.g. A3F' },
-    }[LANG];
-
-    // --------------------------------------------------------- helper rendering
+    // ── helper rendering ─────────────────────────────────────────────
     const KOPTS_DISPLAY = { throwOnError: false, displayMode: true };
     const KOPTS_INLINE = { throwOnError: false, displayMode: false };
     const RMOPTS = {
@@ -609,14 +783,10 @@ const UI = {
       catch (e) { return '<span style="color:#e55">[KaTeX error]</span>'; }
     }
     function renderInline(el) { try { renderMathInElement(el, RMOPTS); } catch (e) {} }
-    function reveal(el) {
-      el.hidden = false; el.style.display = 'block';
-      requestAnimationFrame(() => el.classList.add('bc-visible'));
-    }
+    function reveal(el) { el.hidden = false; el.style.display = 'block'; requestAnimationFrame(() => el.classList.add('bc-visible')); }
     function hide(el) { el.classList.remove('bc-visible'); el.style.display = 'none'; el.hidden = true; }
     function tip(msg) { statusEl.textContent = msg; statusEl.className = 'bc-status bc-error'; }
     function unTip() { statusEl.textContent = ''; statusEl.className = 'bc-status'; }
-
     function emit(target, html, tex) {
       if (html) { const d = document.createElement('div'); d.className = 'bc-text'; d.innerHTML = html; target.appendChild(d); renderInline(d); }
       if (tex) { const w = document.createElement('div'); w.className = 'bc-katex'; w.innerHTML = kx(tex, true); target.appendChild(w); }
@@ -624,104 +794,81 @@ const UI = {
     function appendNode(target, node) { target.appendChild(node); }
     function clearResults() { quickEl.innerHTML = ''; fullEl.innerHTML = ''; hide(quickEl); hide(fullEl); }
 
-    // helper LaTeX: cifre come testo eretto con base a pedice, es. \text{A3F}_{16}
-    const numTexOf = (digits, base) => `\\text{${digits}}_{${base}}`;
+    // numero come testo LaTeX con pedice base. Per basi con parentesi il
+    // contenuto e' gia' "(..)(..)" e va reso in \text; per le altre idem.
+    const numTexOf = (digitsStr, base) => `\\text{${digitsStr}}_{${base}}`;
+    // rappresentazione di un array di valori-cifra come stringa nella base
+    const digitsStr = (digits, base) => digits.map((v) => renderDigit(v, base)).join('');
+    // versione "sicura" per \text{} (le parentesi tonde vanno bene in \text)
 
-    // ============================================================= validazione input
-    function currentFromBase() { return parseInt(convSel.value.split('-')[0], 10); }
-    function currentToBase() { return parseInt(convSel.value.split('-')[1], 10); }
+    // ── popolamento dei due menu a tendina (2..64) ───────────────────
+    function populateBaseSelect(sel, selected) {
+      sel.innerHTML = '';
+      for (let b = MIN_BASE; b <= MAX_BASE; b++) {
+        const opt = document.createElement('option');
+        opt.value = String(b);
+        opt.textContent = String(b);
+        if (SPECIAL_BASES.includes(b)) opt.className = 'bc-opt-special';
+        if (b === selected) opt.selected = true;
+        sel.appendChild(opt);
+      }
+    }
+    const currentFromBase = () => parseInt(fromSel.value, 10);
+    const currentToBase = () => parseInt(toSel.value, 10);
 
-    function parseInBase(raw, base) {
-      const clean = String(raw).trim().toUpperCase().replace(/\s+/g, '');
-      if (!clean) return { error: 'empty' };
-      const re = base === 2 ? /^[01]+$/ : base === 10 ? /^[0-9]+$/ : /^[0-9A-F]+$/;
-      if (!re.test(clean)) return { error: 'invalid' };
-      const value = base === 10 ? parseInt(clean, 10) : parseInt(clean, base);
-      if (!Number.isFinite(value) || value > MAXVAL) return { error: 'toolarge' };
-      return { ok: true, clean, value };
+    // ── suggerimento simboli leciti ──────────────────────────────────
+    const AND = LANG === 'it' ? 'e' : 'and';
+    function joinWithAnd(list) {
+      if (list.length <= 1) return list.join('');
+      return `${list.slice(0, -1).join(', ')} ${AND} ${list[list.length - 1]}`;
+    }
+    function updateSymHint() {
+      const base = currentFromBase();
+      const { symbols, extraValues } = allowedSymbolsHint(base);
+      let html = `<span class="bc-symhint-label">${L.symHintLabel}</span> ${symbols}`;
+      if (extraValues.length) {
+        const parensList = joinWithAnd(extraValues.map((v) => `(${v})`));
+        html += ` <span class="bc-symhint-label">${L.symHintExtra}</span> ${parensList}`;
+      }
+      symHint.innerHTML = html;
     }
 
-    function updatePlaceholder() {
-      numInput.placeholder = PLACEHOLDERS[currentFromBase()];
-    }
+    // ============================================================= costruttori visuali
 
-    // ============================================================= motore di conversione
-    // Ritorna un oggetto con tutto il necessario per narrare il passaggio scelto.
-    function computeConversion(fromBase, toBase, clean, value) {
-      if (toBase === 10) {
-        return { scheme: 'A', fromBase, toBase, value, sourceDigits: clean.split(''), resultDigits: String(value).split('') };
-      }
-      if (fromBase === 10) {
-        const rows = [];
-        let q = value;
-        if (q === 0) {
-          rows.push({ dividend: 0, quotient: 0, remainder: 0 });
-        } else {
-          while (q > 0) {
-            const r = q % toBase;
-            const nq = Math.floor(q / toBase);
-            rows.push({ dividend: q, quotient: nq, remainder: r });
-            q = nq;
-          }
-        }
-        const digits = rows.map((r) => valDigit(r.remainder)).reverse();
-        return { scheme: 'B', fromBase, toBase, value, rows, resultDigits: digits };
-      }
-      // 2 <-> 16 diretta
-      if (fromBase === 2) {
-        const bin = clean;
-        const padLen = (4 - (bin.length % 4)) % 4;
-        const padded = '0'.repeat(padLen) + bin;
-        const groups = [];
-        for (let i = 0; i < padded.length; i += 4) groups.push(padded.slice(i, i + 4));
-        const hexDigits = groups.map((g) => valDigit(parseInt(g, 2)));
-        return { scheme: 'C', direction: 'binToHex', fromBase, toBase, value, sourceDigits: bin.split(''), padLen, padded, groups, resultDigits: hexDigits };
-      }
-      const hex = clean;
-      const groups = hex.split('').map((ch) => digitVal(ch).toString(2).padStart(4, '0'));
-      const full = groups.join('');
-      const trimmed = full.replace(/^0+(?=.)/, '');
-      return { scheme: 'C', direction: 'hexToBin', fromBase, toBase, value, sourceDigits: hex.split(''), groups, full, trimmed, resultDigits: trimmed.split('') };
-    }
-
-    // ============================================================= schema A: X -> 10
-    function buildPositionalBoard(digitsArr, base) {
-      const n = digitsArr.length;
+    // board dell'espansione posizionale (usata per m -> 10).
+    // digits: array di valori-cifra; base: base di partenza.
+    function buildPositionalBoard(digits, base) {
+      const n = digits.length;
       const scroller = document.createElement('div');
       scroller.className = 'bc-board-scroller';
       const grid = document.createElement('div');
       grid.className = 'bc-grid';
       const nCols = 2 * n - 1;
       grid.style.gridTemplateColumns = `repeat(${nCols}, auto)`;
-      digitsArr.forEach((d, idx) => {
+      digits.forEach((d, idx) => {
         const power = n - 1 - idx;
         const col = 2 * idx + 1;
+        const sym = renderDigit(d, base);
 
         const digitCell = document.createElement('div');
         digitCell.className = 'bc-cell bc-digit';
         digitCell.style.gridColumn = String(col);
         digitCell.style.gridRow = '1';
-        digitCell.textContent = d;
+        digitCell.textContent = sym;
         grid.appendChild(digitCell);
 
         const posLabel = document.createElement('div');
         posLabel.className = 'bc-cell bc-poslabel';
         posLabel.style.gridColumn = String(col);
         posLabel.style.gridRow = '2';
-        posLabel.innerHTML = `${L.posLabel} <span class="bc-green">${power}</span>`;
+        posLabel.innerHTML = `${L.posLabel || 'pos.'} <span class="bc-green">${power}</span>`;
         grid.appendChild(posLabel);
 
         const termCell = document.createElement('div');
         termCell.className = 'bc-cell bc-term';
         termCell.style.gridColumn = String(col);
         termCell.style.gridRow = '3';
-        const coefSpan = document.createElement('span');
-        coefSpan.className = 'bc-coef';
-        coefSpan.textContent = d;
-        const powSpan = document.createElement('span');
-        powSpan.innerHTML = kx(`\\cdot ${base}^{\\textcolor{${GREEN}}{${power}}}`, false);
-        termCell.appendChild(coefSpan);
-        termCell.appendChild(powSpan);
+        termCell.innerHTML = kx(`\\textcolor{${RED}}{\\text{${sym}}}\\cdot ${base}^{\\textcolor{${GREEN}}{${power}}}`, false);
         grid.appendChild(termCell);
 
         if (idx < n - 1) {
@@ -737,61 +884,7 @@ const UI = {
       return scroller;
     }
 
-    // formula finale su piu' righe (a capo dopo ogni "="): la prima riga parte
-    // dal numero originale (in base di partenza) e mostra subito i termini,
-    // le righe successive proseguono con "= ..." fino al risultato.
-    function sumAlignedTex(numTex, termsTex, valuesTex, value) {
-      return `\\begin{aligned} ${numTex} &= ${termsTex} \\\\ & = ${valuesTex} \\\\ & = ${value}_{10} \\end{aligned}`;
-    }
-
-    // tabella di richiamo 0..15 in base 2 / 16 / 10, utile prima di leggere
-    // le cifre esadecimali (in particolare A..F) nella board posizionale.
-    function buildHexRefTable() {
-      const wrap = document.createElement('div');
-      wrap.className = 'bc-tablewrap';
-      const table = document.createElement('table');
-      table.className = 'bc-booktable bc-hexreftable';
-      const thead = document.createElement('thead');
-      thead.innerHTML = `<tr><th>${L.hexRefHead.bin}</th><th>${L.hexRefHead.hex}</th><th>${L.hexRefHead.dec}</th></tr>`;
-      table.appendChild(thead);
-      const tbody = document.createElement('tbody');
-      for (let v = 0; v <= 15; v++) {
-        const tr = document.createElement('tr');
-        const tdBin = document.createElement('td'); tdBin.textContent = v.toString(2).padStart(4, '0');
-        const tdHex = document.createElement('td'); tdHex.textContent = valDigit(v);
-        const tdDec = document.createElement('td'); tdDec.textContent = String(v);
-        tr.appendChild(tdBin); tr.appendChild(tdHex); tr.appendChild(tdDec);
-        tbody.appendChild(tr);
-      }
-      table.appendChild(tbody);
-      wrap.appendChild(table);
-      return wrap;
-    }
-
-    function schemeA(target, quick, data) {
-      const { fromBase, toBase, value, sourceDigits, resultDigits } = data;
-      const numTex = numTexOf(sourceDigits.join(''), fromBase);
-      const n = sourceDigits.length;
-      const termsTex = sourceDigits.map((d, idx) => `${d}\\cdot ${fromBase}^{${n - 1 - idx}}`).join(' + ');
-      const valuesTex = sourceDigits.map((d, idx) => `${parseInt(d, fromBase)}\\cdot ${Math.pow(fromBase, n - 1 - idx)}`).join(' + ');
-      const sumTex = sumAlignedTex(numTex, termsTex, valuesTex, value);
-
-      if (quick) {
-        emit(target, L.aFinalQuick(numTex, value));
-        return;
-      }
-      emit(target, L.aIntro(numTex, fromBase));
-      if (fromBase === 16) {
-        emit(target, L.hexRefIntro);
-        appendNode(target, buildHexRefTable());
-      }
-      emit(target, L.aBoardIntro);
-      appendNode(target, buildPositionalBoard(sourceDigits, fromBase));
-      emit(target, L.aSumIntro, sumTex);
-      emit(target, L.aFinal(numTex, value));
-    }
-
-    // ============================================================= schema B: 10 -> X
+    // tabella divisioni successive con freccia rossa di lettura (10 -> n)
     function buildDivisionTable(rows, toBase) {
       const wrap = document.createElement('div');
       wrap.className = 'bc-tablewrap';
@@ -807,13 +900,10 @@ const UI = {
         const tdOp = document.createElement('td'); tdOp.innerHTML = kx(`\\div ${toBase} \\;=\\;`, false);
         const tdQuo = document.createElement('td'); tdQuo.textContent = String(r.quotient);
         const tdRem = document.createElement('td'); tdRem.className = 'bc-remainder';
-        const box = document.createElement('span'); box.className = 'bc-remainder-box'; box.textContent = valDigit(r.remainder);
+        const box = document.createElement('span'); box.className = 'bc-remainder-box'; box.textContent = renderDigit(r.remainder, toBase);
         tdRem.appendChild(box);
         tr.appendChild(tdDiv); tr.appendChild(tdOp); tr.appendChild(tdQuo); tr.appendChild(tdRem);
         if (idx === 0) {
-          // un'unica cella (rowspan su tutta la tabella) con la freccia rossa
-          // che sale dall'ultimo resto al primo: indica visivamente il verso
-          // di lettura "dal basso verso l'alto", senza ripetere le cifre.
           const tdArrow = document.createElement('td');
           tdArrow.className = 'bc-readarrow-cell';
           tdArrow.rowSpan = rows.length;
@@ -832,39 +922,44 @@ const UI = {
       return wrap;
     }
 
-    function schemeB(target, quick, data) {
-      const { toBase, value, rows, resultDigits } = data;
-      const resultTex = `\\text{${resultDigits.join('')}}`;
-
-      if (quick) {
-        emit(target, L.bFinalQuick(value, toBase, resultTex));
-        return;
+    // tabella di richiamo 0..15 in base 2/16/10 (solo per 2<->16)
+    function buildHexRefTable() {
+      const wrap = document.createElement('div');
+      wrap.className = 'bc-tablewrap';
+      const table = document.createElement('table');
+      table.className = 'bc-booktable bc-hexreftable';
+      const thead = document.createElement('thead');
+      thead.innerHTML = `<tr><th>${L.hexRefHead.bin}</th><th>${L.hexRefHead.hex}</th><th>${L.hexRefHead.dec}</th></tr>`;
+      table.appendChild(thead);
+      const tbody = document.createElement('tbody');
+      for (let v = 0; v < 16; v++) {
+        const tr = document.createElement('tr');
+        const b = v.toString(2).padStart(4, '0');
+        const h = symbolOfValue(v);
+        tr.innerHTML = `<td>${b}</td><td>${h}</td><td>${v}</td>`;
+        tbody.appendChild(tr);
       }
-      emit(target, L.bIntro(value, toBase));
-      appendNode(target, buildDivisionTable(rows, toBase));
-      emit(target, L.bReadIntro, `\\Longrightarrow\\; ${resultTex}`);
-      emit(target, L.bFinal(value, toBase, resultTex));
+      table.appendChild(tbody);
+      wrap.appendChild(table);
+      return wrap;
     }
 
-    // ============================================================= schema C: 2 <-> 16
+    // gruppi a 4 bit con risultati allineati sotto (2 <-> 16)
     function buildGroups(groups, kind, padLen, results, prefixTex) {
       const wrap = document.createElement('div');
       wrap.className = 'bc-groupswrap';
       const outer = document.createElement('div');
       outer.className = 'bc-groups-outer';
-
       if (prefixTex) {
         const prefix = document.createElement('span');
         prefix.className = 'bc-groups-prefix';
         prefix.innerHTML = kx(prefixTex, false);
         outer.appendChild(prefix);
       }
-
       const n = groups.length;
       const grid = document.createElement('div');
       grid.className = 'bc-groups-grid';
-      const nCols = 2 * n - 1;
-      grid.style.gridTemplateColumns = `repeat(${nCols}, auto)`;
+      grid.style.gridTemplateColumns = `repeat(${2 * n - 1}, auto)`;
       groups.forEach((g, idx) => {
         const col = 2 * idx + 1;
         const box = document.createElement('div');
@@ -880,29 +975,20 @@ const UI = {
             if (i < padLen) span.className = 'bc-padbit';
             bitsEl.appendChild(span);
           }
-        } else if (kind === 'raw') {
-          bitsEl.innerHTML = kx(g, false);
         } else {
           bitsEl.textContent = g;
         }
         box.appendChild(bitsEl);
         grid.appendChild(box);
-
         if (idx < n - 1) {
           const sep = document.createElement('span');
           sep.className = 'bc-groups-sep';
           sep.style.gridColumn = String(col + 1);
-          sep.style.gridRow = '1'; // resta sulla riga dei blocchi, mai a meta' strada
+          sep.style.gridRow = '1';
           sep.textContent = '|';
           grid.appendChild(sep);
         }
       });
-
-      // riga dei risultati (es. le cifre esadecimali, o i blocchi a 4 bit):
-      // ogni risultato condivide la STESSA colonna del proprio raggruppamento,
-      // quindi resta centrato sotto di esso qualunque sia la larghezza del
-      // contenuto (un blocco a 4 cifre e una singola cifra hanno larghezze
-      // diverse: mettendoli in colonne separate non si allineano da soli).
       if (results && results.length) {
         results.forEach((res, idx) => {
           const col = 2 * idx + 1;
@@ -914,72 +1000,227 @@ const UI = {
           grid.appendChild(box);
         });
       }
-
       outer.appendChild(grid);
       wrap.appendChild(outer);
       return wrap;
     }
 
-    function schemeC(target, quick, data) {
-      const { direction, fromBase, sourceDigits, groups, resultDigits } = data;
-      const numTex = numTexOf(sourceDigits.join(''), fromBase);
+    // ============================================================= schemi logici
+    // Ogni schema costruisce lo svolgimento nel target DOM. Ricevono un
+    // oggetto "job" con: fromBase, toBase, digits (valori-cifra input),
+    // valueBig (BigInt del numero), inTex (numero di partenza in \text).
 
-      if (direction === 'binToHex') {
-        const { padLen, padded } = data;
-        const resultTex = `\\text{${resultDigits.join('')}}`;
-        if (quick) {
-          emit(target, L.cFinalQuickBinToHex(numTex, resultTex));
-          return;
+    // --- espansione posizionale: costruisce la board + la somma, ritorna nulla ---
+    function renderPositional(target, digits, fromBase, valueBig) {
+      const n = digits.length;
+      const termsTex = digits.map((d, idx) => `${renderDigit(d, fromBase)}\\cdot ${fromBase}^{${n - 1 - idx}}`).join(' + ');
+      // valori: d * base^power con BigInt per la potenza (esatta a qualsiasi dimensione)
+      const valuesTex2 = digits.map((d, idx) => {
+        const power = n - 1 - idx;
+        const p = (BigInt(fromBase) ** BigInt(power)).toString();
+        return `${d}\\cdot ${p}`;
+      }).join(' + ');
+      // moltiplicazioni gia' svolte (anche quelle per 0, scritte esplicitamente come 0)
+      const productsTex = digits.map((d, idx) => {
+        const power = n - 1 - idx;
+        const product = (BigInt(d) * (BigInt(fromBase) ** BigInt(power))).toString();
+        return product;
+      }).join(' + ');
+      const inTex = numTexOf(digitsStr(digits, fromBase), fromBase);
+      emit(target, L.aBoardIntro(fromBase));
+      appendNode(target, buildPositionalBoard(digits, fromBase));
+      emit(target, L.aSumIntro, `\\begin{aligned} ${inTex} &= ${termsTex} \\\\ & = ${valuesTex2} \\\\ & = ${productsTex} \\\\ & = ${valueBig.toString()}_{10} \\end{aligned}`);
+    }
+
+    // --- divisioni successive: costruisce tabella + lettura, ritorna le cifre risultato ---
+    function renderDivisions(target, valueBig, toBase) {
+      const rows = [];
+      let q = valueBig;
+      const b = BigInt(toBase);
+      if (q === 0n) rows.push({ dividend: '0', quotient: '0', remainder: 0 });
+      else {
+        while (q > 0n) {
+          const r = Number(q % b);
+          const nq = q / b;
+          rows.push({ dividend: q.toString(), quotient: nq.toString(), remainder: r });
+          q = nq;
         }
-        emit(target, L.cIntro);
-        emit(target, L.hexRefIntro);
-        appendNode(target, buildHexRefTable());
-        if (padLen > 0) emit(target, L.cPadNote(padLen));
-        emit(target, L.cGroupsIntroBin);
-        appendNode(target, buildGroups(groups, 'bin', padLen, resultDigits, `\\text{${padded}} \\;=\\;`));
-        emit(target, L.cInfatti);
-        groups.forEach((g, idx) => {
-          const bits = g.split('');
-          const sumTex = bits.map((b, j) => `${b}\\cdot 2^{${3 - j}}`).join('+');
-          const valuesTex = bits.map((b, j) => `${b}\\cdot ${Math.pow(2, 3 - j)}`).join('+');
-          const value = parseInt(g, 2);
-          const hexDigit = valDigit(value);
-          emit(target, '', `\\text{${g}} \\;=\\; ${sumTex} \\;=\\; ${valuesTex} \\;=\\; ${value}_{10} \\;=\\; \\textcolor{${RED}}{\\text{${hexDigit}}}_{16}`);
-        });
-        emit(target, L.cFinalBinToHex(numTex, resultTex));
+      }
+      const digits = rows.map((r) => r.remainder).reverse();
+      const resultTex = `\\text{${digitsStr(digits, toBase)}}`;
+      emit(target, L.bIntro(valueBig.toString(), toBase));
+      appendNode(target, buildDivisionTable(rows, toBase));
+      emit(target, L.bReadIntro, `\\Longrightarrow\\; ${resultTex}_{${toBase}}`);
+      return { digits, resultTex };
+    }
+
+    // ============================================================= schema A: m -> 10
+    function schemeToDecimal(target, quick, job) {
+      const { fromBase, digits, valueBig } = job;
+      const inTex = numTexOf(digitsStr(digits, fromBase), fromBase);
+      if (quick) { emit(target, L.finalQuick(inTex, fromBase, valueBig.toString(), 10)); return; }
+      emit(target, L.aIntro(inTex, fromBase));
+      renderPositional(target, digits, fromBase, valueBig);
+      emit(target, L.aFinal(inTex, fromBase, valueBig.toString()));
+    }
+
+    // ============================================================= schema B: 10 -> n
+    function schemeFromDecimal(target, quick, job) {
+      const { toBase, valueBig } = job;
+      const inTex = `${valueBig.toString()}_{10}`;
+      if (quick) {
+        const digits = digitsOf(valueBig, toBase);
+        emit(target, L.finalQuick(inTex, 10, digitsStr(digits, toBase), toBase));
         return;
       }
+      const { resultTex } = renderDivisions(target, valueBig, toBase);
+      emit(target, L.bFinal(valueBig.toString(), toBase, resultTex));
+    }
 
-      // hexToBin
-      const { full, trimmed } = data;
+    // ============================================================= schema C: 2 <-> 16 (scorciatoia)
+    function schemeShortcut216(target, quick, job) {
+      const { fromBase, toBase, digits, valueBig } = job;
+      const inTex = numTexOf(digitsStr(digits, fromBase), fromBase);
       if (quick) {
-        emit(target, L.cFinalQuickHexToBin(numTex, `\\text{${trimmed}}`));
+        const outDigits = digitsOf(valueBig, toBase);
+        emit(target, L.finalQuick(inTex, fromBase, digitsStr(outDigits, toBase), toBase));
         return;
       }
       emit(target, L.cIntro);
       emit(target, L.hexRefIntro);
       appendNode(target, buildHexRefTable());
-      emit(target, L.cGroupsIntroHex);
-      appendNode(target, buildGroups(sourceDigits, 'hex', 0, groups, `\\text{${sourceDigits.join('')}} \\;=\\;`));
-      emit(target, L.cInfatti);
-      sourceDigits.forEach((ch, idx) => {
-        const value = digitVal(ch);
-        const bits = groups[idx];
-        emit(target, '', `\\text{${ch}}_{16} \\;=\\; ${value}_{10} \\;=\\; \\textcolor{${RED}}{\\text{${bits}}}_{2}`);
-      });
-      const fullTex = `\\text{${full}}`;
-      const trimmedTex = `\\text{${trimmed}}`;
-      emit(target, L.cFinalHexToBin(numTex, fullTex, trimmedTex));
+
+      if (fromBase === 2 && toBase === 16) {
+        const bin = digits.join(''); // cifre 0/1
+        const padLen = (4 - (bin.length % 4)) % 4;
+        const padded = '0'.repeat(padLen) + bin;
+        const groups = [];
+        for (let i = 0; i < padded.length; i += 4) groups.push(padded.slice(i, i + 4));
+        const hexResults = groups.map((g) => symbolOfValue(parseInt(g, 2)));
+        if (padLen > 0) emit(target, L.cPadNote(padLen));
+        emit(target, L.cGroupsIntroBin);
+        appendNode(target, buildGroups(groups, 'bin', padLen, hexResults, `\\text{${padded}} \\;=\\;`));
+        emit(target, L.cInfatti);
+        groups.forEach((g) => {
+          const bits = g.split('');
+          const sumTex = bits.map((bb, j) => `${bb}\\cdot 2^{${3 - j}}`).join('+');
+          const valuesTex = bits.map((bb, j) => `${bb}\\cdot ${Math.pow(2, 3 - j)}`).join('+');
+          const val = parseInt(g, 2);
+          emit(target, '', `\\text{${g}} \\;=\\; ${sumTex} \\;=\\; ${valuesTex} \\;=\\; ${val}_{10} \\;=\\; \\textcolor{${RED}}{\\text{${symbolOfValue(val)}}}_{16}`);
+        });
+        const resultTex = `\\text{${digitsStr(digitsOf(valueBig, 16), 16)}}`;
+        emit(target, L.cFinalBinToHex(inTex, resultTex));
+      } else {
+        // 16 -> 2
+        const hexSyms = digits.map((d) => symbolOfValue(d));
+        const groups = digits.map((d) => d.toString(2).padStart(4, '0'));
+        const full = groups.join('');
+        const trimmed = full.replace(/^0+(?=.)/, '');
+        emit(target, L.cGroupsIntroHex);
+        appendNode(target, buildGroups(hexSyms, 'hex', 0, groups, `\\text{${hexSyms.join('')}} \\;=\\;`));
+        emit(target, L.cInfatti);
+        digits.forEach((d, idx) => {
+          emit(target, '', `\\text{${symbolOfValue(d)}}_{16} \\;=\\; ${d}_{10} \\;=\\; \\textcolor{${RED}}{\\text{${groups[idx]}}}_{2}`);
+        });
+        emit(target, L.cFinalHexToBin(inTex, `\\text{${full}}`, `\\text{${trimmed}}`));
+      }
+
+      // in aggiunta, il metodo generale m -> 10 -> n, con un netto stacco
+      // visivo rispetto alla scorciatoia appena mostrata
+      const divider = document.createElement('hr');
+      divider.className = 'bc-divider';
+      appendNode(target, divider);
+      emit(target, L.cAltroMetodo);
+      renderBridge(target, job, /*withIntro=*/false);
     }
 
-    // misura l'altezza reale della/e cella/e con rowspan (bc-readarrow-cell)
-    // e applica: 1) l'altezza dell'asta in px, un po' piu' corta della cella
-    // per lasciare respiro sopra/sotto (il centraggio verticale e' automatico
-    // grazie a "vertical-align:middle" sulla cella); 2) uno sfondo a bande
-    // (repeating-linear-gradient) che ricrea la zebratura riga per riga,
-    // altrimenti questa colonna resterebbe vuota perche' e' un'unica cella
-    // con rowspan e non riceve lo sfondo di "tr:nth-child(even)".
-    const READARROW_INSET = 18; // px totali di respiro (in alto + in basso)
+    // ============================================================= schema D: ponte m -> 10 -> n
+    function renderBridge(target, job, withIntro) {
+      const { fromBase, toBase, digits, valueBig } = job;
+      const inTex = numTexOf(digitsStr(digits, fromBase), fromBase);
+      if (withIntro) emit(target, L.bridgeIntro(fromBase, toBase));
+      emit(target, L.bridgeStep1(fromBase));
+      renderPositional(target, digits, fromBase, valueBig);
+      emit(target, L.bridgeStep2(toBase));
+      const { digits: outDigits, resultTex } = renderDivisions(target, valueBig, toBase);
+      emit(target, L.bridgeFinal(inTex, fromBase, valueBig.toString(), resultTex, toBase));
+    }
+
+    function schemeBridge(target, quick, job) {
+      const { fromBase, toBase, digits, valueBig } = job;
+      const inTex = numTexOf(digitsStr(digits, fromBase), fromBase);
+      if (quick) {
+        const outDigits = digitsOf(valueBig, toBase);
+        emit(target, L.finalQuick(inTex, fromBase, digitsStr(outDigits, toBase), toBase));
+        return;
+      }
+      renderBridge(target, job, /*withIntro=*/true);
+    }
+
+    // ============================================================= orchestratore
+    function classifyScheme(fromBase, toBase) {
+      if (fromBase === toBase) return fromBase === 10 ? 'identity' : 'bridge';
+      if (toBase === 10) return 'toDecimal';
+      if (fromBase === 10) return 'fromDecimal';
+      if ((fromBase === 2 && toBase === 16) || (fromBase === 16 && toBase === 2)) return 'shortcut216';
+      return 'bridge';
+    }
+
+    function errorMessage(err) {
+      if (err.error === 'empty') return L.errEmpty;
+      if (err.error === 'bad_symbol') return L.errBadSymbol(err.detail);
+      if (err.error === 'digit_too_big') return L.errDigitTooBig(currentFromBase());
+      if (err.error === 'malformed') return L.errMalformed;
+      if (err.error === 'too_long') return L.errTooLong(err.detail);
+      return L.errEmpty;
+    }
+
+    // ============================================================= orchestratore
+    let bcRandomUsed = false;
+    function bcTrack(mode, fromBase, toBase) {
+      if (window.umami) {
+        umami.track('baseconverter-solve', { mode, conversion: `${fromBase}-${toBase}`, randomUsed: bcRandomUsed });
+      }
+    }
+    function elabora(quick) {
+      const target = quick ? quickEl : fullEl;
+      const other = quick ? fullEl : quickEl;
+      quickEl.innerHTML = ''; fullEl.innerHTML = '';
+
+      const fromBase = currentFromBase();
+      const toBase = currentToBase();
+      const parsed = parseHybrid(numInput.value, fromBase);
+      if (parsed.error) { tip(errorMessage(parsed)); return; }
+      unTip();
+
+      const valueBig = digitsToValue(parsed.digits, fromBase);
+      const job = { fromBase, toBase, digits: parsed.digits, valueBig };
+
+      emit(target, `<h2>${quick ? L.titleQuick : L.titleStep}</h2>`);
+
+      const scheme = classifyScheme(fromBase, toBase);
+      if (scheme === 'identity') {
+        // stessa base: il numero non cambia
+        const inTex = numTexOf(digitsStr(parsed.digits, fromBase), fromBase);
+        emit(target, L.finalQuick(inTex, fromBase, digitsStr(parsed.digits, toBase), toBase));
+      } else if (scheme === 'toDecimal') {
+        schemeToDecimal(target, quick, job);
+      } else if (scheme === 'fromDecimal') {
+        schemeFromDecimal(target, quick, job);
+      } else if (scheme === 'shortcut216') {
+        schemeShortcut216(target, quick, job);
+      } else {
+        schemeBridge(target, quick, job);
+      }
+
+      hide(other);
+      reveal(target);
+      fitReadArrows();
+      bcTrack(quick ? 'quick' : 'steps', fromBase, toBase);
+    }
+
+    // altezza + zebra della freccia di lettura (invariato dal precedente)
+    const READARROW_INSET = 18;
     function fitReadArrows(tries) {
       tries = tries || 0;
       requestAnimationFrame(() => {
@@ -992,7 +1233,6 @@ const UI = {
           const h = cell.getBoundingClientRect().height;
           if (h <= 0) { pending = true; return; }
           line.style.height = Math.max(0, h - READARROW_INSET) + 'px';
-
           const rowsCount = parseInt(cell.getAttribute('rowspan'), 10) || 1;
           const rowH = h / rowsCount;
           const table = cell.closest('table');
@@ -1005,70 +1245,44 @@ const UI = {
       });
     }
 
-    // ============================================================= orchestratore
-    let bcRandomUsed = false;
-    function bcTrack(mode) {
-      if (window.umami) {
-        umami.track('baseconverter-solve', { mode, conversion: convSel.value, randomUsed: bcRandomUsed });
-      }
-    }
-    function elabora(quick) {
-      const target = quick ? quickEl : fullEl;
-      const other = quick ? fullEl : quickEl;
-      quickEl.innerHTML = ''; fullEl.innerHTML = '';
-
-      const fromBase = currentFromBase();
-      const toBase = currentToBase();
-      const parsed = parseInBase(numInput.value, fromBase);
-      if (parsed.error === 'empty') { tip(L.errEmpty); return; }
-      if (parsed.error === 'invalid') { tip(L.errInvalid(fromBase)); return; }
-      if (parsed.error === 'toolarge') { tip(L.errTooLarge(MAXVAL)); return; }
-      unTip();
-
-      const data = computeConversion(fromBase, toBase, parsed.clean, parsed.value);
-
-      emit(target, `<h2>${quick ? L.titleQuick : L.titleStep}</h2>`);
-      if (data.scheme === 'A') schemeA(target, quick, data);
-      else if (data.scheme === 'B') schemeB(target, quick, data);
-      else schemeC(target, quick, data);
-
-      hide(other);
-      reveal(target);
-      fitReadArrows();
-      bcTrack(quick ? 'quick' : 'steps');
-    }
-
-    // -------------------------------------------------------------- interazioni
-    // valore casuale "didattico": dipende dalla COPPIA di conversione scelta,
-    // non solo dalla base di partenza, cosi' ogni conversione puo' avere un
-    // intervallo su misura (es. numeri ne' troppo corti ne' troppo lunghi
-    // per mostrare bene lo specifico procedimento).
+    // ── valore casuale (dipende dalla coppia di basi) ────────────────
     function randomInRange(min, max) { return min + Math.floor(Math.random() * (max - min + 1)); }
+    // quante cifre generare per il caso "generico" (nessun range dedicato):
+    // basi piccole (<=8) hanno cifre "povere" di informazione, quindi ne
+    // servono di piu' per un esempio sostanzioso; basi grandi (>8) ne
+    // bastano meno per arrivare comunque a un valore consistente.
+    // quante cifre generare per il caso "generico": base 2 ha un caso dedicato
+    // (7-11 cifre, altrimenti i numeri risulterebbero troppo corti per un
+    // esempio interessante); le altre basi piccole (<=8) ne usano 6-8, quelle
+    // grandi (>8) ne bastano 4-6.
+    function randomDigitCount(base) {
+      if (base === 2) return randomInRange(7, 11);
+      return base > 8 ? randomInRange(4, 6) : randomInRange(6, 8);
+    }
+    // numero casuale con ESATTAMENTE digitCount cifre nella base data (prima
+    // cifra non nulla, cosi' la lunghezza e' quella dichiarata e non meno)
+    function randomValueWithDigits(base, digitCount) {
+      const digits = [randomInRange(1, base - 1)];
+      for (let i = 1; i < digitCount; i++) digits.push(randomInRange(0, base - 1));
+      return digitsToValue(digits, base);
+    }
     function randomForConversion(fromBase, toBase) {
-      const key = `${fromBase}-${toBase}`;
-      if (key === '2-16') return randomInRange(255, 1023).toString(2);
-      if (key === '16-2') return randomInRange(255, 1023).toString(16).toUpperCase();
-      if (key === '10-16') return String(randomInRange(700, 12000));
-      // fallback invariato per le altre combinazioni (dipende solo dalla base di partenza)
-      if (fromBase === 2) return Math.floor(Math.random() * 256).toString(2).padStart(8, '0');
-      if (fromBase === 10) return String(Math.floor(Math.random() * 256));
-      return Math.floor(Math.random() * 4096).toString(16).toUpperCase();
+      const value = randomValueWithDigits(fromBase, randomDigitCount(fromBase));
+      return renderNumber(value, fromBase);
     }
 
-    // azzera il campo e mostra subito, in grigio, il numero di esempio (placeholder)
-    // adatto alla base attualmente selezionata: usata sia dal bottone "reset" sia
-    // al cambio di conversione sia all'avvio, cosi' il comportamento e' sempre lo stesso.
-    function resetAll() {
-      numInput.value = '';
-      updatePlaceholder();
-      clearResults();
-      unTip();
-      bcRandomUsed = false;
-    }
-
-    convSel.addEventListener('change', () => resetAll());
-    numInput.addEventListener('input', () => { clearResults(); unTip(); });
-    root.querySelector('#bcBtnReset').addEventListener('click', () => resetAll());
+    // ── interazioni ──────────────────────────────────────────────────
+    function onBasesChanged() { updateSymHint(); clearResults(); unTip(); bcRandomUsed = false; }
+    fromSel.addEventListener('change', onBasesChanged);
+    toSel.addEventListener('change', onBasesChanged);
+    root.querySelector('#bcSwap').addEventListener('click', () => {
+      const a = fromSel.value, b = toSel.value;
+      fromSel.value = b;
+      toSel.value = a;
+      onBasesChanged();
+    });
+    numInput.addEventListener('input', () => { clearResults(); unTip(); bcRandomUsed = false; });
+    root.querySelector('#bcBtnReset').addEventListener('click', () => { numInput.value = ''; clearResults(); unTip(); bcRandomUsed = false; });
     root.querySelector('#bcBtnRandom').addEventListener('click', () => {
       numInput.value = randomForConversion(currentFromBase(), currentToBase());
       clearResults(); unTip();
@@ -1076,10 +1290,13 @@ const UI = {
     });
     root.querySelector('#bcBtnQuick').addEventListener('click', () => elabora(true));
     root.querySelector('#bcBtnStep').addEventListener('click', () => elabora(false));
-
-    // ------------------------------------------------------------- avvio
-    resetAll();
     window.addEventListener('resize', () => fitReadArrows());
+
+    // ── avvio ────────────────────────────────────────────────────────
+    populateBaseSelect(fromSel, 2);
+    populateBaseSelect(toSel, 10);
+    updateSymHint();
+    numInput.value = '';
     renderInline(root);
   }
 </script>

@@ -1,6 +1,6 @@
 ---
-title: Conversioni tra basi numeriche (2, 10, 16)
-description: Convertitore online tra base 2, base 10 e base 16, con spiegazione passo-passo dei tre diversi procedimenti (espansione posizionale, divisioni successive, raggruppamento a 4 bit) e notazione LaTeX.
+title: Conversioni tra basi numeriche
+description: Convertitore online tra basi numeriche da 2 a 64, con spiegazione passo-passo dei diversi procedimenti (espansione posizionale, divisioni successive, raggruppamento a 4 bit, ponte attraverso la base 10) e notazione LaTeX.
 sidebar:
   hidden: false
   label: Conversione di basi
@@ -10,11 +10,12 @@ tableOfContents: false
 
 import BaseConverter from '@components/BaseConverter.astro';
 
-Questo strumento converte un numero intero tra **base 2**, **base 10** e **base 16**,
+Questo strumento converte un numero intero tra due basi qualsiasi, da **2** a **64**,
 mostrando ogni volta il procedimento corretto per la coppia di basi scelta:
 l'**espansione posizionale** (verso base 10), le **divisioni successive** per la
-base di arrivo (da base 10), oppure il **raggruppamento a 4 bit** per la
-conversione diretta tra base 2 e base 16. In ciascun caso i coefficienti che
+base di arrivo (da base 10), il **raggruppamento a 4 bit** per la conversione
+diretta tra base 2 e base 16, oppure il **ponte attraverso la base 10** per
+qualunque altra coppia di basi non decimali. In ciascun caso i coefficienti che
 moltiplicano le potenze della base vengono evidenziati per rendere immediato il
 collegamento tra le cifre del numero di partenza e il calcolo che le usa.
 
