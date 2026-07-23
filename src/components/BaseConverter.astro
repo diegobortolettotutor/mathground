@@ -220,12 +220,26 @@ const UI = {
     transition: border-color 0.15s ease, color 0.15s ease, background-color 0.15s ease, transform 0.15s ease;
   }
   .bc-arrow-sep svg { display: block; }
-  .bc-arrow-sep:hover,
+  /* focus da tastiera: sempre attivo, su qualsiasi dispositivo (accessibilita') */
   .bc-arrow-sep:focus-visible {
     color: var(--bc-accent);
     border-color: var(--bc-accent);
     background-color: color-mix(in srgb, var(--bc-accent) 14%, var(--bc-surface));
     outline: none;
+  }
+  .bc-arrow-sep:focus-visible::after { opacity: 1; }
+  /* hover: solo sui dispositivi che hanno un vero puntatore (mouse/trackpad).
+     Su touch il tocco simula ":hover" ma non lo toglie mai finche' non si
+     tocca altrove: il bottone restava "acceso" e il tooltip non spariva
+     piu' dopo un tap. Scoping a (hover: hover) evita del tutto il problema. */
+  @media (hover: hover) {
+    .bc-arrow-sep:hover {
+      color: var(--bc-accent);
+      border-color: var(--bc-accent);
+      background-color: color-mix(in srgb, var(--bc-accent) 14%, var(--bc-surface));
+      outline: none;
+    }
+    .bc-arrow-sep:hover::after { opacity: 1; }
   }
   .bc-arrow-sep:active { transform: scale(0.88); }
   .bc-arrow-sep {
@@ -250,10 +264,6 @@ const UI = {
     pointer-events: none;
     transition: opacity 0.05s ease;
     z-index: 5;
-  }
-  .bc-arrow-sep:hover::after,
-  .bc-arrow-sep:focus-visible::after {
-    opacity: 1;
   }
   .bc-convlabel { font-size: 0.95rem; line-height: 1.4rem; color: var(--sl-color-text-accent, var(--bc-accent-hi)); }
   /* le basi "speciali" (2,10,16) nel menu hanno sfondo piu' scuro per il
@@ -548,8 +558,9 @@ const UI = {
     .bc-numblock { align-items: stretch; }
     .bc-basesrow { flex-direction: column; align-items: stretch; }
     .bc-baseblock { align-items: stretch; }
-    .bc-arrow-sep { transform: rotate(90deg); align-self: center; line-height: 1; }
-    .bc-arrow-sep:active { transform: rotate(90deg) scale(0.88); }
+    .bc-arrow-sep { align-self: center; }
+    .bc-arrow-sep svg { transform: rotate(90deg); }
+    .bc-arrow-sep:active { transform: scale(0.88); }
     .bc-select { width: 100%; }
   }
 </style>
