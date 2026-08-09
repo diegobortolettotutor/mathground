@@ -1,0 +1,918 @@
+---
+// src/components/SimulatoreUrti.astro
+// Simulatore di urti fra due corpi (punti materiali, urto centrale).
+// Modello: conservazione della quantita' di moto + coefficiente di restituzione e.
+// Inquadratura fissa, centrata sul punto d'impatto.
+const locale = (Astro.currentLocale ?? "it").toLowerCase();
+const lang = locale.startsWith("en") ? "en" : "it";
+
+const DICT = {
+  it: {
+    play: "Avvia", pause: "Pausa", reset: "Riavvia",
+    trailsOn: "Mostra scie", trailsOff: "Nascondi scie",
+    soundOn: "Audio attivo", soundOff: "Audio disattivato",
+    slow: "rallentatore",
+    mElastic: "Elastico", mInelastic: "Anelastico", mPerfect: "Completamente anelastico",
+    sM1: "massa m₁", sM2: "massa m₂", sV1: "velocità v₁", sV2: "velocità v₂",
+    sTh: "angolo θ di v₂", sE: "restituzione e",
+    warnNoCollision: "Velocità relativa nulla: i due corpi non si incontrano mai. Cambia v₂ oppure θ.",
+    titleP: "Quantità di moto (kg·m/s)", titleK: "Energia cinetica (J)",
+    compX: "componente x", compY: "componente y",
+    lp1: "p₁", lp2: "p₂", lps: "Σp", lk: "K",
+    diss: "dissipata", legend1: "corpo 1", legend2: "corpo 2", legendCm: "centro di massa",
+    before: "prima dell'urto", after: "dopo l'urto",
+  },
+  en: {
+    play: "Start", pause: "Pause", reset: "Restart",
+    trailsOn: "Show trails", trailsOff: "Hide trails",
+    soundOn: "Sound on", soundOff: "Sound off",
+    slow: "slow motion",
+    mElastic: "Elastic", mInelastic: "Inelastic", mPerfect: "Perfectly inelastic",
+    sM1: "mass m₁", sM2: "mass m₂", sV1: "velocity v₁", sV2: "velocity v₂",
+    sTh: "angle θ of v₂", sE: "restitution e",
+    warnNoCollision: "Zero relative velocity: the two bodies never meet. Change v₂ or θ.",
+    titleP: "Momentum (kg·m/s)", titleK: "Kinetic energy (J)",
+    compX: "x component", compY: "y component",
+    lp1: "p₁", lp2: "p₂", lps: "Σp", lk: "K",
+    diss: "dissipated", legend1: "body 1", legend2: "body 2", legendCm: "centre of mass",
+    before: "before impact", after: "after impact",
+  },
+};
+const t = DICT[lang];
+---
+
+<div class="urti">
+  <div class="urti-scene-wrap">
+    <canvas id="urti-cv"></canvas>
+  </div>
+
+  <p class="urti-legend">
+    <span><span class="sw b1"></span>{t.legend1}</span>
+    <span><span class="sw b2"></span>{t.legend2}</span>
+    <span><span class="sw cm"></span>{t.legendCm}</span>
+    <span id="urti-warn" class="warn"></span>
+  </p>
+
+  <div class="urti-chart-wrap">
+    <canvas id="urti-chart"></canvas>
+  </div>
+
+  <div class="urti-modes" role="group">
+    <button type="button" class="mode-btn is-on" id="u-mode-el" data-mode="elastico" aria-pressed="true">{t.mElastic}</button>
+    <button type="button" class="mode-btn" id="u-mode-an" data-mode="anelastico" aria-pressed="false">{t.mInelastic}</button>
+    <button type="button" class="mode-btn" id="u-mode-pf" data-mode="perfetto" aria-pressed="false">{t.mPerfect}</button>
+  </div>
+
+  <div class="urti-buttons">
+    <button id="u-play" class="primary">{t.play}</button>
+    <button id="u-reset">{t.reset}</button>
+    <button id="u-trails">{t.trailsOff}</button>
+    <button id="u-sound">{t.soundOn}</button>
+    <span class="slowcell">
+      <label for="u-slow">{t.slow}</label>
+      <input type="range" id="u-slow" min="0.1" max="1" value="1" step="0.05" />
+      <span class="val" id="u-slow-val">1.00×</span>
+    </span>
+  </div>
+
+  <div class="urti-sliders">
+    <div class="cell b1"><label for="u-m1">{t.sM1}</label><input type="range" id="u-m1" min="1" max="10" value="3" step="1" /><span class="val" id="u-m1-val"></span></div>
+    <div class="cell b1"><label for="u-v1">{t.sV1}</label><input type="range" id="u-v1" min="1" max="10" value="5" step="1" /><span class="val" id="u-v1-val"></span></div>
+    <div class="cell b2"><label for="u-m2">{t.sM2}</label><input type="range" id="u-m2" min="1" max="10" value="3" step="1" /><span class="val" id="u-m2-val"></span></div>
+    <div class="cell b2"><label for="u-v2">{t.sV2}</label><input type="range" id="u-v2" min="0" max="10" value="0" step="1" /><span class="val" id="u-v2-val"></span></div>
+    <div class="cell b2"><label for="u-th">{t.sTh}</label><input type="range" id="u-th" min="0" max="180" value="180" step="5" /><span class="val" id="u-th-val"></span></div>
+    <div class="cell"><label for="u-e">{t.sE}</label><input type="range" id="u-e" min="0" max="1" value="1" step="0.05" disabled /><span class="val" id="u-e-val"></span></div>
+  </div>
+</div>
+
+<style>
+  .urti {
+    --ink: var(--sl-color-text, #26252a);
+    --muted: var(--sl-color-gray-3, #6c6b66);
+    --line: var(--sl-color-hairline, #d9d7cf);
+    --track: var(--sl-color-gray-5, #c8c6be);
+    --btn-bg: var(--sl-color-gray-6, #f0eeea);
+    --accent: #ffcc44;
+    color: var(--ink);
+    max-width: 880px;
+    margin-inline: auto;
+    line-height: 1.5;
+  }
+
+  .urti-scene-wrap {
+    position: relative;
+    width: 100%;
+    height: min(58vh, 460px);
+    border-radius: 10px;
+    overflow: hidden;
+    background: #0f0f1e;
+  }
+  .urti-scene-wrap canvas { display: block; width: 100%; height: 100%; touch-action: pan-y; }
+
+  .urti-chart-wrap {
+    width: 100%;
+    height: 220px;
+    margin: 10px 0 4px;
+    border-radius: 8px;
+    background: var(--sl-color-gray-7, #fafaf8);
+    border: 1px solid var(--line);
+  }
+  .urti-chart-wrap canvas { display: block; width: 100%; height: 100%; }
+
+  .urti-legend { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; font-size: 13px; color: var(--muted); margin: 10px 0 4px; }
+  .urti-legend .sw { display: inline-block; width: 12px; height: 12px; border-radius: 50%; vertical-align: -1px; margin-right: 5px; }
+  .urti-legend .sw.b1 { background: #3b82f6; }
+  .urti-legend .sw.b2 { background: #ef4444; }
+  .urti-legend .sw.cm { background: #a855f7; }
+  .urti-legend .warn { color: #e65050; font-weight: 600; }
+
+  /* selettore del tipo di urto: tre bottoni mutuamente esclusivi */
+  .urti-modes { display: flex; gap: 8px; margin: 12px 0 10px; }
+  .urti-modes .mode-btn {
+    flex: 1 1 0;
+    font: inherit; font-size: 13px; font-weight: 600;
+    padding: 9px 10px; margin: 0;
+    border-radius: 8px;
+    border: 1px solid var(--line);
+    background: var(--btn-bg); color: var(--muted);
+    cursor: pointer; text-align: center;
+    transition: background .12s, border-color .12s, color .12s;
+  }
+  .urti-modes .mode-btn:hover { border-color: var(--muted); color: var(--ink); }
+  .urti-modes .mode-btn.is-on {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #3a2f00;
+    box-shadow: inset 0 0 0 1px rgba(0,0,0,.06);
+  }
+  .urti-modes .mode-btn.is-on:hover { border-color: var(--accent); color: #3a2f00; }
+
+  .urti-buttons { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 8px 0 14px; }
+  .urti-buttons button {
+    font: inherit; font-size: 13px; padding: 6px 12px; border-radius: 6px;
+    border: 1px solid var(--line); background: var(--btn-bg); color: var(--ink);
+    cursor: pointer; margin: 0;
+  }
+  .urti-buttons button:hover { border-color: var(--muted); }
+  .urti-buttons button.primary { font-weight: 600; }
+  .urti-buttons button:disabled { opacity: .45; cursor: not-allowed; }
+  .urti-buttons .slowcell { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+  .urti-buttons .slowcell input[type="range"] { width: 110px; }
+  .urti-buttons .slowcell .val { font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--ink); min-width: 44px; }
+
+  .urti-sliders { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px 18px; align-items: end; }
+  .urti-sliders .cell { display: flex; flex-direction: column; justify-content: flex-end; }
+  .urti-sliders label { font-size: 12px; color: var(--muted); line-height: 1.3; margin-bottom: 10px; }
+  .urti-sliders .cell.b1 label { color: #2563eb; }
+  .urti-sliders .cell.b2 label { color: #dc2626; }
+  .urti-sliders .val { font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; margin-top: 8px; }
+  .urti-sliders .cell:has(input:disabled) label,
+  .urti-sliders .cell:has(input:disabled) .val { opacity: .4; }
+
+  .urti input[type="range"] {
+    -webkit-appearance: none; appearance: none;
+    width: 100%; height: 4px;
+    background: var(--track); border-radius: 2px;
+    outline: none; cursor: pointer; margin: 0;
+  }
+  .urti input[type="range"]:disabled { opacity: .4; cursor: not-allowed; }
+  .urti input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none; width: 16px; height: 16px; border-radius: 50%;
+    background: var(--accent); border: 2px solid var(--sl-color-bg, #fff); cursor: pointer;
+  }
+  .urti input[type="range"]::-moz-range-thumb {
+    width: 16px; height: 16px; border-radius: 50%;
+    background: var(--accent); border: 2px solid var(--sl-color-bg, #fff); cursor: pointer;
+  }
+  .urti input[type="range"]:disabled::-webkit-slider-thumb { background: var(--track); }
+  .urti input[type="range"]:disabled::-moz-range-thumb { background: var(--track); }
+  .urti .cell.b1 input[type="range"]::-webkit-slider-thumb { background: #3b82f6; }
+  .urti .cell.b1 input[type="range"]::-moz-range-thumb { background: #3b82f6; }
+  .urti .cell.b2 input[type="range"]::-webkit-slider-thumb { background: #ef4444; }
+  .urti .cell.b2 input[type="range"]::-moz-range-thumb { background: #ef4444; }
+
+  @media (max-width: 700px) {
+    .urti-modes { flex-direction: column; }
+    .urti-sliders { grid-template-columns: repeat(2, 1fr); }
+    .urti-chart-wrap { height: 260px; }
+  }
+  @media (max-width: 420px) {
+    .urti-sliders { grid-template-columns: 1fr; }
+  }
+</style>
+
+<script define:vars={{ t }}>
+  (function () {
+    var canvas = document.getElementById("urti-cv");
+    if (!canvas) return;
+    var ctx = canvas.getContext("2d");
+    var wrap = canvas.parentElement;
+    var chartCv = document.getElementById("urti-chart");
+    var cctx = chartCv.getContext("2d");
+    var chartWrap = chartCv.parentElement;
+
+    // ---------- costanti ----------
+    var RSCALE = 14;        // px per (kg)^(1/3)
+    var VSCALE = 9;         // px per (m/s): lunghezza delle frecce
+    var GAP = 110;          // px di distacco minimo fra le sfere alla partenza
+    var AFTER_MAX = 4;      // s dopo l'urto prima del riavvio
+    var SHOW_MAX = 3;       // s massimi di avvicinamento mostrati
+    // La fusione non ha una durata arbitraria: e' esattamente il tempo che i due punti
+    // materiali impiegano a coprire l'ultimo tratto R1+R2 alla loro velocita' relativa.
+    // Comprimerla oltre significherebbe muovere le sfere piu' in fretta di quanto si
+    // stessero avvicinando, cioe' mostrare un aumento di energia cinetica.
+    var MAX_TRAIL = 1200;
+    var MIN_ARROW = 10;
+
+    // ---------- elementi ----------
+    var els = {
+      m1: document.getElementById("u-m1"), m2: document.getElementById("u-m2"),
+      v1: document.getElementById("u-v1"), v2: document.getElementById("u-v2"),
+      th: document.getElementById("u-th"), e: document.getElementById("u-e"),
+    };
+    var vals = {
+      m1: document.getElementById("u-m1-val"), m2: document.getElementById("u-m2-val"),
+      v1: document.getElementById("u-v1-val"), v2: document.getElementById("u-v2-val"),
+      th: document.getElementById("u-th-val"), e: document.getElementById("u-e-val"),
+    };
+    var modeBtns = [
+      document.getElementById("u-mode-el"),
+      document.getElementById("u-mode-an"),
+      document.getElementById("u-mode-pf"),
+    ];
+    var warnEl = document.getElementById("urti-warn");
+    var btnPlay = document.getElementById("u-play");
+    var btnReset = document.getElementById("u-reset");
+    var btnTrails = document.getElementById("u-trails");
+    var btnSound = document.getElementById("u-sound");
+    var slowEl = document.getElementById("u-slow");
+    var slowVal = document.getElementById("u-slow-val");
+
+    // ---------- stato ----------
+    var W = 0, H = 0, CW = 0, CH = 0, S = 30;
+    var mode = "elastico";
+    var m1, m2, M, v1, v2, th, e, R1, R2, Rm;
+    var v1v, v2v, vcm, dv, dvx, dvy, nrm;
+    var O = { x: 0, y: 0 };
+    var T = 1, tc = 0, tStart = 0, tsim = 0;
+    var degenerate = false, is2D = false, merged = false;
+    var u1 = { x: 0, y: 0 }, u2 = { x: 0, y: 0 }, wSplit = 0.5, mergeDur = 0.18;
+    var trail1 = [], trail2 = [], trailCm = [];
+    var playing = false, lastTs = 0, soundDone = false;
+    var showTrails = true, muted = false;
+    var K0 = 0, pAxis = 1, kAxis = 1, Jimp = 0;
+    var actx = null, tracked = "";
+
+    function clamp(x, a, b) { return x < a ? a : (x > b ? b : x); }
+    function cbrt(x) { return Math.pow(x, 1 / 3); }
+
+    // ---------- selettore del tipo di urto ----------
+    function applyMode(newMode, fromClick) {
+      mode = newMode;
+      modeBtns.forEach(function (b) {
+        var on = b.getAttribute("data-mode") === mode;
+        b.classList.toggle("is-on", on);
+        b.setAttribute("aria-pressed", on ? "true" : "false");
+      });
+      if (mode === "elastico") {
+        els.e.min = "0"; els.e.max = "1"; els.e.value = "1"; els.e.disabled = true;
+      } else if (mode === "perfetto") {
+        els.e.min = "0"; els.e.max = "1"; els.e.value = "0"; els.e.disabled = true;
+      } else {
+        els.e.min = "0.05"; els.e.max = "0.95"; els.e.disabled = false;
+        // entrando nell'anelastico generale il cursore riparte da 0.50
+        if (fromClick) els.e.value = "0.5";
+        else els.e.value = String(clamp(+els.e.value, 0.05, 0.95));
+      }
+    }
+
+    function syncControls() { els.th.disabled = (+els.v2.value === 0); }
+
+    // ---------- parametri ----------
+    function readParams() {
+      m1 = +els.m1.value; m2 = +els.m2.value;
+      v1 = +els.v1.value; v2 = +els.v2.value;
+      th = +els.th.value; e = +els.e.value;
+      M = m1 + m2;
+      R1 = RSCALE * cbrt(m1); R2 = RSCALE * cbrt(m2); Rm = RSCALE * cbrt(M);
+      var rad = th * Math.PI / 180;
+      v1v = { x: v1, y: 0 };
+      v2v = { x: v2 * Math.cos(rad), y: v2 * Math.sin(rad) };
+      is2D = (v2 > 0) && (th !== 0) && (th !== 180);
+      dvx = v2v.x - v1v.x; dvy = v2v.y - v1v.y;
+      dv = Math.hypot(dvx, dvy);
+      degenerate = dv < 1e-9;
+      vcm = { x: (m1 * v1v.x + m2 * v2v.x) / M, y: (m1 * v1v.y + m2 * v2v.y) / M };
+      merged = (mode === "perfetto");
+      var mu = m1 * m2 / M;
+      Jimp = (1 + e) * mu * dv;
+      K0 = 0.5 * m1 * (v1v.x * v1v.x + v1v.y * v1v.y) + 0.5 * m2 * (v2v.x * v2v.x + v2v.y * v2v.y);
+      // versore d'impatto: dal corpo 1 verso il corpo 2 all'istante del contatto
+      nrm = degenerate ? { x: 1, y: 0 } : { x: -dvx / dv, y: -dvy / dv };
+    }
+
+    // ---------- cinematica ----------
+    // Origine del laboratorio nel punto d'incontro dei due punti materiali:
+    // r_i(t) = v_i (t - T), cosi' a t = T coinciderebbero nell'origine.
+    function vAt(i, time) {
+      var v = (i === 0) ? v1v : v2v;
+      if (time <= tc) return { x: v.x, y: v.y };
+      return { x: (1 + e) * vcm.x - e * v.x, y: (1 + e) * vcm.y - e * v.y };
+    }
+    function rAt(i, time) {
+      var v = (i === 0) ? v1v : v2v;
+      if (time <= tc) return { x: v.x * (time - T), y: v.y * (time - T) };
+      var rcx = v.x * (tc - T), rcy = v.y * (tc - T);
+      var w = vAt(i, time);
+      return { x: rcx + w.x * (time - tc), y: rcy + w.y * (time - tc) };
+    }
+    function rcmAt(time) { return { x: vcm.x * (time - T), y: vcm.y * (time - T) }; }
+
+    // Velocita' "di visualizzazione" per il grafico: nell'urto completamente anelastico
+    // la vera fisica prevede un salto istantaneo a t = tc (la fusione e' un evento di
+    // durata nulla), ma l'animazione della sfera che si salda dura mergeDur secondi per
+    // motivi didattici. Per non mostrare un grafico che scatta di colpo mentre la scena
+    // sta ancora animando, qui si interpola linearmente da v_i(tc^-) a v_cm in mergeDur
+    // secondi, sincronizzata con lo stesso k usato da mergeCenters/drawMerged.
+    // La somma p1+p2 resta comunque esatta in ogni istante dell'interpolazione, perche'
+    // e' una combinazione convessa di due quantita' che condividono lo stesso totale.
+    function vDisplay(i, time) {
+      if (!merged || time <= tc) return vAt(i, time);
+      var k = clamp((time - tc) / mergeDur, 0, 1);
+      var vPre = (i === 0) ? v1v : v2v;
+      return { x: vPre.x + (vcm.x - vPre.x) * k, y: vPre.y + (vcm.y - vPre.y) * k };
+    }
+
+    function toScreen(r) { return { x: W / 2 + (r.x - O.x) * S, y: H / 2 - (r.y - O.y) * S }; }
+    function inView(r, R) {
+      var p = toScreen(r);
+      return p.x > -R && p.x < W + R && p.y > -R && p.y < H + R;
+    }
+
+    // offset del piano che divide un disco di raggio R in parti di area f1 e 1-f1
+    function solveSplit(R, f1) {
+      var target = f1 * Math.PI * R * R;
+      var lo = -R, hi = R;
+      for (var i = 0; i < 50; i++) {
+        var a = (lo + hi) / 2;
+        var right = R * R * Math.acos(clamp(a / R, -1, 1)) - a * Math.sqrt(Math.max(0, R * R - a * a));
+        if (Math.PI * R * R - right < target) lo = a; else hi = a;
+      }
+      return (lo + hi) / 2;
+    }
+
+    // ---------- geometria temporale ----------
+    // Con inquadratura fissa due condizioni entrano in conflitto: le sfere non devono
+    // compenetrarsi alla partenza (serve T grande) e i corpi devono stare
+    // nell'inquadratura (serve T piccolo). Quando sono incompatibili si privilegia la
+    // prima e si fa partire la simulazione a t = tStart > 0, saltando la parte di
+    // avvicinamento che avverrebbe fuori campo.
+    function setupTiming() {
+      if (degenerate) { T = 1; tc = 1e9; tStart = 0; O = { x: 0, y: 0 }; return; }
+      var Rsum_px = R1 + R2, Rsum_w = Rsum_px / S;
+      var Tneed = (Rsum_px + GAP) / (dv * S);
+      var Tfit = Infinity;
+      [[v1v, R1], [v2v, R2]].forEach(function (b) {
+        var ax = Math.abs(b[0].x), ay = Math.abs(b[0].y);
+        if (ax > 1e-6) Tfit = Math.min(Tfit, (W / 2 - b[1] - 12) / (ax * S));
+        if (ay > 1e-6) Tfit = Math.min(Tfit, (H / 2 - b[1] - 12) / (ay * S));
+      });
+      T = Math.max(Tneed, Math.min(Tfit, 2 * Tneed));
+      tc = T - Rsum_w / dv;
+
+      // il punto di contatto diventa il centro dell'inquadratura
+      var r1cx = v1v.x * (tc - T), r1cy = v1v.y * (tc - T);
+      O = { x: r1cx + nrm.x * R1 / S, y: r1cy + nrm.y * R1 / S };
+
+      // primo istante in cui almeno un corpo entra nell'inquadratura
+      var tEnter = 0;
+      for (var k = 0; k <= 240; k++) {
+        var tt = tc * k / 240;
+        if (inView(rAt(0, tt), R1) || inView(rAt(1, tt), R2)) { tEnter = tt; break; }
+      }
+      tStart = clamp(tEnter - 0.25, 0, Math.max(0, tc - 0.12));
+      if (tc - tStart > SHOW_MAX) tStart = tc - SHOW_MAX;
+
+      // Geometria della fusione. La durata "naturale" e' il tempo che i due centri
+      // impiegano a percorrere R1+R2 e coincidere: e' l'unico istante in cui l'unione
+      // dei due cerchi diventa davvero una sfera sola. Con velocita' relative piccole
+      // pero' diventa lunghissima, quindi si applica un tetto.
+      u1 = { x: v1v.x - vcm.x, y: v1v.y - vcm.y };
+      u2 = { x: v2v.x - vcm.x, y: v2v.y - vcm.y };
+      mergeDur = Rsum_w / dv;
+      // frazione a cui va posto il piano divisorio fra i due bordi interni, scelta in
+      // modo che a fusione completa le due aree stiano fra loro come m1 : m2
+      wSplit = (solveSplit(Rm, m1 / M) + Rm) / (2 * Rm);
+    }
+
+    // ---------- assi del grafico ----------
+    function setupAxes() {
+      var cand = [];
+      [tStart, tc + 1e-6].forEach(function (tt) {
+        var a = vAt(0, tt), b = vAt(1, tt);
+        cand.push(Math.abs(m1 * a.x), Math.abs(m1 * a.y), Math.abs(m2 * b.x), Math.abs(m2 * b.y));
+        cand.push(Math.abs(m1 * a.x + m2 * b.x), Math.abs(m1 * a.y + m2 * b.y));
+      });
+      pAxis = Math.max.apply(null, cand) * 1.15;
+      if (!(pAxis > 0)) pAxis = 1;
+      kAxis = Math.max(K0, 1e-9) * 1.06;
+    }
+
+    // ---------- reset ----------
+    function reset(keepPlaying) {
+      syncControls();
+      readParams();
+      setupTiming();
+      setupAxes();
+      tsim = tStart; soundDone = false;
+      trail1 = []; trail2 = []; trailCm = [];
+      warnEl.textContent = degenerate ? t.warnNoCollision : "";
+      btnPlay.disabled = degenerate;
+      if (degenerate || !keepPlaying) { playing = false; btnPlay.textContent = t.play; }
+      updateVals();
+    }
+
+    function updateVals() {
+      vals.m1.textContent = m1.toFixed(0) + " kg";
+      vals.m2.textContent = m2.toFixed(0) + " kg";
+      vals.v1.textContent = v1.toFixed(0) + " m/s";
+      vals.v2.textContent = v2.toFixed(0) + " m/s";
+      vals.th.textContent = th.toFixed(0) + "°";
+      vals.e.textContent = e.toFixed(2);
+      slowVal.textContent = (+slowEl.value).toFixed(2) + "×";
+    }
+
+    // ---------- layout ----------
+    function resize() {
+      var dpr = window.devicePixelRatio || 1;
+      var r = wrap.getBoundingClientRect();
+      W = r.width; H = r.height;
+      canvas.width = Math.round(W * dpr);
+      canvas.height = Math.round(H * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      S = clamp(Math.min(W, H) / 14, 18, 40);
+
+      var r2 = chartWrap.getBoundingClientRect();
+      CW = r2.width; CH = r2.height;
+      chartCv.width = Math.round(CW * dpr);
+      chartCv.height = Math.round(CH * dpr);
+      cctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+
+    // ---------- audio ----------
+    function ensureAudio() {
+      if (actx) return actx;
+      var AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return null;
+      try { actx = new AC(); } catch (err) { actx = null; }
+      return actx;
+    }
+    var noiseBuf = null;
+    function getNoise(ac) {
+      if (noiseBuf) return noiseBuf;
+      var n = Math.floor(ac.sampleRate * 0.25);
+      noiseBuf = ac.createBuffer(1, n, ac.sampleRate);
+      var d = noiseBuf.getChannelData(0);
+      for (var i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+      return noiseBuf;
+    }
+    function playImpact() {
+      if (muted) return;
+      var ac = ensureAudio();
+      if (!ac) return;
+      if (ac.state === "suspended") ac.resume();
+      var now = ac.currentTime;
+      var amp = clamp(Jimp / 120, 0.04, 1) * 0.55;
+      var tau = 0.028 + 0.36 * e;
+      var freq = clamp(1050 / Math.sqrt(M / 2), 110, 1250);
+
+      var out = ac.createGain();
+      out.gain.value = 1;
+      out.connect(ac.destination);
+
+      var osc = ac.createOscillator();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(freq, now);
+      osc.frequency.exponentialRampToValueAtTime(freq * 0.72, now + tau);
+      var g = ac.createGain();
+      var aTone = amp * (0.25 + 0.75 * e);
+      g.gain.setValueAtTime(0.0001, now);
+      g.gain.exponentialRampToValueAtTime(Math.max(aTone, 0.0002), now + 0.004);
+      g.gain.exponentialRampToValueAtTime(0.0001, now + tau);
+      osc.connect(g); g.connect(out);
+      osc.start(now); osc.stop(now + tau + 0.05);
+
+      var src = ac.createBufferSource();
+      src.buffer = getNoise(ac);
+      var bp = ac.createBiquadFilter();
+      bp.type = "lowpass";
+      bp.frequency.value = clamp(freq * (1.1 + 2.2 * e), 180, 6000);
+      bp.Q.value = 0.9;
+      var gn = ac.createGain();
+      var tauN = 0.016 + 0.05 * e;
+      var aN = amp * (0.5 + 0.7 * (1 - e));
+      gn.gain.setValueAtTime(0.0001, now);
+      gn.gain.exponentialRampToValueAtTime(Math.max(aN, 0.0002), now + 0.003);
+      gn.gain.exponentialRampToValueAtTime(0.0001, now + tauN);
+      src.connect(bp); bp.connect(gn); gn.connect(out);
+      src.start(now); src.stop(now + tauN + 0.05);
+    }
+
+    // ---------- disegno scena ----------
+    var COL1 = { light: "#93c5fd", dark: "#1d4ed8" };
+    var COL2 = { light: "#fca5a5", dark: "#b91c1c" };
+
+    function drawArrow(x1, y1, dx, dy, col, lw) {
+      var len = Math.hypot(dx, dy);
+      if (len < 0.5) return;
+      var ux = dx / len, uy = dy / len;
+      var drawLen = Math.max(len, MIN_ARROW), as = 8;
+      var eX = x1 + ux * drawLen, eY = y1 + uy * drawLen;
+      ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = lw || 2;
+      ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(eX - ux * as * 0.8, eY - uy * as * 0.8); ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(eX, eY);
+      ctx.lineTo(eX - ux * as - uy * as * 0.5, eY - uy * as + ux * as * 0.5);
+      ctx.lineTo(eX - ux * as + uy * as * 0.5, eY - uy * as - ux * as * 0.5);
+      ctx.closePath(); ctx.fill();
+    }
+
+    function drawGrid() {
+      var step = S;
+      while (step < 26) step *= 2;
+      var offx = ((-O.x * S) % step + step) % step;
+      var offy = ((O.y * S) % step + step) % step;
+      ctx.strokeStyle = "rgba(255,255,255,0.055)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (var x = (W / 2 + offx) % step; x < W; x += step) { ctx.moveTo(x, 0); ctx.lineTo(x, H); }
+      for (var y = (H / 2 + offy) % step; y < H; y += step) { ctx.moveTo(0, y); ctx.lineTo(W, y); }
+      ctx.stroke();
+    }
+
+    function drawBall(p, R, col, label) {
+      var g = ctx.createRadialGradient(p.x - R * 0.35, p.y - R * 0.35, R * 0.1, p.x, p.y, R);
+      g.addColorStop(0, col.light); g.addColorStop(1, col.dark);
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(p.x, p.y, R, 0, Math.PI * 2); ctx.fill();
+      if (label) {
+        ctx.fillStyle = "rgba(255,255,255,0.92)";
+        ctx.font = "600 " + Math.max(10, Math.min(15, R * 0.8)) + "px sans-serif";
+        ctx.textAlign = "center"; ctx.textBaseline = "middle";
+        ctx.fillText(label, p.x, p.y);
+      }
+    }
+
+    function drawTrail(arr, col) {
+      if (!showTrails || arr.length < 2) return;
+      ctx.strokeStyle = col; ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      for (var i = 0; i < arr.length; i++) {
+        var p = toScreen(arr[i]);
+        if (i === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y);
+      }
+      ctx.stroke();
+    }
+
+    // ritaglia il semipiano dei punti p tali che (p - P) . dir <= 0
+    function clipHalf(P, dir) {
+      var L = (W + H) * 2;
+      var tx = -dir.y, ty = dir.x;
+      ctx.beginPath();
+      ctx.moveTo(P.x + tx * L, P.y + ty * L);
+      ctx.lineTo(P.x - tx * L, P.y - ty * L);
+      ctx.lineTo(P.x - tx * L - dir.x * L, P.y - ty * L - dir.y * L);
+      ctx.lineTo(P.x + tx * L - dir.x * L, P.y + ty * L - dir.y * L);
+      ctx.closePath();
+      ctx.clip();
+    }
+
+    // Centri dei due cerchi durante e dopo la fusione (coordinate laboratorio).
+    // Sono esattamente le traiettorie balistiche dei due punti materiali: rc + u_i*(t-T)
+    // vale infatti v_i*(t-T). Lo scostamento dal centro di massa si annulla da solo a
+    // t = T, quando i due punti coincidono, e li' la saldatura risulta completa (k = 1).
+    // Nessuna compressione artificiale: i centri disegnati coincidono con le scie.
+    function mergeCenters(time) {
+      var k = clamp((time - tc) / mergeDur, 0, 1);
+      var rc = rcmAt(time);
+      var f = Math.min(time, T) - T;
+      return {
+        k: k, rc: rc,
+        c1: { x: rc.x + u1.x * f, y: rc.y + u1.y * f },
+        c2: { x: rc.x + u2.x * f, y: rc.y + u2.y * f },
+      };
+    }
+
+    // Dipinge un lato del corpo in fusione: l'unione dei due cerchi ritagliata dal
+    // semipiano. Prendendo l'unione (e non il singolo cerchio) la corda di separazione
+    // e' la stessa per le due porzioni, quindi la sagoma non presenta scalini.
+    function paintSide(P, dir, gc, gr, col, a1, ra1, a2, ra2) {
+      ctx.save();
+      clipHalf(P, dir);
+      var g = ctx.createRadialGradient(gc.x - gr * 0.35, gc.y - gr * 0.35, gr * 0.1, gc.x, gc.y, gr);
+      g.addColorStop(0, col.light); g.addColorStop(1, col.dark);
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(a1.x, a1.y, ra1, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(a2.x, a2.y, ra2, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+    }
+
+    // I due corpi si saldano progressivamente in un'unica sfera, divisa da un piano
+    // ortogonale alla direzione d'impatto in due parti di area proporzionale alle masse.
+    // Il piano viene collocato a frazione fissa fra i due bordi interni: cosi' attraversa
+    // sempre entrambi i cerchi per costruzione, a k = 0 cade sul punto di tangenza (i
+    // bordi coincidono) e a k = 1 separa le due porzioni nel rapporto delle masse.
+    function drawMerged(time) {
+      var mc = mergeCenters(time);
+      var k = mc.k;
+      var cS = toScreen(mc.rc);
+      var ns = { x: nrm.x, y: -nrm.y };
+      var r1k = R1 + (Rm - R1) * k;
+      var r2k = R2 + (Rm - R2) * k;
+      var p1 = toScreen(mc.c1), p2 = toScreen(mc.c2);
+      // ascisse lungo la direzione d'impatto, in pixel, rispetto al centro di massa
+      var c1n = ((mc.c1.x - mc.rc.x) * nrm.x + (mc.c1.y - mc.rc.y) * nrm.y) * S;
+      var c2n = ((mc.c2.x - mc.rc.x) * nrm.x + (mc.c2.y - mc.rc.y) * nrm.y) * S;
+      var edge1 = c1n + r1k, edge2 = c2n - r2k;
+      var spPx = edge2 + wSplit * (edge1 - edge2);
+      var P = { x: cS.x + ns.x * spPx, y: cS.y + ns.y * spPx };
+
+      paintSide(P, ns, p1, r1k, COL1, p1, r1k, p2, r2k);
+      paintSide(P, { x: -ns.x, y: -ns.y }, p2, r2k, COL2, p1, r1k, p2, r2k);
+
+      // un solo vettore velocita': quella comune del corpo fuso
+      drawArrow(cS.x, cS.y, vcm.x * VSCALE, -vcm.y * VSCALE, "#f1f5f9", 2.5);
+    }
+
+    function drawScene() {
+      ctx.fillStyle = "#0f0f1e";
+      ctx.fillRect(0, 0, W, H);
+      if (degenerate) {
+        ctx.fillStyle = "rgba(255,255,255,0.55)";
+        ctx.font = "14px sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+        ctx.fillText(t.warnNoCollision, W / 2, H / 2);
+        return;
+      }
+      drawGrid();
+      drawTrail(trail1, "rgba(59,130,246,0.5)");
+      drawTrail(trail2, "rgba(239,68,68,0.5)");
+      drawTrail(trailCm, "rgba(168,85,247,0.65)");
+
+      if (merged && tsim > tc) {
+        drawMerged(tsim);
+      } else {
+        var q1 = toScreen(rAt(0, tsim)), q2 = toScreen(rAt(1, tsim));
+        var w1 = vAt(0, tsim), w2 = vAt(1, tsim);
+        drawArrow(q1.x, q1.y, w1.x * VSCALE, -w1.y * VSCALE, "#bfdbfe", 2.5);
+        drawArrow(q2.x, q2.y, w2.x * VSCALE, -w2.y * VSCALE, "#fecaca", 2.5);
+        drawBall(q1, R1, COL1, "1");
+        drawBall(q2, R2, COL2, "2");
+      }
+
+      // centro di massa: attraversa la scena di moto rettilineo uniforme
+      var c = toScreen(rcmAt(tsim));
+      ctx.strokeStyle = "rgba(216,180,254,0.95)"; ctx.lineWidth = 1.5;
+      ctx.setLineDash([3, 3]);
+      ctx.beginPath(); ctx.arc(c.x, c.y, 9, 0, Math.PI * 2); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.moveTo(c.x - 13, c.y); ctx.lineTo(c.x + 13, c.y);
+      ctx.moveTo(c.x, c.y - 13); ctx.lineTo(c.x, c.y + 13);
+      ctx.stroke();
+
+      ctx.textAlign = "right"; ctx.textBaseline = "alphabetic";
+      ctx.font = "12px sans-serif";
+      ctx.fillStyle = tsim <= tc ? "rgba(255,255,255,0.5)" : "rgba(255,220,120,0.85)";
+      ctx.fillText(tsim <= tc ? t.before : t.after, W - 12, H - 12);
+    }
+
+    // ---------- grafico ----------
+    function chartValues() {
+      var a = vDisplay(0, tsim), b = vDisplay(1, tsim);
+      var K1 = 0.5 * m1 * (a.x * a.x + a.y * a.y);
+      var K2 = 0.5 * m2 * (b.x * b.x + b.y * b.y);
+      return {
+        p1: { x: m1 * a.x, y: m1 * a.y },
+        p2: { x: m2 * b.x, y: m2 * b.y },
+        K1: K1, K2: K2, Kd: Math.max(0, K0 - K1 - K2),
+      };
+    }
+
+    function fmt(x) {
+      var a = Math.abs(x);
+      if (a >= 100) return x.toFixed(0);
+      if (a >= 10) return x.toFixed(1);
+      return x.toFixed(2);
+    }
+    function cssVar(name, fb) {
+      var v = getComputedStyle(document.documentElement).getPropertyValue(name);
+      return (v && v.trim()) ? v.trim() : fb;
+    }
+
+    function drawChart() {
+      cctx.clearRect(0, 0, CW, CH);
+      if (degenerate) return;
+      var ink = cssVar("--sl-color-text", "#26252a");
+      var mut = cssVar("--sl-color-gray-3", "#6c6b66");
+      var hair = cssVar("--sl-color-hairline", "#d9d7cf");
+      var vv = chartValues();
+
+      var padT = 30, padB = 40, padX = 10;
+      var plotTop = padT, plotBot = CH - padB, plotH = plotBot - plotTop;
+      if (plotH < 30) return;
+
+      var groups = is2D ? ["x", "y"] : ["x"];
+      var nMom = groups.length * 3;
+      var unit = (CW - padX * 2) / (nMom + 1 + 0.9);
+      var momW = unit * nMom;
+      var enX = padX + momW + unit * 0.9;
+
+      var zeroY = plotTop + plotH / 2;
+      var sp = (plotH / 2 - 6) / pAxis;
+      var se = (plotH - 6) / kAxis;
+      var bw = Math.min(30, unit * 0.52);
+      var ecx = enX + unit * 0.08; // ascissa dell'unica barra dell'energia cinetica
+
+      cctx.textBaseline = "alphabetic";
+      cctx.font = "600 11px sans-serif";
+      cctx.fillStyle = mut;
+      // titoli centrati sul rispettivo blocco, senza mai uscire dai bordi del canvas.
+      // Il titolo dell'energia e' centrato sulla barra vera e propria (ecx), non
+      // sull'intero blocco: la barra e' molto piu' vicina al bordo sinistro del blocco
+      // che al suo centro geometrico.
+      centeredLabel(t.titleP, padX + momW / 2, padX, CW - padX, 14);
+      centeredLabel(t.titleK, ecx, padX, CW - padX, 14);
+
+      cctx.strokeStyle = hair; cctx.lineWidth = 1;
+      cctx.beginPath(); cctx.moveTo(padX, zeroY); cctx.lineTo(padX + momW, zeroY); cctx.stroke();
+
+      function bar(cx, val, col) {
+        var h = val * sp;
+        cctx.fillStyle = col;
+        if (h >= 0) cctx.fillRect(cx - bw / 2, zeroY - h, bw, Math.max(h, 0.8));
+        else cctx.fillRect(cx - bw / 2, zeroY, bw, Math.max(-h, 0.8));
+      }
+      function seg(cx, v0, v1, col) {
+        var y0 = zeroY - v1 * sp, y1 = zeroY - v0 * sp;
+        cctx.fillStyle = col;
+        cctx.fillRect(cx - bw / 2, Math.min(y0, y1), bw, Math.max(Math.abs(y1 - y0), 0.8));
+      }
+      // etichetta centrata su cx, ma senza mai oltrepassare [lo, hi]
+      function centeredLabel(text, cx, lo, hi, y) {
+        var w = cctx.measureText(text).width;
+        var x = cx - w / 2;
+        if (x < lo) x = lo;
+        if (x + w > hi) x = hi - w;
+        var prevAlign = cctx.textAlign;
+        cctx.textAlign = "left";
+        cctx.fillText(text, x, y);
+        cctx.textAlign = prevAlign;
+      }
+
+      groups.forEach(function (key, gi) {
+        var g0 = padX + gi * 3 * unit;
+        var a = vv.p1[key], b = vv.p2[key];
+        var c1 = g0 + unit * 0.5, c2 = g0 + unit * 1.5, c3 = g0 + unit * 2.5;
+        bar(c1, a, "#3b82f6");
+        bar(c2, b, "#ef4444");
+        // barra somma: i contributi positivi si impilano verso l'alto, i negativi
+        // verso il basso; il marcatore segna il valore netto
+        var posAcc = 0, negAcc = 0;
+        [[a, "rgba(59,130,246,0.9)"], [b, "rgba(239,68,68,0.9)"]].forEach(function (pr) {
+          if (pr[0] >= 0) { seg(c3, posAcc, posAcc + pr[0], pr[1]); posAcc += pr[0]; }
+          else { seg(c3, negAcc + pr[0], negAcc, pr[1]); negAcc += pr[0]; }
+        });
+        var netY = zeroY - (a + b) * sp;
+        cctx.strokeStyle = ink; cctx.lineWidth = 2.5;
+        cctx.beginPath(); cctx.moveTo(c3 - bw / 2 - 4, netY); cctx.lineTo(c3 + bw / 2 + 4, netY); cctx.stroke();
+
+        cctx.font = "11px sans-serif"; cctx.textAlign = "center"; cctx.fillStyle = mut;
+        cctx.fillText(t.lp1, c1, plotBot + 14);
+        cctx.fillText(t.lp2, c2, plotBot + 14);
+        cctx.fillText(t.lps, c3, plotBot + 14);
+        cctx.font = "10px sans-serif"; cctx.fillStyle = ink;
+        cctx.fillText(fmt(a), c1, plotBot + 28);
+        cctx.fillText(fmt(b), c2, plotBot + 28);
+        cctx.fillText(fmt(a + b), c3, plotBot + 28);
+        if (is2D) {
+          cctx.font = "600 10px sans-serif"; cctx.textAlign = "center"; cctx.fillStyle = mut;
+          cctx.fillText(key === "x" ? t.compX : t.compY, g0 + unit * 1.5, 26);
+        }
+        if (gi > 0) {
+          cctx.strokeStyle = hair; cctx.lineWidth = 1;
+          cctx.beginPath(); cctx.moveTo(g0 - 1, plotTop); cctx.lineTo(g0 - 1, plotBot); cctx.stroke();
+        }
+      });
+
+      cctx.strokeStyle = hair; cctx.lineWidth = 1;
+      cctx.beginPath(); cctx.moveTo(enX - unit * 0.45, plotBot); cctx.lineTo(enX + unit * 0.6, plotBot); cctx.stroke();
+      var y = plotBot;
+      var h1 = vv.K1 * se, h2 = vv.K2 * se, hd = vv.Kd * se;
+      cctx.fillStyle = "#3b82f6"; cctx.fillRect(ecx - bw / 2, y - h1, bw, h1); y -= h1;
+      cctx.fillStyle = "#ef4444"; cctx.fillRect(ecx - bw / 2, y - h2, bw, h2); y -= h2;
+      cctx.fillStyle = "#9ca3af"; cctx.fillRect(ecx - bw / 2, y - hd, bw, hd);
+      cctx.strokeStyle = hair; cctx.lineWidth = 1;
+      cctx.strokeRect(ecx - bw / 2, plotBot - (h1 + h2 + hd), bw, h1 + h2 + hd);
+
+      cctx.font = "11px sans-serif"; cctx.textAlign = "center"; cctx.fillStyle = mut;
+      cctx.fillText(t.lk, ecx, plotBot + 14);
+      cctx.font = "10px sans-serif"; cctx.fillStyle = ink;
+      cctx.fillText(fmt(vv.K1 + vv.K2), ecx, plotBot + 28);
+      cctx.font = "10px sans-serif"; cctx.textAlign = "center"; cctx.fillStyle = mut;
+      centeredLabel(t.diss + ": " + fmt(vv.Kd), ecx, padX, CW - padX, 26);
+    }
+
+    // ---------- ciclo ----------
+    function fuoriCampo() {
+      if (merged && tsim > tc) return !inView(rcmAt(tsim), Rm);
+      return !inView(rAt(0, tsim), R1) && !inView(rAt(1, tsim), R2);
+    }
+
+    function pushTrails() {
+      if (!showTrails) return;
+      var a, b;
+      if (merged && tsim > tc) {
+        // Si usano gli stessi centri che vengono disegnati, cosi' la palla giace sulla
+        // propria scia per costruzione. Sono le traiettorie dei punti materiali: due
+        // rette che si incontrano in P a t = T, dove si raccordano col centro di massa.
+        var mc = mergeCenters(tsim);
+        a = mc.c1; b = mc.c2;
+      } else { a = rAt(0, tsim); b = rAt(1, tsim); }
+      trail1.push(a); trail2.push(b);
+      trailCm.push(rcmAt(tsim));
+      if (trail1.length > MAX_TRAIL) trail1.shift();
+      if (trail2.length > MAX_TRAIL) trail2.shift();
+      if (trailCm.length > MAX_TRAIL) trailCm.shift();
+    }
+
+    function frame(ts) {
+      if (!lastTs) lastTs = ts;
+      var dt = (ts - lastTs) / 1000;
+      lastTs = ts;
+      if (dt > 0.1) dt = 0.1;
+
+      if (playing && !degenerate) {
+        tsim += dt * (+slowEl.value);
+        if (!soundDone && tsim >= tc) { soundDone = true; playImpact(); }
+        pushTrails();
+        if (tsim > tc && (fuoriCampo() || (tsim - tc) > AFTER_MAX)) reset(true);
+      }
+
+      drawScene();
+      drawChart();
+      requestAnimationFrame(frame);
+    }
+
+    // ---------- eventi ----------
+    function onParamChange() { reset(playing); }
+    Object.keys(els).forEach(function (k) { els[k].addEventListener("input", onParamChange); });
+    slowEl.addEventListener("input", updateVals);
+
+    function track() {
+      if (!window.umami) return;
+      var dim = is2D ? "2D" : "1D";
+      var key = mode + "|" + dim;
+      if (key === tracked) return;
+      tracked = key;
+      umami.track("simulatore-urti", { tipo: mode, dimensione: dim });
+    }
+
+    modeBtns.forEach(function (b) {
+      b.addEventListener("click", function () {
+        applyMode(b.getAttribute("data-mode"), true);
+        reset(playing);
+        if (playing) track();
+      });
+    });
+
+    btnPlay.addEventListener("click", function () {
+      if (degenerate) return;
+      playing = !playing;
+      btnPlay.textContent = playing ? t.pause : t.play;
+      if (playing) { ensureAudio(); track(); }
+    });
+    btnReset.addEventListener("click", function () { reset(playing); });
+    btnTrails.addEventListener("click", function () {
+      showTrails = !showTrails;
+      btnTrails.textContent = showTrails ? t.trailsOff : t.trailsOn;
+      if (!showTrails) { trail1 = []; trail2 = []; trailCm = []; }
+    });
+    btnSound.addEventListener("click", function () {
+      muted = !muted;
+      btnSound.textContent = muted ? t.soundOff : t.soundOn;
+      if (!muted) ensureAudio();
+    });
+
+    window.addEventListener("resize", function () { resize(); reset(playing); });
+    if (window.ResizeObserver) {
+      var ro = new ResizeObserver(function () { resize(); });
+      ro.observe(wrap); ro.observe(chartWrap);
+    }
+
+    // ---------- avvio ----------
+    resize();
+    applyMode("elastico", false);
+    reset(false);
+    requestAnimationFrame(frame);
+  })();
+</script>

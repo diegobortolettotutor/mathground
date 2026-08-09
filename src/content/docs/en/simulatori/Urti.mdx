@@ -1,0 +1,83 @@
+---
+title: Two-body collision simulator
+description: Interactive simulator of elastic, inelastic and perfectly inelastic collisions between two bodies, with real-time momentum, kinetic energy and coefficient of restitution.
+sidebar:
+  hidden: false
+  label: Two-body collisions
+  order: 6
+tableOfContents: false
+---
+
+import SimulatoreUrti from '@components/SimulatoreUrti.astro';
+
+Two bodies move in a plane and collide. By adjusting the masses, the speeds and the angle
+between the two directions you can observe what is conserved in a collision and what is
+not. The view is fixed and centred on the point of impact: the bodies enter the scene,
+collide at the centre and leave through the edges, while the histograms below track
+momentum and kinetic energy in real time.
+
+<SimulatoreUrti />
+
+## The model
+
+The two bodies are treated as **point masses**: they are drawn as spheres of radius
+$r = \sqrt[3]{m}$ only to make them visible and to keep them from overlapping, but the
+collision is computed with no rotation and no deformation. Since both bodies travel in a
+straight line at constant speed towards the same meeting point, the line joining their
+centres is parallel to the relative velocity at every instant: the impact is therefore
+always **central**, and the radius of the spheres does not affect the final velocities.
+
+Total momentum is conserved in every collision:
+
+$$
+m_1\mathbf{v}_1 + m_2\mathbf{v}_2 = m_1\mathbf{v}_1' + m_2\mathbf{v}_2'
+$$
+
+Kinetic energy, on the other hand, is conserved only in the elastic case. The
+**coefficient of restitution** $e$ measures what fraction of the relative velocity is
+given back after impact:
+
+$$
+e = \frac{|\mathbf{v}_2' - \mathbf{v}_1'|}{|\mathbf{v}_2 - \mathbf{v}_1|}
+$$
+
+- $e = 1$: **elastic** collision, kinetic energy is conserved;
+- $0 < e < 1$: **inelastic** collision, some energy becomes heat, sound and deformation;
+- $e = 0$: **perfectly inelastic** collision, the two bodies move on together.
+
+The dissipated energy is
+
+$$
+\Delta E = \tfrac{1}{2}\,\mu\,(1 - e^2)\,|\Delta \mathbf{v}|^2,
+\qquad \mu = \frac{m_1 m_2}{m_1 + m_2}
+$$
+
+where $\mu$ is the **reduced mass**. Note that the dependence is on $e^2$, not on $e$:
+going from $e = 1$ to $e = 0.9$ already loses 19% of the relative kinetic energy.
+
+## The centre of mass
+
+The view is fixed and centred on the point of impact. The purple marker is the centre of
+mass of the system: it crosses the scene in **uniform straight-line motion**, before and
+after the collision, entirely unaffected by it. This follows directly from conservation
+of momentum, since no external force acts on the system. The trails make it visible: the
+paths of the two bodies break at the point of impact, the path of the centre of mass does
+not.
+
+In a perfectly inelastic collision the two bodies weld into a single sphere of radius
+$\sqrt[3]{m_1 + m_2}$, split by a plane perpendicular to the impact direction into a
+blue and a red portion whose areas are proportional to the two masses. This is only a
+graphical convention to show where each part came from: the model is still that of point
+masses, and the merged body translates without rotating.
+
+:::tip[Worth trying]
+Set $m_1 = m_2$, $v_2 = 0$ and an elastic collision: the incoming body stops dead and
+hands over all its velocity to the other one. Then raise $m_2$ to 10 kg while keeping
+$m_1 = 1$ kg: the light body bounces back at almost the same speed, as if off a wall.
+:::
+
+:::note[An idealisation]
+The coefficient of restitution is not a material constant: it depends on impact speed,
+temperature and the geometry of the bodies. Treating it as a fixed parameter is a
+convenient and very common approximation, but an approximation nonetheless.
+:::

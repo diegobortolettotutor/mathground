@@ -1,0 +1,83 @@
+---
+title: Simulatore di urti fra due corpi
+description: Simulatore interattivo di urti elastici, anelastici e perfettamente anelastici fra due corpi, con quantità di moto, energia cinetica e coefficiente di restituzione in tempo reale.
+sidebar:
+  hidden: false
+  label: Urti fra due corpi
+  order: 6
+tableOfContents: false
+---
+
+import SimulatoreUrti from '@components/SimulatoreUrti.astro';
+
+Due corpi si muovono su un piano e si scontrano. Regolando le masse, i moduli delle
+velocità e l'angolo fra le due direzioni puoi osservare che cosa si conserva in un urto
+e che cosa invece no. L'inquadratura è fissa e centrata sul punto d'impatto: i corpi
+entrano in scena, si urtano al centro ed escono dai bordi, mentre gli istogrammi in basso
+seguono in tempo reale la quantità di moto e l'energia cinetica.
+
+<SimulatoreUrti />
+
+## Il modello
+
+I due corpi sono trattati come **punti materiali**: sono disegnati come sfere di raggio
+$r = \sqrt[3]{m}$ solo per renderli visibili e per evitare che si compenetrino, ma l'urto
+è calcolato senza rotazioni né deformazioni. Poiché entrambi i corpi viaggiano di moto
+rettilineo uniforme verso lo stesso punto d'incontro, la congiungente dei centri è in
+ogni istante parallela alla velocità relativa: l'urto è quindi sempre **centrale**, e il
+raggio delle sfere non influisce sulle velocità finali.
+
+In ogni urto si conserva la quantità di moto totale:
+
+$$
+m_1\mathbf{v}_1 + m_2\mathbf{v}_2 = m_1\mathbf{v}_1' + m_2\mathbf{v}_2'
+$$
+
+L'energia cinetica invece si conserva solo nell'urto elastico. Il **coefficiente di
+restituzione** $e$ misura quale frazione della velocità relativa viene restituita dopo
+l'impatto:
+
+$$
+e = \frac{|\mathbf{v}_2' - \mathbf{v}_1'|}{|\mathbf{v}_2 - \mathbf{v}_1|}
+$$
+
+- $e = 1$: urto **elastico**, l'energia cinetica si conserva;
+- $0 < e < 1$: urto **anelastico**, parte dell'energia va in calore, suono e deformazione;
+- $e = 0$: urto **perfettamente anelastico**, i due corpi proseguono uniti.
+
+L'energia dissipata vale
+
+$$
+\Delta E = \tfrac{1}{2}\,\mu\,(1 - e^2)\,|\Delta \mathbf{v}|^2,
+\qquad \mu = \frac{m_1 m_2}{m_1 + m_2}
+$$
+
+dove $\mu$ è la **massa ridotta**. Nota che la dipendenza è da $e^2$, non da $e$: passando
+da $e = 1$ a $e = 0.9$ si perde già il 19% dell'energia cinetica relativa.
+
+## Il centro di massa
+
+L'inquadratura è fissa e centrata sul punto d'impatto. Il marcatore viola è il centro di
+massa del sistema: attraversa la scena di **moto rettilineo uniforme**, prima e dopo
+l'urto, senza accorgersi di nulla. È la conseguenza diretta della conservazione della
+quantità di moto, perché sul sistema non agiscono forze esterne. Puoi verificarlo con le
+scie: le traiettorie dei due corpi si spezzano nel punto d'urto, quella del centro di
+massa no.
+
+Nell'urto completamente anelastico i due corpi si saldano in una sfera unica di raggio
+$\sqrt[3]{m_1 + m_2}$, divisa da un piano ortogonale alla direzione d'impatto in una
+porzione blu e una rossa di area proporzionale alle due masse. È solo una convenzione
+grafica per ricordare da dove viene ciascuna parte: il modello resta quello dei punti
+materiali, e il corpo fuso trasla senza ruotare.
+
+:::tip[Da provare]
+Metti $m_1 = m_2$, $v_2 = 0$ e urto elastico: il corpo che colpisce si ferma di colpo e
+cede tutta la velocità all'altro. Poi porta $m_2$ a 10 kg lasciando $m_1 = 1$ kg: il corpo
+leggero rimbalza indietro quasi con la stessa velocità, come contro un muro.
+:::
+
+:::note[Un'idealizzazione]
+Il coefficiente di restituzione non è una costante del materiale: dipende dalla velocità
+d'impatto, dalla temperatura e dalla geometria dei corpi. Trattarlo come un parametro
+fisso è un'approssimazione comoda e molto usata, ma resta un'approssimazione.
+:::
