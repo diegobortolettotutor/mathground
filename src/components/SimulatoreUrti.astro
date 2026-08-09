@@ -212,7 +212,7 @@ const t = DICT[lang];
     var chartWrap = chartCv.parentElement;
 
     // ---------- costanti ----------
-    var RSCALE = 14;        // px per (kg)^(1/3)
+    var RSCALE = 5;          // px per (kg)^(1/3)
     var VSCALE = 9;         // px per (m/s): lunghezza delle frecce
     var GAP = 110;          // px di distacco minimo fra le sfere alla partenza
     var AFTER_MAX = 4;      // s dopo l'urto prima del riavvio
@@ -223,6 +223,9 @@ const t = DICT[lang];
     // stessero avvicinando, cioe' mostrare un aumento di energia cinetica.
     var MAX_TRAIL = 1200;
     var MIN_ARROW = 10;
+    var MERGE_SPEEDUP = 1; // qui la durata e' gia' ridotta dal raggio (RSCALE), non serve comprimere
+    // (CHART_TRANS rimosso: si riusa mergeDur, calcolata comunque per ogni urto, cosi'
+    // il grafico segue lo stesso ritmo naturale della fusione a parita' di configurazione)
 
     // ---------- elementi ----------
     var els = {
@@ -256,8 +259,8 @@ const t = DICT[lang];
     var O = { x: 0, y: 0 };
     var T = 1, tc = 0, tStart = 0, tsim = 0;
     var degenerate = false, is2D = false, merged = false;
-    var u1 = { x: 0, y: 0 }, u2 = { x: 0, y: 0 }, wSplit = 0.5, mergeDur = 0.18;
-    var trail1 = [], trail2 = [], trailCm = [];
+    var u1 = { x: 0, y: 0 }, u2 = { x: 0, y: 0 }, wSplit = 0.5, mergeDur = 0.18, mergeAmp = 0;
+    var trail1 = [], trail2 = [], trailCm = [], mergeTrailDone = false;
     var playing = false, lastTs = 0, soundDone = false;
     var showTrails = true, muted = false;
     var K0 = 0, pAxis = 1, kAxis = 1, Jimp = 0;
@@ -265,6 +268,10 @@ const t = DICT[lang];
 
     function clamp(x, a, b) { return x < a ? a : (x > b ? b : x); }
     function cbrt(x) { return Math.pow(x, 1 / 3); }
+    // Nessun vincolo fisico lega la transizione del grafico (a differenza della
+    // posizione delle sfere): qui si puo' scegliere la curva piu' morbida possibile.
+    // Smoothstep parte e finisce a pendenza nulla, invece di scattare linearmente.
+    function smoothstep(x) { return x * x * (3 - 2 * x); }
 
     // ---------- selettore del tipo di urto ----------
     function applyMode(newMode, fromClick) {
@@ -328,19 +335,27 @@ const t = DICT[lang];
     }
     function rcmAt(time) { return { x: vcm.x * (time - T), y: vcm.y * (time - T) }; }
 
-    // Velocita' "di visualizzazione" per il grafico: nell'urto completamente anelastico
-    // la vera fisica prevede un salto istantaneo a t = tc (la fusione e' un evento di
-    // durata nulla), ma l'animazione della sfera che si salda dura mergeDur secondi per
-    // motivi didattici. Per non mostrare un grafico che scatta di colpo mentre la scena
-    // sta ancora animando, qui si interpola linearmente da v_i(tc^-) a v_cm in mergeDur
-    // secondi, sincronizzata con lo stesso k usato da mergeCenters/drawMerged.
-    // La somma p1+p2 resta comunque esatta in ogni istante dell'interpolazione, perche'
-    // e' una combinazione convessa di due quantita' che condividono lo stesso totale.
+    // Velocita' "di visualizzazione" per il grafico soltanto: la fisica reale prevede un
+    // salto istantaneo a t = tc in tutti e tre gli urti (le frecce sulla scena, che usano
+    // vAt direttamente, continuano a farlo). Qui si smussa solo cio' che finisce nel
+    // grafico p/K, cosi' le barre non scattano di colpo. In tutti e tre gli urti si
+    // riusa la stessa mergeDur (calcolata comunque, anche fuori dalla fusione): cosi' il
+    // grafico va alla stessa velocita' della fusione a parita' di configurazione, invece
+    // di avere un ritmo fisso scollegato da masse e velocita'. La somma p1+p2 resta
+    // esatta in ogni istante dell'interpolazione (combinazione convessa fra due stati che
+    // condividono lo stesso totale) e l'energia non supera mai K0 (la cinetica e' una
+    // funzione convessa della velocita', quindi l'interpolazione lineare sta sempre sotto
+    // la media pesata dei due estremi, entrambi gia' <= K0).
     function vDisplay(i, time) {
-      if (!merged || time <= tc) return vAt(i, time);
-      var k = clamp((time - tc) / mergeDur, 0, 1);
+      if (time <= tc) return vAt(i, time);
       var vPre = (i === 0) ? v1v : v2v;
-      return { x: vPre.x + (vcm.x - vPre.x) * k, y: vPre.y + (vcm.y - vPre.y) * k };
+      if (merged) {
+        var p = mergeProgress(time).p;
+        return { x: vPre.x + (vcm.x - vPre.x) * p, y: vPre.y + (vcm.y - vPre.y) * p };
+      }
+      var vPost = vAt(i, time);
+      var k = smoothstep(clamp((time - tc) / mergeDur, 0, 1));
+      return { x: vPre.x + (vPost.x - vPre.x) * k, y: vPre.y + (vPost.y - vPre.y) * k };
     }
 
     function toScreen(r) { return { x: W / 2 + (r.x - O.x) * S, y: H / 2 - (r.y - O.y) * S }; }
@@ -393,13 +408,20 @@ const t = DICT[lang];
       tStart = clamp(tEnter - 0.25, 0, Math.max(0, tc - 0.12));
       if (tc - tStart > SHOW_MAX) tStart = tc - SHOW_MAX;
 
-      // Geometria della fusione. La durata "naturale" e' il tempo che i due centri
-      // impiegano a percorrere R1+R2 e coincidere: e' l'unico istante in cui l'unione
-      // dei due cerchi diventa davvero una sfera sola. Con velocita' relative piccole
-      // pero' diventa lunghissima, quindi si applica un tetto.
+      // Geometria della fusione. Il modello adotta per l'urto completamente anelastico
+      // lo stesso criterio gia' usato per elastico/anelastico generale: la velocita'
+      // cambia esattamente all'istante di contatto tc (non quando i punti materiali
+      // arriverebbero a coincidere in T). Quello che segue tc e' quindi un effetto
+      // puramente cosmetico di saldatura, libero da vincoli fisici sulla sua durata:
+      // la posizione resta continua in tc (nessun salto), cambia solo la direzione di
+      // moto, esattamente come gia' accade senza obiezioni negli altri due urti.
+      // mergeAmp e' l'ampiezza spaziale del gesto di saldatura (il tempo che i punti
+      // materiali impiegherebbero a percorrere R1+R2, usato solo come scala geometrica);
+      // mergeDur e' invece la durata *visiva* scelta, indipendente e comprimibile.
       u1 = { x: v1v.x - vcm.x, y: v1v.y - vcm.y };
       u2 = { x: v2v.x - vcm.x, y: v2v.y - vcm.y };
-      mergeDur = Rsum_w / dv;
+      mergeAmp = Rsum_w / dv;
+      mergeDur = mergeAmp / MERGE_SPEEDUP;
       // frazione a cui va posto il piano divisorio fra i due bordi interni, scelta in
       // modo che a fusione completa le due aree stiano fra loro come m1 : m2
       wSplit = (solveSplit(Rm, m1 / M) + Rm) / (2 * Rm);
@@ -425,7 +447,7 @@ const t = DICT[lang];
       setupTiming();
       setupAxes();
       tsim = tStart; soundDone = false;
-      trail1 = []; trail2 = []; trailCm = [];
+      trail1 = []; trail2 = []; trailCm = []; mergeTrailDone = false;
       warnEl.textContent = degenerate ? t.warnNoCollision : "";
       btnPlay.disabled = degenerate;
       if (degenerate || !keepPlaying) { playing = false; btnPlay.textContent = t.play; }
@@ -588,16 +610,36 @@ const t = DICT[lang];
     }
 
     // Centri dei due cerchi durante e dopo la fusione (coordinate laboratorio).
-    // Sono esattamente le traiettorie balistiche dei due punti materiali: rc + u_i*(t-T)
-    // vale infatti v_i*(t-T). Lo scostamento dal centro di massa si annulla da solo a
-    // t = T, quando i due punti coincidono, e li' la saldatura risulta completa (k = 1).
-    // Nessuna compressione artificiale: i centri disegnati coincidono con le scie.
-    function mergeCenters(time) {
+    // Progresso della fusione. k e' la frazione di tempo reale trascorsa nella finestra
+    // [tc, tc+mergeDur]. p e' il progresso "geometrico" (quanto della distanza R1+R2 si
+    // e' gia' richiuso).
+    // Senza compressione (mergeDur == mergeAmp, cioe' MERGE_SPEEDUP == 1) la traiettoria
+    // e' semplicemente la retta balistica gia' validata: velocita' costante, zero
+    // curvatura, nessuno spigolo visibile in pratica. E' il caso ottimale e va lasciato
+    // tale e quale -- qualunque curva aggiuntiva introdurrebbe solo curvatura superflua.
+    // Con compressione, invece, la chiusura a velocita' costante crea DUE spigoli vicini
+    // (uno in ingresso, uno in uscita) che con finestre corte sembrano un'unica linea
+    // storta. La cubica raccorda con continuita' SOLO l'uscita (si aggancia al centro di
+    // massa senza scatto); l'ingresso resta uno spigolo di ampiezza pari alla velocita'
+    // media di chiusura, comparabile a quello gia' presente negli altri due urti.
+    // Raccordare anche l'ingresso e' stato scartato: nei casi di rapporto di massa
+    // estremo obbliga una svolta piu' brusca di un semplice spigolo. La cubica e'
+    // monotona per costruzione (nessuna inversione), qualunque sia la compressione.
+    function mergeProgress(time) {
       var k = clamp((time - tc) / mergeDur, 0, 1);
+      var h = (MERGE_SPEEDUP <= 1.001)
+        ? -mergeAmp * (1 - k)
+        : mergeAmp * (-k * k * k + k * k + k - 1);
+      var p = clamp(1 + h / mergeAmp, 0, 1);
+      return { k: k, p: p, h: h };
+    }
+
+    function mergeCenters(time) {
+      var mp = mergeProgress(time);
       var rc = rcmAt(time);
-      var f = Math.min(time, T) - T;
+      var f = mp.h;
       return {
-        k: k, rc: rc,
+        k: mp.k, p: mp.p, rc: rc,
         c1: { x: rc.x + u1.x * f, y: rc.y + u1.y * f },
         c2: { x: rc.x + u2.x * f, y: rc.y + u2.y * f },
       };
@@ -624,11 +666,11 @@ const t = DICT[lang];
     // bordi coincidono) e a k = 1 separa le due porzioni nel rapporto delle masse.
     function drawMerged(time) {
       var mc = mergeCenters(time);
-      var k = mc.k;
+      var p = mc.p;
       var cS = toScreen(mc.rc);
       var ns = { x: nrm.x, y: -nrm.y };
-      var r1k = R1 + (Rm - R1) * k;
-      var r2k = R2 + (Rm - R2) * k;
+      var r1k = R1 + (Rm - R1) * p;
+      var r2k = R2 + (Rm - R2) * p;
       var p1 = toScreen(mc.c1), p2 = toScreen(mc.c2);
       // ascisse lungo la direzione d'impatto, in pixel, rispetto al centro di massa
       var c1n = ((mc.c1.x - mc.rc.x) * nrm.x + (mc.c1.y - mc.rc.y) * nrm.y) * S;
@@ -689,8 +731,28 @@ const t = DICT[lang];
     // ---------- grafico ----------
     function chartValues() {
       var a = vDisplay(0, tsim), b = vDisplay(1, tsim);
-      var K1 = 0.5 * m1 * (a.x * a.x + a.y * a.y);
-      var K2 = 0.5 * m2 * (b.x * b.x + b.y * b.y);
+      var K1, K2;
+      if (merged || tsim <= tc) {
+        K1 = 0.5 * m1 * (a.x * a.x + a.y * a.y);
+        K2 = 0.5 * m2 * (b.x * b.x + b.y * b.y);
+      } else {
+        // L'energia si interpola come scalare a se', non ricavata dalla velocita'
+        // interpolata: quest'ultima, per convessita', puo' "tuffarsi" ben sotto sia il
+        // valore iniziale sia quello finale quando le direzioni pre/post divergono molto
+        // (tipico dell'urto elastico, dove l'energia e' conservata ma le direzioni
+        // cambiano parecchio) -- mostrando un calo di energia che nella realta' non c'e'.
+        // Interpolando K1, K2 direttamente fra i loro valori iniziale e finale, il totale
+        // resta una combinazione lineare di K0 (sempre <= K0) e dell'energia finale
+        // (anch'essa <= K0): monotona, mai sopra K0, piatta nel caso elastico.
+        var post1 = vAt(0, tsim), post2 = vAt(1, tsim);
+        var K1pre = 0.5 * m1 * (v1v.x * v1v.x + v1v.y * v1v.y);
+        var K1post = 0.5 * m1 * (post1.x * post1.x + post1.y * post1.y);
+        var K2pre = 0.5 * m2 * (v2v.x * v2v.x + v2v.y * v2v.y);
+        var K2post = 0.5 * m2 * (post2.x * post2.x + post2.y * post2.y);
+        var k = smoothstep(clamp((tsim - tc) / mergeDur, 0, 1));
+        K1 = K1pre + (K1post - K1pre) * k;
+        K2 = K2pre + (K2post - K2pre) * k;
+      }
       return {
         p1: { x: m1 * a.x, y: m1 * a.y },
         p2: { x: m2 * b.x, y: m2 * b.y },
@@ -828,21 +890,38 @@ const t = DICT[lang];
       return !inView(rAt(0, tsim), R1) && !inView(rAt(1, tsim), R2);
     }
 
+    // La finestra di fusione puo' durare pochi centesimi di secondo -- meno di un
+    // fotogramma a 60fps. Campionarla un punto per frame darebbe solo 2-3 punti,
+    // che sembrano spigoli anche se la curva sottostante e' liscia. Appena la finestra
+    // si conclude, si inietta un campionamento fitto e analitico dell'intera finestra,
+    // indipendente dal frame rate.
+    var MERGE_TRAIL_STEPS = 14;
     function pushTrails() {
       if (!showTrails) return;
-      var a, b;
       if (merged && tsim > tc) {
-        // Si usano gli stessi centri che vengono disegnati, cosi' la palla giace sulla
-        // propria scia per costruzione. Sono le traiettorie dei punti materiali: due
-        // rette che si incontrano in P a t = T, dove si raccordano col centro di massa.
-        var mc = mergeCenters(tsim);
-        a = mc.c1; b = mc.c2;
-      } else { a = rAt(0, tsim); b = rAt(1, tsim); }
-      trail1.push(a); trail2.push(b);
-      trailCm.push(rcmAt(tsim));
-      if (trail1.length > MAX_TRAIL) trail1.shift();
-      if (trail2.length > MAX_TRAIL) trail2.shift();
-      if (trailCm.length > MAX_TRAIL) trailCm.shift();
+        if (tsim >= tc + mergeDur) {
+          if (!mergeTrailDone) {
+            mergeTrailDone = true;
+            for (var s = 1; s <= MERGE_TRAIL_STEPS; s++) {
+              var tt = tc + mergeDur * s / MERGE_TRAIL_STEPS;
+              var mc = mergeCenters(tt);
+              trail1.push(mc.c1); trail2.push(mc.c2); trailCm.push(rcmAt(tt));
+            }
+          } else {
+            var mcNow = mergeCenters(tsim);
+            trail1.push(mcNow.c1); trail2.push(mcNow.c2);
+            trailCm.push(rcmAt(tsim));
+          }
+        }
+        // dentro la finestra (tc < tsim < tc+mergeDur): si attende che si concluda,
+        // cosi' il tratto viene disegnato tutto insieme, liscio, invece che a scatti.
+      } else {
+        trail1.push(rAt(0, tsim)); trail2.push(rAt(1, tsim));
+        trailCm.push(rcmAt(tsim));
+      }
+      while (trail1.length > MAX_TRAIL) trail1.shift();
+      while (trail2.length > MAX_TRAIL) trail2.shift();
+      while (trailCm.length > MAX_TRAIL) trailCm.shift();
     }
 
     function frame(ts) {
@@ -895,7 +974,7 @@ const t = DICT[lang];
     btnTrails.addEventListener("click", function () {
       showTrails = !showTrails;
       btnTrails.textContent = showTrails ? t.trailsOff : t.trailsOn;
-      if (!showTrails) { trail1 = []; trail2 = []; trailCm = []; }
+      if (!showTrails) { trail1 = []; trail2 = []; trailCm = []; mergeTrailDone = false; }
     });
     btnSound.addEventListener("click", function () {
       muted = !muted;
@@ -909,7 +988,7 @@ const t = DICT[lang];
       ro.observe(wrap); ro.observe(chartWrap);
     }
 
-    // ---------- avvio -----------
+    // ---------- avvio ----------
     resize();
     applyMode("elastico", false);
     reset(false);
