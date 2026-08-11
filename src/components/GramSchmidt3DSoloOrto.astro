@@ -57,6 +57,20 @@ const STR = {
     <div class="gso3d__hint"></div>
   </div>
 
+  <div class="gso3d__coordform" hidden>
+    {[0, 1, 2].map(i => (
+      <div class="gso3d__coordvec">
+        <span class="gso3d__coordlabel">{['v₁', 'v₂', 'v₃'][i]}</span>
+        {[0, 1, 2].map(j => (
+          <input type="number" step="0.1" class="gso3d__coordinput"
+            data-v={i} data-c={j}
+            aria-label={`${['v₁', 'v₂', 'v₃'][i]} ${['x', 'y', 'z'][j]}`}
+            placeholder={['x', 'y', 'z'][j]} />
+        ))}
+      </div>
+    ))}
+  </div>
+
   <div class="gso3d__controls">
     <button class="gso3d__btn gso3d__mode gso3d__compute is-on" type="button" aria-pressed="true">{STR.compute}</button>
     <button class="gso3d__btn gso3d__mode gso3d__edit" type="button" aria-pressed="false">{STR.edit}</button>
@@ -71,6 +85,10 @@ const STR = {
   <div class="gso3d__check">
     <span class="gso3d__cell">‖w₁‖,‖w₂‖,‖w₃‖ = <b class="gso3d__norms">—</b> <small>(≠ 1)</small></span>
     <span class="gso3d__cell">w₁·w₂, w₁·w₃, w₂·w₃ = <b class="gso3d__dots">—</b></span>
+  </div>
+  <div class="gso3d__coords">
+    <span class="gso3d__cell">v₁, v₂, v₃ = <b class="gso3d__vcoords">—</b></span>
+    <span class="gso3d__cell">w₁, w₂, w₃ = <b class="gso3d__wcoords">—</b></span>
   </div>
 </figure>
 
@@ -115,6 +133,11 @@ const STR = {
     const ctx = canvas.getContext('2d')!;
     const normsEl = root.querySelector('.gso3d__norms') as HTMLElement;
     const dotsEl  = root.querySelector('.gso3d__dots') as HTMLElement;
+    const vCoordsEl = root.querySelector('.gso3d__vcoords') as HTMLElement;
+    const wCoordsEl = root.querySelector('.gso3d__wcoords') as HTMLElement;
+    const coordForm = root.querySelector('.gso3d__coordform') as HTMLElement;
+    const coordInputs: HTMLInputElement[][] = [0, 1, 2].map(i => [0, 1, 2].map(j =>
+      root.querySelector(`.gso3d__coordinput[data-v="${i}"][data-c="${j}"]`) as HTMLInputElement));
     const computeBtn = root.querySelector('.gso3d__compute') as HTMLButtonElement;
     const editBtn = root.querySelector('.gso3d__edit') as HTMLButtonElement;
     const resetBtn = root.querySelector('.gso3d__reset') as HTMLButtonElement;
@@ -167,6 +190,19 @@ const STR = {
     // tiene traccia dei punti gia' occupati in questo fotogramma e sposta in basso
     // (a scalini) qualunque nuova etichetta che cadrebbe troppo vicina a una gia' posta.
     let placedLabels: [number, number][] = [];
+    // riflette 'offset' (in pixel schermo) rispetto all'asse individuato, a schermo,
+    // dalla proiezione di 'axisVec': usata per mettere l'etichetta w_i speculare a
+    // v_i quando le due punte coincidono (base gia' orto-parziale o totale in ingresso:
+    // w_i = v_i se v_i e' gia' ortogonale ai w precedenti).
+    function mirrorOffsetAcrossAxis(axisVec: V3, offset: [number, number]): [number, number] {
+      const A = project([0, 0, 0]);
+      const B = project(axisVec);
+      let ux = B[0]-A[0], uy = B[1]-A[1];
+      const L = Math.hypot(ux, uy) || 1;
+      ux /= L; uy /= L;
+      const d = offset[0]*ux + offset[1]*uy;   // componente dell'offset lungo l'asse
+      return [2*d*ux - offset[0], 2*d*uy - offset[1]];
+    }
     function labelPos(bx: number, by: number): [number, number] {
       let x = bx + 8, y = by - 6;
       let guard = 0;
@@ -185,7 +221,7 @@ const STR = {
       ctx.beginPath(); ctx.moveTo(A[0], A[1]); ctx.lineTo(B[0], B[1]); ctx.stroke();
       ctx.restore();
     }
-    function arrow(vec: V3, color: string, width: number, alpha = 1, label?: string, from: V3 = [0, 0, 0]) {
+    function arrow(vec: V3, color: string, width: number, alpha = 1, label?: string, from: V3 = [0, 0, 0], labelOffset: [number, number] = [8, -6]) {
       const A = project(from), B = project(vec);
       const dx = B[0]-A[0], dy = B[1]-A[1], L = Math.hypot(dx, dy);
       ctx.save();
@@ -216,7 +252,7 @@ const STR = {
       if (label) {
         ctx.globalAlpha = Math.min(1, alpha + 0.2);
         ctx.font = '600 14px system-ui, sans-serif';
-        ctx.fillText(label, B[0] + 8, B[1] - 6);
+        ctx.fillText(label, B[0] + labelOffset[0], B[1] + labelOffset[1]);
       }
       ctx.restore();
     }
@@ -288,9 +324,11 @@ const STR = {
       if (view.drop3b) { line(geom.p3b, v[2], ink, 1.5, 0.5 * view.drop3b, [5, 4]); rightAngleMark(geom.p3b, normv(geom.w2), normv(sub(v[2], geom.p3b)), view.drop3b); }
 
       // risultato: i tre vettori ortogonali w1, w2, w3 (vivi), in crescita
-      if (view.r1) arrow(scl(geom.w1, view.r1), COL.res[0], 3.5, 1, view.r1 > 0.9 ? 'w₁' : undefined);
-      if (view.r2) arrow(scl(geom.w2, view.r2), COL.res[1], 3.5, 1, view.r2 > 0.9 ? 'w₂' : undefined);
-      if (view.r3) arrow(scl(geom.w3, view.r3), COL.res[2], 3.5, 1, view.r3 > 0.9 ? 'w₃' : undefined);
+      if (view.r1) arrow(scl(geom.w1, view.r1), COL.res[0], 3.5, 1, view.r1 > 0.9 ? 'w₁' : undefined, [0, 0, 0], mirrorOffsetAcrossAxis(v[0], [8, -6]));
+      if (view.r2) arrow(scl(geom.w2, view.r2), COL.res[1], 3.5, 1, view.r2 > 0.9 ? 'w₂' : undefined, [0, 0, 0], mirrorOffsetAcrossAxis(v[1], [8, -6]));
+      if (view.r3) arrow(scl(geom.w3, view.r3), COL.res[2], 3.5, 1, view.r3 > 0.9 ? 'w₃' : undefined, [0, 0, 0], mirrorOffsetAcrossAxis(v[2], [8, -6]));
+
+      updateReadout();   // norme/prodotti scalari + coordinate: sempre in sincrono col disegno
     }
 
     function updateReadout() {
@@ -298,6 +336,18 @@ const STR = {
       normsEl.textContent = [w1, w2, w3].map(w => len(w).toFixed(2)).join(', ');
       dotsEl.textContent = [dot(w1, w2), dot(w1, w3), dot(w2, w3)]
         .map(x => (Math.abs(x) < 5e-3 ? '0.00' : x.toFixed(2))).join(', ');
+
+      // coordinate: v (1 decimale, come le caselle di Modifica) sempre visibili;
+      // w (2 decimali) si rivelano una per una, in sincrono con l'animazione: 'view.rN'
+      // esiste (>0) solo da quando la freccia w_N inizia a crescere (stesso stato del disegno).
+      const fmtV = (p: V3) => `(${p.map(x => x.toFixed(1)).join(', ')})`;
+      const fmtW = (p: V3) => `(${p.map(x => x.toFixed(2)).join(', ')})`;
+      vCoordsEl.textContent = v.map(fmtV).join('  ');
+      wCoordsEl.textContent = [
+        view.r1 ? fmtW(scl(geom.w1, view.r1)) : '—',
+        view.r2 ? fmtW(scl(geom.w2, view.r2)) : '—',
+        view.r3 ? fmtW(scl(geom.w3, view.r3)) : '—',
+      ].join('  ');
     }
 
     // ---------- rallentatore: fattore di velocita' dell'animazione ----------
@@ -431,7 +481,32 @@ const STR = {
       computeBtn.setAttribute('aria-pressed', String(m === 'explore'));
       editBtn.setAttribute('aria-pressed', String(m === 'edit'));
       hintEl.innerHTML = m === 'edit' ? HINT.edit : HINT.explore;
+      coordForm.hidden = m !== 'edit';
+      if (m === 'edit') syncCoordInputs();
       canvas.style.cursor = 'default';
+    }
+
+    // ---------- caselle coordinate (v1,v2,v3): sincronizzate col trascinamento ----------
+    function syncCoordInputs() {
+      for (let i = 0; i < 3; i++)
+        for (let j = 0; j < 3; j++)
+          if (document.activeElement !== coordInputs[i][j])
+            coordInputs[i][j].value = v[i][j].toFixed(1);
+    }
+    function commitCoordInput(i: number, j: number) {
+      const el = coordInputs[i][j];
+      const val = parseFloat(el.value.replace(',', '.'));
+      if (Number.isFinite(val)) {
+        v[i][j] = val;
+        geom = gramSchmidtOrtho(v[0], v[1], v[2]);
+        staticView(); draw();
+      }
+      el.value = v[i][j].toFixed(1);
+    }
+    for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) {
+      const el = coordInputs[i][j];
+      el.addEventListener('change', () => commitCoordInput(i, j));
+      el.addEventListener('keydown', e => { if (e.key === 'Enter') el.blur(); });
     }
 
     // ---------- zoom (rotella) ----------
@@ -515,7 +590,7 @@ const STR = {
         const world = add(scl(cam.right, dx / scale), scl(cam.up, -dy / scale));
         v[drag.i] = add(v[drag.i], world);
         geom = gramSchmidtOrtho(v[0], v[1], v[2]);   // ricalcolo solo qui
-        staticView(); updateReadout();
+        staticView(); updateReadout(); syncCoordInputs();
       }
       draw();
     });
@@ -545,7 +620,7 @@ const STR = {
       v = V0.map(a => [...a] as V3);
       az = 0.7; el = 0.5; zoom = 1; applyScale();
       geom = gramSchmidtOrtho(v[0], v[1], v[2]);
-      setMode('explore'); staticView(); updateReadout(); draw();
+      setMode('explore'); staticView(); updateReadout(); syncCoordInputs(); draw();
     });
 
     // ---------- avvio ----------
@@ -553,6 +628,7 @@ const STR = {
     setMode('explore');
     staticView();
     updateReadout();
+    syncCoordInputs();
     updateSpeedLabel();
     new ResizeObserver(resize).observe(canvas);
     new MutationObserver(() => { refreshThemeColors(); draw(); })
@@ -590,6 +666,31 @@ const STR = {
     padding: 0.4rem 0.7rem;
     color: var(--sl-color-gray-3, #9b9ba6);
     border-top: 1px solid var(--sl-color-gray-5, #3a3a3a);
+  }
+
+  .gso3d__coordform {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(150px, 1fr));
+    gap: 0.5rem 1rem;
+  }
+  .gso3d__coordvec { display: flex; align-items: center; gap: 0.3rem; flex-wrap: wrap; }
+  .gso3d__coordlabel {
+    font-size: 0.82rem; font-weight: 600;
+    color: var(--sl-color-gray-2, #b8b8c4);
+    min-width: 1.4em;
+  }
+  .gso3d__coordinput {
+    width: 4.2rem;
+    font: inherit; font-size: 0.85rem;
+    padding: 0.3rem 0.4rem;
+    border-radius: 6px;
+    border: 1px solid var(--sl-color-gray-5, #3a3a3a);
+    background: var(--sl-color-gray-6, #222);
+    color: var(--sl-color-white, #fff);
+  }
+  .gso3d__coordinput:focus { outline: none; border-color: var(--sl-color-accent, #5b8def); }
+  @media (max-width: 560px) {
+    .gso3d__coordform { grid-template-columns: 1fr; }
   }
 
   .gso3d__controls { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
@@ -632,4 +733,10 @@ const STR = {
   }
   .gso3d__check b { color: var(--sl-color-white, #fff); font-variant-numeric: tabular-nums; }
   .gso3d__check small { opacity: 0.7; }
+  .gso3d__coords {
+    display: flex; flex-wrap: wrap; gap: 0.3rem 1.4rem;
+    font-size: 0.82rem;
+    color: var(--sl-color-gray-2, #b8b8c4);
+  }
+  .gso3d__coords b { color: var(--sl-color-white, #fff); font-variant-numeric: tabular-nums; }
 </style>

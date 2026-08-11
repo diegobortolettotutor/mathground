@@ -59,6 +59,20 @@ const STR = {
     <div class="gs3d__hint"></div>
   </div>
 
+  <div class="gs3d__coordform" hidden>
+    {[0, 1, 2].map(i => (
+      <div class="gs3d__coordvec">
+        <span class="gs3d__coordlabel">{['v₁', 'v₂', 'v₃'][i]}</span>
+        {[0, 1, 2].map(j => (
+          <input type="number" step="0.1" class="gs3d__coordinput"
+            data-v={i} data-c={j}
+            aria-label={`${['v₁', 'v₂', 'v₃'][i]} ${['x', 'y', 'z'][j]}`}
+            placeholder={['x', 'y', 'z'][j]} />
+        ))}
+      </div>
+    ))}
+  </div>
+
   <div class="gs3d__controls">
     <button class="gs3d__btn gs3d__mode gs3d__compute is-on" type="button" aria-pressed="true">{STR.compute}</button>
     <button class="gs3d__btn gs3d__mode gs3d__edit" type="button" aria-pressed="false">{STR.edit}</button>
@@ -73,6 +87,10 @@ const STR = {
   <div class="gs3d__check">
     <span class="gs3d__cell">‖u₁‖,‖u₂‖,‖u₃‖ = <b class="gs3d__norms">—</b></span>
     <span class="gs3d__cell">u₁·u₂, u₁·u₃, u₂·u₃ = <b class="gs3d__dots">—</b></span>
+  </div>
+  <div class="gs3d__coords">
+    <span class="gs3d__cell">v₁, v₂, v₃ = <b class="gs3d__vcoords">—</b></span>
+    <span class="gs3d__cell">u₁, u₂, u₃ = <b class="gs3d__ucoords">—</b></span>
   </div>
 </figure>
 
@@ -121,6 +139,11 @@ const STR = {
     const ctx = canvas.getContext('2d')!;
     const normsEl = root.querySelector('.gs3d__norms') as HTMLElement;
     const dotsEl  = root.querySelector('.gs3d__dots') as HTMLElement;
+    const vCoordsEl = root.querySelector('.gs3d__vcoords') as HTMLElement;
+    const uCoordsEl = root.querySelector('.gs3d__ucoords') as HTMLElement;
+    const coordForm = root.querySelector('.gs3d__coordform') as HTMLElement;
+    const coordInputs: HTMLInputElement[][] = [0, 1, 2].map(i => [0, 1, 2].map(j =>
+      root.querySelector(`.gs3d__coordinput[data-v="${i}"][data-c="${j}"]`) as HTMLInputElement));
     const computeBtn = root.querySelector('.gs3d__compute') as HTMLButtonElement;
     const editBtn = root.querySelector('.gs3d__edit') as HTMLButtonElement;
     const resetBtn = root.querySelector('.gs3d__reset') as HTMLButtonElement;
@@ -181,6 +204,19 @@ const STR = {
     // in questo fotogramma e sposta in basso (a scalini) qualunque nuova etichetta
     // che cadrebbe troppo vicina a una gia' posta.
     let placedLabels: [number, number][] = [];
+    // riflette 'offset' (in pixel schermo) rispetto all'asse individuato, a schermo,
+    // dalla proiezione di 'axisVec': usata per mettere l'etichetta u_i speculare a
+    // v_i quando le due punte coincidono (base gia' orto-normale in ingresso, in
+    // tutto o in parte: v_i unitario e gia' ortogonale ai precedenti u).
+    function mirrorOffsetAcrossAxis(axisVec: V3, offset: [number, number]): [number, number] {
+      const A = project([0, 0, 0]);
+      const B = project(axisVec);
+      let ux = B[0]-A[0], uy = B[1]-A[1];
+      const L = Math.hypot(ux, uy) || 1;
+      ux /= L; uy /= L;
+      const d = offset[0]*ux + offset[1]*uy;   // componente dell'offset lungo l'asse
+      return [2*d*ux - offset[0], 2*d*uy - offset[1]];
+    }
     function labelPos(bx: number, by: number): [number, number] {
       let x = bx + 8, y = by - 6;
       let guard = 0;
@@ -203,7 +239,7 @@ const STR = {
       ctx.stroke();
       ctx.restore();
     }
-    function arrow(vec: V3, color: string, width: number, alpha = 1, label?: string, from: V3 = [0, 0, 0]) {
+    function arrow(vec: V3, color: string, width: number, alpha = 1, label?: string, from: V3 = [0, 0, 0], labelOffset: [number, number] = [8, -6]) {
       const A = project(from), B = project(vec);
       const dx = B[0]-A[0], dy = B[1]-A[1], L = Math.hypot(dx, dy);
       ctx.save();
@@ -241,7 +277,7 @@ const STR = {
       if (label) {
         ctx.globalAlpha = Math.min(1, alpha + 0.2);
         ctx.font = '600 14px system-ui, sans-serif';
-        ctx.fillText(label, B[0] + 8, B[1] - 6);
+        ctx.fillText(label, B[0] + labelOffset[0], B[1] + labelOffset[1]);
       }
       ctx.restore();
     }
@@ -327,9 +363,11 @@ const STR = {
       if (view.w3) arrow(scl(geom.w3, view.w3), COL.w, 3, 0.9, view.w3 > 0.95 ? 'w₃' : undefined);
 
       // versori finali (vivi)
-      if (view.u1) arrow(view.u1.vec, COL.u[0], 3.5, view.u1.a, view.u1.a > 0.8 ? 'u₁' : undefined);
-      if (view.u2) arrow(view.u2.vec, COL.u[1], 3.5, view.u2.a, view.u2.a > 0.8 ? 'u₂' : undefined);
-      if (view.u3) arrow(view.u3.vec, COL.u[2], 3.5, view.u3.a, view.u3.a > 0.8 ? 'u₃' : undefined);
+      if (view.u1) arrow(view.u1.vec, COL.u[0], 3.5, view.u1.a, view.u1.a > 0.8 ? 'u₁' : undefined, [0, 0, 0], mirrorOffsetAcrossAxis(v[0], [8, -6]));
+      if (view.u2) arrow(view.u2.vec, COL.u[1], 3.5, view.u2.a, view.u2.a > 0.8 ? 'u₂' : undefined, [0, 0, 0], mirrorOffsetAcrossAxis(v[1], [8, -6]));
+      if (view.u3) arrow(view.u3.vec, COL.u[2], 3.5, view.u3.a, view.u3.a > 0.8 ? 'u₃' : undefined, [0, 0, 0], mirrorOffsetAcrossAxis(v[2], [8, -6]));
+
+      updateReadout();   // norme/prodotti scalari + coordinate: sempre in sincrono col disegno
     }
 
     function updateReadout() {
@@ -337,6 +375,18 @@ const STR = {
       normsEl.textContent = [u1, u2, u3].map(u => len(u).toFixed(2)).join(', ');
       dotsEl.textContent = [dot(u1, u2), dot(u1, u3), dot(u2, u3)]
         .map(x => (Math.abs(x) < 5e-3 ? '0.00' : x.toFixed(2))).join(', ');
+
+      // coordinate: v (1 decimale, come le caselle di Modifica) sempre visibili;
+      // u (2 decimali) si rivelano una per una, in sincrono con l'animazione: 'view.uN'
+      // esiste solo da quando la freccia u_N inizia a formarsi (stesso stato del disegno).
+      const fmtV = (p: V3) => `(${p.map(x => x.toFixed(1)).join(', ')})`;
+      const fmtU = (p: V3) => `(${p.map(x => x.toFixed(2)).join(', ')})`;
+      vCoordsEl.textContent = v.map(fmtV).join('  ');
+      uCoordsEl.textContent = [
+        view.u1 ? fmtU(view.u1.vec) : '—',
+        view.u2 ? fmtU(view.u2.vec) : '—',
+        view.u3 ? fmtU(view.u3.vec) : '—',
+      ].join('  ');
     }
 
     // ---------- rallentatore: fattore di velocita' dell'animazione ----------
@@ -477,7 +527,36 @@ const STR = {
       computeBtn.setAttribute('aria-pressed', String(m === 'explore'));
       editBtn.setAttribute('aria-pressed', String(m === 'edit'));
       hintEl.innerHTML = m === 'edit' ? HINT.edit : HINT.explore;
+      coordForm.hidden = m !== 'edit';
+      if (m === 'edit') syncCoordInputs();
       canvas.style.cursor = 'default';
+    }
+
+    // ---------- caselle coordinate (v1,v2,v3): sincronizzate col trascinamento ----------
+    // aggiorna le caselle col valore corrente di v[], senza toccare quella su cui
+    // l'utente sta scrivendo in questo momento (altrimenti gli si cancella sotto le dita)
+    function syncCoordInputs() {
+      for (let i = 0; i < 3; i++)
+        for (let j = 0; j < 3; j++)
+          if (document.activeElement !== coordInputs[i][j])
+            coordInputs[i][j].value = v[i][j].toFixed(1);
+    }
+    // applica il valore digitato (invio o uscita dal campo); se non e' un numero valido
+    // torna silenziosamente all'ultimo valore buono, cosi' il campo non resta "rotto"
+    function commitCoordInput(i: number, j: number) {
+      const el = coordInputs[i][j];
+      const val = parseFloat(el.value.replace(',', '.'));
+      if (Number.isFinite(val)) {
+        v[i][j] = val;
+        geom = gramSchmidt(v[0], v[1], v[2]);
+        staticView(); draw();
+      }
+      el.value = v[i][j].toFixed(1);
+    }
+    for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) {
+      const el = coordInputs[i][j];
+      el.addEventListener('change', () => commitCoordInput(i, j));
+      el.addEventListener('keydown', e => { if (e.key === 'Enter') el.blur(); });
     }
 
     // ---------- zoom (rotella) ----------
@@ -568,7 +647,7 @@ const STR = {
         const world = add(scl(cam.right, dx / scale), scl(cam.up, -dy / scale));
         v[drag.i] = add(v[drag.i], world);
         geom = gramSchmidt(v[0], v[1], v[2]);   // ricalcolo solo qui
-        staticView(); updateReadout();
+        staticView(); updateReadout(); syncCoordInputs();
       }
       draw();
     });
@@ -598,7 +677,7 @@ const STR = {
       v = V0.map(a => [...a] as V3);
       az = 0.7; el = 0.5; zoom = 1; applyScale();
       geom = gramSchmidt(v[0], v[1], v[2]);
-      setMode('explore'); staticView(); updateReadout(); draw();
+      setMode('explore'); staticView(); updateReadout(); syncCoordInputs(); draw();
     });
 
     // ---------- avvio ----------
@@ -606,6 +685,7 @@ const STR = {
     setMode('explore');               // a riposo i vettori sono bloccati
     staticView();
     updateReadout();
+    syncCoordInputs();
     updateSpeedLabel();
     new ResizeObserver(resize).observe(canvas);
     // ricalcolo i colori quando l'utente cambia tema (Starlight cambia data-theme)
@@ -644,6 +724,31 @@ const STR = {
     padding: 0.4rem 0.7rem;
     color: var(--sl-color-gray-3, #9b9ba6);
     border-top: 1px solid var(--sl-color-gray-5, #3a3a3a);
+  }
+
+  .gs3d__coordform {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(150px, 1fr));
+    gap: 0.5rem 1rem;
+  }
+  .gs3d__coordvec { display: flex; align-items: center; gap: 0.3rem; flex-wrap: wrap; }
+  .gs3d__coordlabel {
+    font-size: 0.82rem; font-weight: 600;
+    color: var(--sl-color-gray-2, #b8b8c4);
+    min-width: 1.4em;
+  }
+  .gs3d__coordinput {
+    width: 4.2rem;
+    font: inherit; font-size: 0.85rem;
+    padding: 0.3rem 0.4rem;
+    border-radius: 6px;
+    border: 1px solid var(--sl-color-gray-5, #3a3a3a);
+    background: var(--sl-color-gray-6, #222);
+    color: var(--sl-color-white, #fff);
+  }
+  .gs3d__coordinput:focus { outline: none; border-color: var(--sl-color-accent, #5b8def); }
+  @media (max-width: 560px) {
+    .gs3d__coordform { grid-template-columns: 1fr; }
   }
 
   .gs3d__controls { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
@@ -687,4 +792,10 @@ const STR = {
     padding-top: 0.6rem;
   }
   .gs3d__check b { color: var(--sl-color-white, #fff); font-variant-numeric: tabular-nums; }
+  .gs3d__coords {
+    display: flex; flex-wrap: wrap; gap: 0.3rem 1.4rem;
+    font-size: 0.82rem;
+    color: var(--sl-color-gray-2, #b8b8c4);
+  }
+  .gs3d__coords b { color: var(--sl-color-white, #fff); font-variant-numeric: tabular-nums; }
 </style>
