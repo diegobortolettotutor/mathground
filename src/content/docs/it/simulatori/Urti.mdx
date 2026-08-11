@@ -11,7 +11,7 @@ tableOfContents: false
 import SimulatoreUrti from '@components/SimulatoreUrti.astro';
 
 Due corpi si muovono su un piano e si scontrano. Regolando le masse, i moduli delle
-velocità e l'angolo fra le due direzioni puoi osservare che cosa si conserva in un urto
+velocità e l'angolo fra le due direzioni si può osservare che cosa si conserva in un urto
 e che cosa invece no. L'inquadratura è fissa e centrata sul punto d'impatto: i corpi
 entrano in scena, si urtano al centro ed escono dai bordi, mentre gli istogrammi in basso
 seguono in tempo reale la quantità di moto e l'energia cinetica.
@@ -52,7 +52,7 @@ $$
 \qquad \mu = \frac{m_1 m_2}{m_1 + m_2}
 $$
 
-dove $\mu$ è la **massa ridotta**. Nota che la dipendenza è da $e^2$, non da $e$: passando
+dove $\mu$ è la **massa ridotta**. La dipendenza è da $e^2$, non da $e$: passando
 da $e = 1$ a $e = 0.9$ si perde già il 19% dell'energia cinetica relativa.
 
 ## Il centro di massa
@@ -60,8 +60,8 @@ da $e = 1$ a $e = 0.9$ si perde già il 19% dell'energia cinetica relativa.
 L'inquadratura è fissa e centrata sul punto d'impatto. Il marcatore viola è il centro di
 massa del sistema: attraversa la scena di **moto rettilineo uniforme**, prima e dopo
 l'urto, senza accorgersi di nulla. È la conseguenza diretta della conservazione della
-quantità di moto, perché sul sistema non agiscono forze esterne. Puoi verificarlo con le
-scie: le traiettorie dei due corpi si spezzano nel punto d'urto, quella del centro di
+quantità di moto, perché sul sistema non agiscono forze esterne. Lo si può verificare con
+le scie: le traiettorie dei due corpi si spezzano nel punto d'urto, quella del centro di
 massa no.
 
 Nell'urto completamente anelastico i due corpi si saldano in una sfera unica di raggio
@@ -71,9 +71,9 @@ grafica per ricordare da dove viene ciascuna parte: il modello resta quello dei 
 materiali, e il corpo fuso trasla senza ruotare.
 
 :::tip[Da provare]
-Metti $m_1 = m_2$, $v_2 = 0$ e urto elastico: il corpo che colpisce si ferma di colpo e
-cede tutta la velocità all'altro. Poi porta $m_2$ a 10 kg lasciando $m_1 = 1$ kg: il corpo
-leggero rimbalza indietro quasi con la stessa velocità, come contro un muro.
+Impostando $m_1 = m_2$, $v_2 = 0$ e urto elastico, il corpo che colpisce si ferma di colpo
+e cede tutta la velocità all'altro. Portando poi $m_2$ a 10 kg e lasciando $m_1 = 1$ kg, il
+corpo leggero rimbalza indietro quasi con la stessa velocità, come contro un muro.
 :::
 
 :::note[Un'idealizzazione]

@@ -10,11 +10,11 @@ tableOfContents: false
 
 import SimulatoreUrti from '@components/SimulatoreUrti.astro';
 
-Two bodies move in a plane and collide. By adjusting the masses, the speeds and the angle
-between the two directions you can observe what is conserved in a collision and what is
-not. The view is fixed and centred on the point of impact: the bodies enter the scene,
-collide at the centre and leave through the edges, while the histograms below track
-momentum and kinetic energy in real time.
+Two bodies move in a plane and collide. Adjusting the masses, the speeds and the angle
+between the two directions reveals what is conserved in a collision and what is not. The
+view is fixed and centred on the point of impact: the bodies enter the scene, collide at
+the centre and leave through the edges, while the histograms below track momentum and
+kinetic energy in real time.
 
 <SimulatoreUrti />
 
@@ -52,8 +52,8 @@ $$
 \qquad \mu = \frac{m_1 m_2}{m_1 + m_2}
 $$
 
-where $\mu$ is the **reduced mass**. Note that the dependence is on $e^2$, not on $e$:
-going from $e = 1$ to $e = 0.9$ already loses 19% of the relative kinetic energy.
+where $\mu$ is the **reduced mass**. The dependence is on $e^2$, not on $e$: going from
+$e = 1$ to $e = 0.9$ already loses 19% of the relative kinetic energy.
 
 ## The centre of mass
 
@@ -71,9 +71,10 @@ graphical convention to show where each part came from: the model is still that 
 masses, and the merged body translates without rotating.
 
 :::tip[Worth trying]
-Set $m_1 = m_2$, $v_2 = 0$ and an elastic collision: the incoming body stops dead and
-hands over all its velocity to the other one. Then raise $m_2$ to 10 kg while keeping
-$m_1 = 1$ kg: the light body bounces back at almost the same speed, as if off a wall.
+Setting $m_1 = m_2$, $v_2 = 0$ and an elastic collision makes the incoming body stop dead
+and hand over all its velocity to the other one. Raising $m_2$ to 10 kg while keeping
+$m_1 = 1$ kg then makes the light body bounce back at almost the same speed, as if off a
+wall.
 :::
 
 :::note[An idealisation]
