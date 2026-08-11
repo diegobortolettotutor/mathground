@@ -352,11 +352,11 @@ const STR = {
 
       // proiezioni (giallo) e tratteggi
       if (view.p2)  arrow(scl(geom.u1, dot(v[1], geom.u1) * view.p2), COL.proj, 3, 0.95);
-      if (view.drop2) { line(geom.p2, v[1], ink, 1.5, 0.5 * view.drop2, [5, 4]); rightAngleMark(geom.p2, geom.u1, norm(sub(v[1], geom.p2)), view.drop2); }
+      if (view.drop2) { line(geom.p2, v[1], ink, 1.5, 0.5 * view.drop2, [5, 4]); rightAngleMark(geom.p2, norm(geom.p2), norm(sub(v[1], geom.p2)), view.drop2); }
       if (view.p3a) arrow(scl(geom.u1, dot(v[2], geom.u1) * view.p3a), COL.proj, 3, 0.95);
-      if (view.drop3a) { line(geom.p3a, v[2], ink, 1.5, 0.5 * view.drop3a, [5, 4]); rightAngleMark(geom.p3a, geom.u1, norm(sub(v[2], geom.p3a)), view.drop3a); }
+      if (view.drop3a) { line(geom.p3a, v[2], ink, 1.5, 0.5 * view.drop3a, [5, 4]); rightAngleMark(geom.p3a, norm(geom.p3a), norm(sub(v[2], geom.p3a)), view.drop3a); }
       if (view.p3b) arrow(scl(geom.u2, dot(v[2], geom.u2) * view.p3b), COL.proj, 3, 0.95);
-      if (view.drop3b) { line(geom.p3b, v[2], ink, 1.5, 0.5 * view.drop3b, [5, 4]); rightAngleMark(geom.p3b, geom.u2, norm(sub(v[2], geom.p3b)), view.drop3b); }
+      if (view.drop3b) { line(geom.p3b, v[2], ink, 1.5, 0.5 * view.drop3b, [5, 4]); rightAngleMark(geom.p3b, norm(geom.p3b), norm(sub(v[2], geom.p3b)), view.drop3b); }
 
       // resto ortogonale w (viola), in crescita dall'origine
       if (view.w2) arrow(scl(geom.w2, view.w2), COL.w, 3, 0.9, view.w2 > 0.95 ? 'w₂' : undefined);
@@ -430,14 +430,17 @@ const STR = {
     // pausa il rAF continua a girare (per restare pronti a riprendere subito)
     // ma il tempo trascorso non si accumula, cosi' l'animazione resta congelata
     // esattamente al fotogramma in cui e' stata messa in pausa.
+    // 'ms' e' la durata "a velocita' 1x": ad ogni fotogramma l'incremento di
+    // tempo reale viene scalato con la 'speed' CORRENTE (non congelata), cosi'
+    // muovere lo slider del rallentatore ha effetto immediato anche a meta' step.
     function tween(ms: number, cb: (t: number) => void) {
       return new Promise<void>(res => {
         const tok = ++animToken;
         let elapsed = 0, last = performance.now();
         const frame = (now: number) => {
           if (tok !== animToken) { res(); return; }   // annullata
-          if (!paused) elapsed += now - last;
-          last = now;
+          const dt = now - last; last = now;
+          if (!paused) elapsed += dt * Math.max(0.05, speed);
           const t = Math.min(1, elapsed / ms);
           cb(easeInOut(t)); draw();
           if (t < 1) requestAnimationFrame(frame); else res();
@@ -451,8 +454,8 @@ const STR = {
         let elapsed = 0, last = performance.now();
         const frame = (now: number) => {
           if (tok !== animToken) { res(); return; }    // annullata
-          if (!paused) elapsed += now - last;
-          last = now;
+          const dt = now - last; last = now;
+          if (!paused) elapsed += dt * Math.max(0.05, speed);
           if (elapsed >= ms) { res(); return; }
           requestAnimationFrame(frame);
         };
@@ -468,28 +471,26 @@ const STR = {
 
     async function play() {
       const my = ++runId;                   // identita' di questa esecuzione
-      const spd = Math.max(0.05, speed);    // fattore congelato per questa riproduzione
-      const t = (ms: number) => ms / spd;   // scala una durata in base al rallentatore
       geom = gramSchmidt(v[0], v[1], v[2]); // congelo la geometria corrente
       view = {}; animToken++;               // azzero ed escludo tween precedenti
       setRunning(true);
       const stop = () => setRunning(false);
 
       // PASSO 1: normalizzo v1 -> u1 (la freccia si "accorcia" al versore)
-      await tween(t(700), tt => { view.u1 = { vec: lerp3(v[0], geom.u1, tt), a: 1 }; });
+      await tween(700, tt => { view.u1 = { vec: lerp3(v[0], geom.u1, tt), a: 1 }; });
       if (aborted(my)) return stop();
       view.u1 = { vec: geom.u1, a: 1 };
-      await wait(t(250)); if (aborted(my)) return stop();
+      await wait(250); if (aborted(my)) return stop();
 
       // PASSO 2: proietto v2 su u1, sottraggo, normalizzo
-      await tween(t(650), tt => { view.p2 = tt; view.drop2 = tt; }); if (aborted(my)) return stop();
-      await tween(t(600), tt => { view.w2 = tt; }); if (aborted(my)) return stop();
-      await tween(t(650), tt => {                       // w2 -> u2, sfumo proiezione/tratteggio
+      await tween(650, tt => { view.p2 = tt; view.drop2 = tt; }); if (aborted(my)) return stop();
+      await tween(600, tt => { view.w2 = tt; }); if (aborted(my)) return stop();
+      await tween(650, tt => {                       // w2 -> u2, sfumo proiezione/tratteggio
         view.u2 = { vec: lerp3(geom.w2, geom.u2, tt), a: 1 };
         view.w2 = 1 - tt; view.p2 = 1 - tt; view.drop2 = 1 - tt;
       }); if (aborted(my)) return stop();
       view.u2 = { vec: geom.u2, a: 1 }; view.w2 = view.p2 = view.drop2 = 0;
-      await wait(t(250)); if (aborted(my)) return stop();
+      await wait(250); if (aborted(my)) return stop();
 
       // PASSO 3: DUE proiezioni INDIPENDENTI (su u1 e su u2), calcolate ciascuna
       // direttamente sul proprio versore GIA' ortogonalizzato (dot(v3,u1) e dot(v3,u2)
@@ -499,11 +500,11 @@ const STR = {
       // per addizione vettoriale - ma cosi' si vede chiaramente che e' un passo lungo u2,
       // non un salto diagonale nel piano. Entrambe le proiezioni (e i relativi tratteggi
       // guida) restano visibili insieme finche' non vengono sottratte da v3 per formare w3.
-      await tween(t(650), tt => { view.p3a = tt; view.drop3a = tt; }); if (aborted(my)) return stop();
-      await wait(t(180)); if (aborted(my)) return stop();
-      await tween(t(650), tt => { view.p3b = tt; view.drop3b = tt; }); if (aborted(my)) return stop();
-      await tween(t(600), tt => { view.w3 = tt; }); if (aborted(my)) return stop();
-      await tween(t(650), tt => {                       // w3 -> u3, sfumo tutto il resto
+      await tween(650, tt => { view.p3a = tt; view.drop3a = tt; }); if (aborted(my)) return stop();
+      await wait(180); if (aborted(my)) return stop();
+      await tween(650, tt => { view.p3b = tt; view.drop3b = tt; }); if (aborted(my)) return stop();
+      await tween(600, tt => { view.w3 = tt; }); if (aborted(my)) return stop();
+      await tween(650, tt => {                       // w3 -> u3, sfumo tutto il resto
         view.u3 = { vec: lerp3(geom.w3, geom.u3, tt), a: 1 };
         view.w3 = 1 - tt;
         view.p3a = view.p3b = view.drop3a = view.drop3b = 1 - tt;
@@ -727,11 +728,13 @@ const STR = {
   }
 
   .gs3d__coordform {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(150px, 1fr));
-    gap: 0.5rem 1rem;
+    display: flex;
+    flex-wrap: wrap;               /* su schermi stretti ogni vettore va a capo per conto suo */
+    align-items: center;
+    gap: 0.5rem 1.5rem;
   }
-  .gs3d__coordvec { display: flex; align-items: center; gap: 0.3rem; flex-wrap: wrap; }
+  .gs3d__coordform[hidden] { display: none; }   /* .gs3d__coordform{display:grid/flex} vinceva su [hidden] senza questa regola */
+  .gs3d__coordvec { display: flex; align-items: center; gap: 0.3rem; flex-wrap: nowrap; flex: 0 0 auto; }
   .gs3d__coordlabel {
     font-size: 0.82rem; font-weight: 600;
     color: var(--sl-color-gray-2, #b8b8c4);
@@ -747,11 +750,13 @@ const STR = {
     color: var(--sl-color-white, #fff);
   }
   .gs3d__coordinput:focus { outline: none; border-color: var(--sl-color-accent, #5b8def); }
-  @media (max-width: 560px) {
-    .gs3d__coordform { grid-template-columns: 1fr; }
-  }
 
-  .gs3d__controls { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+  /* NOTA allineamento: Starlight inietta un margin-top automatico sui "fratelli"
+     dentro il contenuto markdown; senza reset il 2°/3° elemento della riga vengono
+     spinti in basso e la riga appare sfalsata. Fix collaudato (Gauss-Jordan,
+     DivisionePolinomiale): margin:0 esplicito su OGNI elemento della riga +
+     align-items:stretch sul contenitore (non "center", che accentuerebbe lo sfalsamento). */
+  .gs3d__controls { display: flex; align-items: stretch; gap: 0.5rem; flex-wrap: wrap; }
   .gs3d__btn {
     appearance: none; -webkit-appearance: none;
     height: 2.3rem;
@@ -777,7 +782,7 @@ const STR = {
 
   .gs3d__slowcell {
     display: flex; align-items: center; gap: 0.5rem;
-    margin-left: auto;
+    margin: 0 0 0 auto;
     font-size: 0.82rem;
     color: var(--sl-color-gray-2, #b8b8c4);
   }
