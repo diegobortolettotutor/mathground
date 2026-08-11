@@ -27,6 +27,8 @@ const STR = {
   it: {
     aria: 'Ortogonalizzazione di Gram-Schmidt in 3D',
     compute: 'Calcola e mantieni',
+    pause: 'Pausa',
+    resume: 'Riprendi',
     edit: 'Modifica v₁ v₂ v₃',
     reset: 'Reset',
     slow: 'rallentatore',
@@ -36,6 +38,8 @@ const STR = {
   en: {
     aria: 'Gram-Schmidt orthogonalization in 3D',
     compute: 'Compute & keep',
+    pause: 'Pause',
+    resume: 'Resume',
     edit: 'Edit v₁ v₂ v₃',
     reset: 'Reset',
     slow: 'slow motion',
@@ -54,6 +58,7 @@ const STR = {
 
   <div class="gso3d__controls">
     <button class="gso3d__btn gso3d__mode gso3d__compute is-on" type="button" aria-pressed="true">{STR.compute}</button>
+    <button class="gso3d__btn gso3d__pause" type="button" aria-pressed="false" disabled>{STR.pause}</button>
     <button class="gso3d__btn gso3d__mode gso3d__edit" type="button" aria-pressed="false">{STR.edit}</button>
     <button class="gso3d__btn gso3d__reset" type="button">{STR.reset}</button>
     <span class="gso3d__slowcell">
@@ -111,6 +116,7 @@ const STR = {
     const normsEl = root.querySelector('.gso3d__norms') as HTMLElement;
     const dotsEl  = root.querySelector('.gso3d__dots') as HTMLElement;
     const computeBtn = root.querySelector('.gso3d__compute') as HTMLButtonElement;
+    const pauseBtn = root.querySelector('.gso3d__pause') as HTMLButtonElement;
     const editBtn = root.querySelector('.gso3d__edit') as HTMLButtonElement;
     const resetBtn = root.querySelector('.gso3d__reset') as HTMLButtonElement;
     const hintEl = root.querySelector('.gso3d__hint') as HTMLElement;
@@ -155,6 +161,22 @@ const STR = {
       [cx + dot(p, cam.right) * scale, cy - dot(p, cam.up) * scale];
 
     // ---------- primitive di disegno ----------
+    // Le etichette (v1, w1, ...) possono cadere nello stesso punto sullo schermo:
+    // in questa variante w1 == v1 SEMPRE (nessuna normalizzazione al passo 1), quindi
+    // le due frecce hanno la stessa punta e le etichette si sovrapporrebbero. labelPos
+    // tiene traccia dei punti gia' occupati in questo fotogramma e sposta in basso
+    // (a scalini) qualunque nuova etichetta che cadrebbe troppo vicina a una gia' posta.
+    let placedLabels: [number, number][] = [];
+    function labelPos(bx: number, by: number): [number, number] {
+      let x = bx + 8, y = by - 6;
+      let guard = 0;
+      while (placedLabels.some(([px, py]) => Math.hypot(px - x, py - y) < 15) && guard < 8) {
+        y += 16;
+        guard++;
+      }
+      placedLabels.push([x, y]);
+      return [x, y];
+    }
     function line(a: V3, b: V3, color: string, width: number, alpha = 1, dash: number[] = []) {
       const A = project(a), B = project(b);
       ctx.save();
@@ -180,9 +202,10 @@ const STR = {
         ctx.closePath(); ctx.fill();
       }
       if (label) {
+        const [lx, ly] = labelPos(B[0], B[1]);
         ctx.globalAlpha = Math.min(1, alpha + 0.2);
         ctx.font = '600 14px system-ui, sans-serif';
-        ctx.fillText(label, B[0] + 8, B[1] - 6);
+        ctx.fillText(label, lx, ly);
       }
       ctx.restore();
     }
@@ -212,6 +235,7 @@ const STR = {
     function draw() {
       cam = camera(az, el);
       ctx.clearRect(0, 0, W, H);
+      placedLabels = [];
       axes();
 
       // input v_i (sempre visibili: sono le maniglie)
@@ -256,21 +280,60 @@ const STR = {
     let animToken = 0;
     let runId = 0;
     const aborted = (my: number) => my !== runId;
+
+    // ---------- pausa: congela l'avanzamento di tween/wait senza perdere lo stato ----------
+    let paused = false;
+    function setPaused(p: boolean) {
+      paused = p;
+      pauseBtn.textContent = paused ? STR.resume : STR.pause;
+      pauseBtn.setAttribute('aria-pressed', String(paused));
+    }
+    pauseBtn.addEventListener('click', () => {
+      if (pauseBtn.disabled) return;
+      setPaused(!paused);
+    });
+
+    // tween e wait avanzano un "elapsed" solo quando non in pausa: durante la
+    // pausa il rAF continua a girare (per restare pronti a riprendere subito)
+    // ma il tempo trascorso non si accumula, cosi' l'animazione resta congelata
+    // esattamente al fotogramma in cui e' stata messa in pausa.
     function tween(ms: number, cb: (t: number) => void) {
       return new Promise<void>(res => {
-        const tok = ++animToken, start = performance.now();
+        const tok = ++animToken;
+        let elapsed = 0, last = performance.now();
         const frame = (now: number) => {
           if (tok !== animToken) { res(); return; }
-          const t = Math.min(1, (now - start) / ms);
+          if (!paused) elapsed += now - last;
+          last = now;
+          const t = Math.min(1, elapsed / ms);
           cb(easeInOut(t)); draw();
           if (t < 1) requestAnimationFrame(frame); else res();
         };
         requestAnimationFrame(frame);
       });
     }
-    const wait = (ms: number) => new Promise<void>(r => {
-      const tok = animToken; setTimeout(() => { if (tok === animToken) r(); else r(); }, ms);
-    });
+    function wait(ms: number) {
+      return new Promise<void>(res => {
+        const tok = animToken;
+        let elapsed = 0, last = performance.now();
+        const frame = (now: number) => {
+          if (tok !== animToken) { res(); return; }
+          if (!paused) elapsed += now - last;
+          last = now;
+          if (elapsed >= ms) { res(); return; }
+          requestAnimationFrame(frame);
+        };
+        requestAnimationFrame(frame);
+      });
+    }
+
+    // interrompe del tutto una riproduzione in corso (usata da drag, Modifica, Reset)
+    function cancelPlay() {
+      animToken++; runId++;
+      computeBtn.disabled = false;
+      pauseBtn.disabled = true;
+      setPaused(false);
+    }
 
     async function play() {
       const my = ++runId;
@@ -279,7 +342,9 @@ const STR = {
       geom = gramSchmidtOrtho(v[0], v[1], v[2]);
       view = {}; animToken++;
       computeBtn.disabled = true;
-      const stop = () => { computeBtn.disabled = false; };
+      pauseBtn.disabled = false;
+      setPaused(false);
+      const stop = () => { computeBtn.disabled = false; pauseBtn.disabled = true; setPaused(false); };
 
       // PASSO 1: w1 = v1 (nessuna normalizzazione: cresce fino a v1 e basta)
       await tween(t(650), tt => { view.r1 = tt; }); if (aborted(my)) return stop();
@@ -303,7 +368,7 @@ const STR = {
       }); if (aborted(my)) return stop();
 
       staticView(); draw();
-      computeBtn.disabled = false;
+      stop();
     }
 
     // ---------- modalita': explore (bloccato) vs edit ----------
@@ -351,8 +416,7 @@ const STR = {
     };
 
     canvas.addEventListener('pointerdown', e => {
-      animToken++; runId++;
-      computeBtn.disabled = false;
+      cancelPlay();
       canvas.setPointerCapture(e.pointerId);
       const p = pointerPos(e);
       pts.set(e.pointerId, p);
@@ -412,12 +476,12 @@ const STR = {
     // ---------- pulsanti ----------
     computeBtn.addEventListener('click', () => { setMode('explore'); play(); });
     editBtn.addEventListener('click', () => {
-      animToken++; runId++; computeBtn.disabled = false;
+      cancelPlay();
       setMode('edit'); staticView(); draw();
     });
     resetBtn.addEventListener('click', () => {
       // NOTA: il rallentatore NON viene toccato dal reset (resta come l'ha impostato l'utente)
-      animToken++; runId++; computeBtn.disabled = false;
+      cancelPlay();
       v = V0.map(a => [...a] as V3);
       az = 0.7; el = 0.5; zoom = 1; applyScale();
       geom = gramSchmidtOrtho(v[0], v[1], v[2]);
