@@ -55,7 +55,7 @@ const STR = {
   </div>
 
   <div class="gs3d__controls">
-    <button class="gs3d__btn gs3d__mode gs3d__compute active" type="button" aria-pressed="true">{STR.compute}</button>
+    <button class="gs3d__btn gs3d__mode gs3d__compute is-on" type="button" aria-pressed="true">{STR.compute}</button>
     <button class="gs3d__btn gs3d__mode gs3d__edit" type="button" aria-pressed="false">{STR.edit}</button>
     <button class="gs3d__btn gs3d__reset" type="button">{STR.reset}</button>
     <span class="gs3d__slowcell">
@@ -354,8 +354,8 @@ const STR = {
     };
     function setMode(m: 'explore' | 'edit') {
       mode = m;
-      computeBtn.classList.toggle('active', m === 'explore');
-      editBtn.classList.toggle('active', m === 'edit');
+      computeBtn.classList.toggle('is-on', m === 'explore');
+      editBtn.classList.toggle('is-on', m === 'edit');
       computeBtn.setAttribute('aria-pressed', String(m === 'explore'));
       editBtn.setAttribute('aria-pressed', String(m === 'edit'));
       hintEl.innerHTML = m === 'edit' ? HINT.edit : HINT.explore;
@@ -528,7 +528,7 @@ const STR = {
   }
   .gs3d__btn:hover { border-color: var(--sl-color-accent, #5b8def); }
   .gs3d__btn:disabled { opacity: 0.5; cursor: default; }
-  .gs3d__mode.active {
+  .gs3d__mode.is-on {
     background: var(--sl-color-accent, #5b8def);
     border-color: var(--sl-color-accent, #5b8def);
     color: var(--sl-color-black, #fff);
