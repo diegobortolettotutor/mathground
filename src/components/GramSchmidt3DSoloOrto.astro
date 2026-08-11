@@ -186,8 +186,8 @@ const STR = {
       ctx.beginPath(); ctx.moveTo(A[0], A[1]); ctx.lineTo(B[0], B[1]); ctx.stroke();
       ctx.restore();
     }
-    function arrow(vec: V3, color: string, width: number, alpha = 1, label?: string) {
-      const A = project([0, 0, 0]), B = project(vec);
+    function arrow(vec: V3, color: string, width: number, alpha = 1, label?: string, from: V3 = [0, 0, 0]) {
+      const A = project(from), B = project(vec);
       const dx = B[0]-A[0], dy = B[1]-A[1], L = Math.hypot(dx, dy);
       const h = 11, w = 6;
       const hasHead = L > h; // sotto questa lunghezza la punta non ci sta: resta solo il segmento
@@ -201,13 +201,17 @@ const STR = {
       ctx.globalAlpha = alpha; ctx.strokeStyle = color; ctx.fillStyle = color;
       ctx.lineWidth = width; ctx.lineCap = 'round';
       ctx.beginPath(); ctx.moveTo(A[0], A[1]); ctx.lineTo(shaftEnd[0], shaftEnd[1]); ctx.stroke();
-      if (hasHead) {
+      if (hasHead) { // punta della freccia, con gli angoli smussati (punta compresa)
         const px = -uy, py = ux;
         ctx.beginPath();
         ctx.moveTo(B[0], B[1]);
         ctx.lineTo(bx + px*w, by + py*w);
         ctx.lineTo(bx - px*w, by - py*w);
-        ctx.closePath(); ctx.fill();
+        ctx.closePath();
+        ctx.fill();
+        ctx.lineJoin = 'round';
+        ctx.lineWidth = width;
+        ctx.stroke(); // arrotonda i tre vertici senza spostare punta/base del triangolo
       }
       if (label) {
         const [lx, ly] = labelPos(B[0], B[1]);
@@ -255,7 +259,7 @@ const STR = {
       if (view.drop2) line(geom.p2, v[1], ink, 1.5, 0.5 * view.drop2, [5, 4]);
       if (view.p3a) arrow(scl(geom.p3a, view.p3a), COL.proj, 3, 0.95);
       if (view.drop3a) line(geom.p3a, v[2], ink, 1.5, 0.5 * view.drop3a, [5, 4]);
-      if (view.p3b) arrow(scl(geom.p3b, view.p3b), COL.proj, 3, 0.95);
+      if (view.p3b) arrow(add(geom.p3a, scl(geom.p3b, view.p3b)), COL.proj, 3, 0.95, undefined, geom.p3a);
       if (view.drop3b) line(add(geom.p3a, geom.p3b), v[2], ink, 1.5, 0.5 * view.drop3b, [5, 4]);
 
       // risultato: i tre vettori ortogonali w1, w2, w3 (vivi), in crescita
@@ -368,19 +372,21 @@ const STR = {
       view.r2 = 1; view.p2 = view.drop2 = 0;
       await wait(t(250)); if (aborted(my)) return stop();
 
-      // PASSO 3: DUE proiezioni in SEQUENZA (su w1, poi su w2), sottraggo -> w3.
-      // Le due proiezioni sono dirette, ciascuna sul proprio vettore GIA' ortogonale
-      // (coefficiente (v3*w1)/(w1*w1) e (v3*w2)/(w2*w2) presi separatamente): NON e'
-      // una proiezione sul piano w1-w2. Il tratteggio della prima proiezione (drop3a)
-      // si dissolve mentre cresce quello della seconda (drop3b): senza questo
-      // crossfade i due tratteggi restavano visibili insieme e disegnavano un
-      // triangolo che dava l'illusione ottica di una proiezione "sul piano".
+      // PASSO 3: DUE proiezioni INDIPENDENTI (su w1 e su w2), calcolate ciascuna
+      // direttamente sul proprio vettore GIA' ortogonale (coefficiente (v3*w1)/(w1*w1)
+      // e (v3*w2)/(w2*w2) presi separatamente): NON e' una proiezione sul piano w1-w2.
+      // La freccia della seconda proiezione (p3b) viene disegnata in coda alla prima
+      // (dalla punta di p3a, non dall'origine): resta comunque parallela a w2 - e' solo
+      // una traslazione per addizione vettoriale - ma cosi' si vede chiaramente che e'
+      // un passo lungo w2, non un salto diagonale nel piano. Entrambe le proiezioni (e i
+      // relativi tratteggi guida) restano visibili insieme finche' non vengono sottratte
+      // da v3 per formare w3.
       await tween(t(650), tt => { view.p3a = tt; view.drop3a = tt; }); if (aborted(my)) return stop();
       await wait(t(180)); if (aborted(my)) return stop();
-      await tween(t(650), tt => { view.p3b = tt; view.drop3b = tt; view.drop3a = 1 - tt; }); if (aborted(my)) return stop();
+      await tween(t(650), tt => { view.p3b = tt; view.drop3b = tt; }); if (aborted(my)) return stop();
       await tween(t(700), tt => {                       // cresce w3, sfuma tutto il resto
         view.r3 = tt;
-        view.p3a = view.p3b = view.drop3b = 1 - tt;
+        view.p3a = view.p3b = view.drop3a = view.drop3b = 1 - tt;
       }); if (aborted(my)) return stop();
 
       staticView(); draw();
