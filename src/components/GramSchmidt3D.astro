@@ -521,6 +521,20 @@ const STR = {
       edit: root.dataset.hintEdit ?? '',
       explore: root.dataset.hintExplore ?? '',
     };
+    // decide riga unica vs incolonnata misurando lo spazio DAVVERO disponibile:
+    // forzo temporaneamente 'nowrap' per sapere quanto spazio servirebbe alle tre
+    // colonne affiancate, e confronto con la larghezza disponibile. Se non ci
+    // stanno, passo a colonna (una riga per vettore) invece di un wrap parziale
+    // "2+1" a meta' strada. Va rifatta ad ogni ridimensionamento (vedi ResizeObserver
+    // piu' sotto) perche' la larghezza disponibile puo' cambiare (finestra, sidebar).
+    function layoutCoordForm() {
+      coordForm.classList.remove('gs3d__coordform--stack');
+      coordForm.style.flexWrap = 'nowrap';
+      const fits = coordForm.scrollWidth <= coordForm.clientWidth + 1;
+      coordForm.style.flexWrap = '';
+      coordForm.classList.toggle('gs3d__coordform--stack', !fits);
+    }
+
     function setMode(m: 'explore' | 'edit') {
       mode = m;
       computeBtn.classList.toggle('is-on', m === 'explore');
@@ -529,9 +543,13 @@ const STR = {
       editBtn.setAttribute('aria-pressed', String(m === 'edit'));
       hintEl.innerHTML = m === 'edit' ? HINT.edit : HINT.explore;
       coordForm.hidden = m !== 'edit';
-      if (m === 'edit') syncCoordInputs();
+      if (m === 'edit') { syncCoordInputs(); layoutCoordForm(); }   // misuro solo a pannello visibile (a display:none la misura sarebbe 0)
       canvas.style.cursor = 'default';
     }
+
+    // ridisegna il layout del pannello coordinate quando la sua larghezza cambia
+    // (finestra ridimensionata, comparsa/scomparsa della sidebar, zoom pagina)
+    new ResizeObserver(layoutCoordForm).observe(coordForm);
 
     // ---------- caselle coordinate (v1,v2,v3): sincronizzate col trascinamento ----------
     // aggiorna le caselle col valore corrente di v[], senza toccare quella su cui
@@ -729,12 +747,13 @@ const STR = {
 
   .gs3d__coordform {
     display: flex;
-    flex-wrap: wrap;               /* su schermi stretti ogni vettore va a capo per conto suo */
+    flex-wrap: nowrap;             /* riga/colonna e' decisa da JS (layoutCoordForm), mai un wrap "2+1" a meta' */
     align-items: center;
     gap: 0.5rem 1.5rem;
     margin: 0;                     /* vedi NOTA allineamento piu' sotto: stesso fix dei pulsanti */
   }
   .gs3d__coordform[hidden] { display: none; }   /* .gs3d__coordform{display:grid/flex} vinceva su [hidden] senza questa regola */
+  .gs3d__coordform--stack { flex-direction: column; align-items: flex-start; }
   .gs3d__coordvec { display: flex; align-items: center; gap: 0.3rem; flex-wrap: nowrap; flex: 0 0 auto; margin: 0; }
   .gs3d__coordlabel {
     font-size: 0.82rem; font-weight: 600;
