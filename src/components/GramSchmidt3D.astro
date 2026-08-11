@@ -732,18 +732,21 @@ const STR = {
     flex-wrap: wrap;               /* su schermi stretti ogni vettore va a capo per conto suo */
     align-items: center;
     gap: 0.5rem 1.5rem;
+    margin: 0;                     /* vedi NOTA allineamento piu' sotto: stesso fix dei pulsanti */
   }
   .gs3d__coordform[hidden] { display: none; }   /* .gs3d__coordform{display:grid/flex} vinceva su [hidden] senza questa regola */
-  .gs3d__coordvec { display: flex; align-items: center; gap: 0.3rem; flex-wrap: nowrap; flex: 0 0 auto; }
+  .gs3d__coordvec { display: flex; align-items: center; gap: 0.3rem; flex-wrap: nowrap; flex: 0 0 auto; margin: 0; }
   .gs3d__coordlabel {
     font-size: 0.82rem; font-weight: 600;
     color: var(--sl-color-gray-2, #b8b8c4);
     min-width: 1.4em;
+    margin: 0;
   }
   .gs3d__coordinput {
-    width: 4.2rem;
+    width: 3.8rem;                 /* -10% rispetto ai 4.2rem originali: aiuta a stare su una riga sola */
     font: inherit; font-size: 0.85rem;
     padding: 0.3rem 0.4rem;
+    margin: 0;
     border-radius: 6px;
     border: 1px solid var(--sl-color-gray-5, #3a3a3a);
     background: var(--sl-color-gray-6, #222);
