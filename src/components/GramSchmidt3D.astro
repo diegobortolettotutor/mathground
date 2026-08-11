@@ -207,20 +207,28 @@ const STR = {
     function arrow(vec: V3, color: string, width: number, alpha = 1, label?: string, from: V3 = [0, 0, 0]) {
       const A = project(from), B = project(vec);
       const dx = B[0]-A[0], dy = B[1]-A[1], L = Math.hypot(dx, dy);
-      const h = 11, w = 6;
-      const hasHead = L > h; // sotto questa lunghezza la punta non ci sta: resta solo il segmento
-      // l'asta si ferma alla BASE del triangolo (non alla punta): cosi' l'estremita'
-      // arrotondata della linea (lineCap 'round') resta coperta dal triangolo pieno,
-      // invece di sporgere oltre la punta della freccia.
-      const ux = L > 0 ? dx/L : 0, uy = L > 0 ? dy/L : 0;
-      const bx = B[0]-ux*h, by = B[1]-uy*h;
-      const shaftEnd: [number, number] = hasHead ? [bx, by] : [B[0], B[1]];
       ctx.save();
       ctx.globalAlpha = alpha;
-      ctx.strokeStyle = color; ctx.fillStyle = color;
-      ctx.lineWidth = width; ctx.lineCap = 'round';
-      ctx.beginPath(); ctx.moveTo(A[0], A[1]); ctx.lineTo(shaftEnd[0], shaftEnd[1]); ctx.stroke();
-      if (hasHead) { // punta della freccia, con gli angoli smussati (punta compresa)
+      ctx.strokeStyle = color;
+      ctx.fillStyle = color;
+      ctx.lineWidth = width;
+      ctx.lineCap = 'round';
+      
+      // asta: dalla proiezione di 'from' fino alla base della punta
+      let shaftEnd: [number, number] = [B[0], B[1]];
+      if (L > 6) {
+        const ux = dx/L, uy = dy/L, h = 11;
+        shaftEnd = [B[0]-ux*h, B[1]-uy*h];
+      }
+      ctx.beginPath();
+      ctx.moveTo(A[0], A[1]);
+      ctx.lineTo(shaftEnd[0], shaftEnd[1]);
+      ctx.stroke();
+      
+      // punta: isoscele, solo se il vettore è abbastanza lungo
+      if (L > 6) {
+        const ux = dx/L, uy = dy/L, h = 11, w = 6;
+        const bx = B[0]-ux*h, by = B[1]-uy*h;
         const px = -uy, py = ux;
         ctx.beginPath();
         ctx.moveTo(B[0], B[1]);
@@ -228,15 +236,13 @@ const STR = {
         ctx.lineTo(bx - px*w, by - py*w);
         ctx.closePath();
         ctx.fill();
-        ctx.lineJoin = 'round';
-        ctx.lineWidth = width;
-        ctx.stroke(); // arrotonda i tre vertici senza spostare punta/base del triangolo
       }
+      
+      // etichetta
       if (label) {
-        const [lx, ly] = labelPos(B[0], B[1]);
         ctx.globalAlpha = Math.min(1, alpha + 0.2);
         ctx.font = '600 14px system-ui, sans-serif';
-        ctx.fillText(label, lx, ly);
+        ctx.fillText(label, B[0] + 8, B[1] - 6);
       }
       ctx.restore();
     }
@@ -288,8 +294,8 @@ const STR = {
       if (view.drop2) line(geom.p2, v[1], ink, 1.5, 0.5 * view.drop2, [5, 4]);
       if (view.p3a) arrow(scl(geom.u1, dot(v[2], geom.u1) * view.p3a), COL.proj, 3, 0.95);
       if (view.drop3a) line(geom.p3a, v[2], ink, 1.5, 0.5 * view.drop3a, [5, 4]);
-      if (view.p3b) arrow(add(geom.p3a, scl(geom.u2, dot(v[2], geom.u2) * view.p3b)), COL.proj, 3, 0.95, undefined, geom.p3a);
-      if (view.drop3b) line(add(geom.p3a, geom.p3b), v[2], ink, 1.5, 0.5 * view.drop3b, [5, 4]);
+      if (view.p3b) arrow(scl(geom.u2, dot(v[2], geom.u2) * view.p3b), COL.proj, 3, 0.95);
+      if (view.drop3b) line(geom.p3b, v[2], ink, 1.5, 0.5 * view.drop3b, [5, 4]);
 
       // resto ortogonale w (viola), in crescita dall'origine
       if (view.w2) arrow(scl(geom.w2, view.w2), COL.w, 3, 0.9, view.w2 > 0.95 ? 'w₂' : undefined);
