@@ -59,7 +59,6 @@ const STR = {
 
   <div class="gso3d__controls">
     <button class="gso3d__btn gso3d__mode gso3d__compute is-on" type="button" aria-pressed="true">{STR.compute}</button>
-    <button class="gso3d__btn gso3d__pause" type="button" aria-pressed="false" disabled>{STR.pause}</button>
     <button class="gso3d__btn gso3d__mode gso3d__edit" type="button" aria-pressed="false">{STR.edit}</button>
     <button class="gso3d__btn gso3d__reset" type="button">{STR.reset}</button>
     <span class="gso3d__slowcell">
@@ -117,7 +116,6 @@ const STR = {
     const normsEl = root.querySelector('.gso3d__norms') as HTMLElement;
     const dotsEl  = root.querySelector('.gso3d__dots') as HTMLElement;
     const computeBtn = root.querySelector('.gso3d__compute') as HTMLButtonElement;
-    const pauseBtn = root.querySelector('.gso3d__pause') as HTMLButtonElement;
     const editBtn = root.querySelector('.gso3d__edit') as HTMLButtonElement;
     const resetBtn = root.querySelector('.gso3d__reset') as HTMLButtonElement;
     const hintEl = root.querySelector('.gso3d__hint') as HTMLElement;
@@ -135,6 +133,7 @@ const STR = {
       v: ['#7aa2f7', '#5fd0a0', '#f0bd6a'],     // input (tinte tenui)
       res: ['#3b82f6', '#10b981', '#f59e0b'],   // risultato w1, w2, w3 (vivi)
       proj: '#eab308',                          // proiezioni
+      rightAngle: 'rgba(220,38,38,0.55)',       // segno di angolo retto (rosso tenue)
     };
     let ink = 'rgba(128,128,128,0.9)';
     function refreshThemeColors() { ink = getComputedStyle(canvas).color || 'rgb(128,128,128)'; }
@@ -221,6 +220,32 @@ const STR = {
       }
       ctx.restore();
     }
+    // segno "a L" di angolo retto nel punto 'corner', fra la direzione 'axisDir'
+    // (l'asse su cui si proietta) e 'dropDir' (il tratteggio perpendicolare che
+    // scende dalla punta del vettore originale). Disegnato in coordinate SCHERMO
+    // (non in unita' 3D): resta leggibile a 8px qualunque sia zoom o angolo di vista.
+    function rightAngleMark(corner: V3, axisDir: V3, dropDir: V3, alpha: number) {
+      if (alpha <= 0.02) return;
+      const C = project(corner);
+      const Pa = project(add(corner, scl(axisDir, 0.01)));
+      const Pd = project(add(corner, scl(dropDir, 0.01)));
+      const ax = Pa[0]-C[0], ay = Pa[1]-C[1], aLen = Math.hypot(ax, ay) || 1;
+      const dx = Pd[0]-C[0], dy = Pd[1]-C[1], dLen = Math.hypot(dx, dy) || 1;
+      const ux = ax/aLen, uy = ay/aLen, vx = dx/dLen, vy = dy/dLen;
+      const S = 8; // dimensione del segno in pixel
+      const P1: [number, number] = [C[0]+ux*S, C[1]+uy*S];
+      const P2: [number, number] = [P1[0]+vx*S, P1[1]+vy*S];
+      const P3: [number, number] = [C[0]+vx*S, C[1]+vy*S];
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.strokeStyle = COL.rightAngle;
+      ctx.lineWidth = 2;
+      ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      ctx.beginPath();
+      ctx.moveTo(P1[0], P1[1]); ctx.lineTo(P2[0], P2[1]); ctx.lineTo(P3[0], P3[1]);
+      ctx.stroke();
+      ctx.restore();
+    }
     function axes() {
       const ax: [V3, string][] = [[[3,0,0],'x'], [[0,3,0],'y'], [[0,0,3],'z']];
       for (const [a, lab] of ax) {
@@ -256,11 +281,11 @@ const STR = {
 
       // proiezioni (giallo) e tratteggi perpendicolari
       if (view.p2)  arrow(scl(geom.p2, view.p2), COL.proj, 3, 0.95);
-      if (view.drop2) line(geom.p2, v[1], ink, 1.5, 0.5 * view.drop2, [5, 4]);
+      if (view.drop2) { line(geom.p2, v[1], ink, 1.5, 0.5 * view.drop2, [5, 4]); rightAngleMark(geom.p2, normv(geom.w1), normv(sub(v[1], geom.p2)), view.drop2); }
       if (view.p3a) arrow(scl(geom.p3a, view.p3a), COL.proj, 3, 0.95);
-      if (view.drop3a) line(geom.p3a, v[2], ink, 1.5, 0.5 * view.drop3a, [5, 4]);
+      if (view.drop3a) { line(geom.p3a, v[2], ink, 1.5, 0.5 * view.drop3a, [5, 4]); rightAngleMark(geom.p3a, normv(geom.w1), normv(sub(v[2], geom.p3a)), view.drop3a); }
       if (view.p3b) arrow(scl(geom.p3b, view.p3b), COL.proj, 3, 0.95);
-      if (view.drop3b) line(geom.p3b, v[2], ink, 1.5, 0.5 * view.drop3b, [5, 4]);
+      if (view.drop3b) { line(geom.p3b, v[2], ink, 1.5, 0.5 * view.drop3b, [5, 4]); rightAngleMark(geom.p3b, normv(geom.w2), normv(sub(v[2], geom.p3b)), view.drop3b); }
 
       // risultato: i tre vettori ortogonali w1, w2, w3 (vivi), in crescita
       if (view.r1) arrow(scl(geom.w1, view.r1), COL.res[0], 3.5, 1, view.r1 > 0.9 ? 'w₁' : undefined);
@@ -294,18 +319,23 @@ const STR = {
     const aborted = (my: number) => my !== runId;
 
     // ---------- pausa: congela l'avanzamento di tween/wait senza perdere lo stato ----------
+    // il bottone "Calcola e mantieni" fa ora anche da Pausa/Riprendi (un solo
+    // pulsante, 3 stati, come il tasto Avvia di SimulatoreUrti): a riposo avvia,
+    // durante l'esecuzione mette in pausa, in pausa riprende.
     let paused = false;
+    let running = false;
+    const IDLE_LABEL = computeBtn.textContent ?? '';
     const PAUSE_LABEL = root.dataset.pauseLabel ?? '';
     const RESUME_LABEL = root.dataset.resumeLabel ?? '';
     function setPaused(p: boolean) {
       paused = p;
-      pauseBtn.textContent = paused ? RESUME_LABEL : PAUSE_LABEL;
-      pauseBtn.setAttribute('aria-pressed', String(paused));
+      computeBtn.textContent = paused ? RESUME_LABEL : PAUSE_LABEL;
     }
-    pauseBtn.addEventListener('click', () => {
-      if (pauseBtn.disabled) return;
-      setPaused(!paused);
-    });
+    function setRunning(r: boolean) {
+      running = r;
+      paused = false;
+      computeBtn.textContent = r ? PAUSE_LABEL : IDLE_LABEL;
+    }
 
     // tween e wait avanzano un "elapsed" solo quando non in pausa: durante la
     // pausa il rAF continua a girare (per restare pronti a riprendere subito)
@@ -341,12 +371,10 @@ const STR = {
       });
     }
 
-    // interrompe del tutto una riproduzione in corso (usata da drag, Modifica, Reset)
+    // interrompe del tutto una riproduzione in corso (usata da tip-drag, Modifica, Reset)
     function cancelPlay() {
       animToken++; runId++;
-      computeBtn.disabled = false;
-      pauseBtn.disabled = true;
-      setPaused(false);
+      setRunning(false);
     }
 
     async function play() {
@@ -355,10 +383,8 @@ const STR = {
       const t = (ms: number) => ms / spd;   // scala una durata in base al rallentatore
       geom = gramSchmidtOrtho(v[0], v[1], v[2]);
       view = {}; animToken++;
-      computeBtn.disabled = true;
-      pauseBtn.disabled = false;
-      setPaused(false);
-      const stop = () => { computeBtn.disabled = false; pauseBtn.disabled = true; setPaused(false); };
+      setRunning(true);
+      const stop = () => setRunning(false);
 
       // PASSO 1: w1 = v1 (nessuna normalizzazione: cresce fino a v1 e basta)
       await tween(t(650), tt => { view.r1 = tt; }); if (aborted(my)) return stop();
@@ -438,15 +464,24 @@ const STR = {
     };
 
     canvas.addEventListener('pointerdown', e => {
-      cancelPlay();
+      // NOTA: qui NON si interrompe piu' l'animazione a priori. La si interrompe
+      // solo se l'interazione risulta essere un trascinamento di una punta di
+      // vettore (tip-drag, possibile solo in Modifica): orbitare la vista o fare
+      // pinch-zoom deve restare possibile SEMPRE, anche a play in corso o in pausa.
       canvas.setPointerCapture(e.pointerId);
       const p = pointerPos(e);
       pts.set(e.pointerId, p);
       if (pts.size === 2) { drag = null; pinch = { dist: twoDist(), zoom }; return; }
       if (mode === 'edit') {
         const i = hitTip(p.x, p.y);
-        drag = i >= 0 ? { kind: 'tip', i } : { kind: 'orbit' };
-        canvas.style.cursor = i >= 0 ? 'grabbing' : 'move';
+        if (i >= 0) {
+          cancelPlay();                 // modificare un vettore invalida l'animazione in corso
+          drag = { kind: 'tip', i };
+          canvas.style.cursor = 'grabbing';
+        } else {
+          drag = { kind: 'orbit' };
+          canvas.style.cursor = 'move';
+        }
       } else {
         drag = { kind: 'orbit' };
         canvas.style.cursor = 'move';
@@ -496,7 +531,10 @@ const STR = {
     canvas.addEventListener('pointercancel', endPointer);
 
     // ---------- pulsanti ----------
-    computeBtn.addEventListener('click', () => { setMode('explore'); play(); });
+    computeBtn.addEventListener('click', () => {
+      if (running) { setPaused(!paused); return; }   // toggle pausa/ripresa
+      setMode('explore'); play();                     // a riposo: avvia
+    });
     editBtn.addEventListener('click', () => {
       cancelPlay();
       setMode('edit'); staticView(); draw();
