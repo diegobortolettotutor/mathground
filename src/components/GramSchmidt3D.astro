@@ -52,7 +52,8 @@ const STR = {
 ---
 
 <figure class="gs3d" data-gs3d data-uid={uid}
-  data-hint-edit={STR.hintEdit} data-hint-explore={STR.hintExplore}>
+  data-hint-edit={STR.hintEdit} data-hint-explore={STR.hintExplore}
+  data-pause-label={STR.pause} data-resume-label={STR.resume}>
   <div class="gs3d__stage">
     <canvas class="gs3d__canvas" aria-label={STR.aria}></canvas>
     <div class="gs3d__hint"></div>
@@ -316,9 +317,11 @@ const STR = {
 
     // ---------- pausa: congela l'avanzamento di tween/wait senza perdere lo stato ----------
     let paused = false;
+    const PAUSE_LABEL = root.dataset.pauseLabel ?? '';
+    const RESUME_LABEL = root.dataset.resumeLabel ?? '';
     function setPaused(p: boolean) {
       paused = p;
-      pauseBtn.textContent = paused ? STR.resume : STR.pause;
+      pauseBtn.textContent = paused ? RESUME_LABEL : PAUSE_LABEL;
       pauseBtn.setAttribute('aria-pressed', String(paused));
     }
     pauseBtn.addEventListener('click', () => {
@@ -553,6 +556,8 @@ const STR = {
 </script>
 
 <style>
+  .gs3d, .gs3d *, .gs3d *::before, .gs3d *::after { box-sizing: border-box; }
+
   .gs3d {
     margin: 1.5rem 0;
     display: flex;
@@ -581,9 +586,14 @@ const STR = {
 
   .gs3d__controls { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
   .gs3d__btn {
+    appearance: none; -webkit-appearance: none;
+    height: 2.3rem;
+    margin: 0;
     font: inherit;
     font-size: 0.85rem;
-    padding: 0.4rem 0.8rem;
+    line-height: 1;
+    display: inline-flex; align-items: center; justify-content: center;
+    padding: 0 0.9rem;
     border-radius: 8px;
     border: 1px solid var(--sl-color-gray-5, #3a3a3a);
     background: var(--sl-color-gray-6, #222);
