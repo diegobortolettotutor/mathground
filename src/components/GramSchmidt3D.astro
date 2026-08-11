@@ -405,15 +405,21 @@ const STR = {
       view.u2 = { vec: geom.u2, a: 1 }; view.w2 = view.p2 = view.drop2 = 0;
       await wait(t(250)); if (aborted(my)) return stop();
 
-      // PASSO 3: DUE proiezioni in SEQUENZA (su u1, poi su u2), poi sottraggo e normalizzo
+      // PASSO 3: DUE proiezioni in SEQUENZA (su u1, poi su u2), poi sottraggo e normalizzo.
+      // Le due proiezioni sono dirette, ciascuna sul proprio versore GIA' ortogonalizzato
+      // (dot(v3,u1) e dot(v3,u2) presi separatamente): NON e' una proiezione sul piano
+      // u1-u2. Il tratteggio della prima proiezione (drop3a) si dissolve mentre cresce
+      // quello della seconda (drop3b): senza questo crossfade i due tratteggi restavano
+      // visibili insieme e disegnavano un triangolo che dava l'illusione ottica di una
+      // proiezione "sul piano" anche se la freccia p3b e' sempre perfettamente lungo u2.
       await tween(t(650), tt => { view.p3a = tt; view.drop3a = tt; }); if (aborted(my)) return stop();
       await wait(t(180)); if (aborted(my)) return stop();
-      await tween(t(650), tt => { view.p3b = tt; view.drop3b = tt; }); if (aborted(my)) return stop();
+      await tween(t(650), tt => { view.p3b = tt; view.drop3b = tt; view.drop3a = 1 - tt; }); if (aborted(my)) return stop();
       await tween(t(600), tt => { view.w3 = tt; }); if (aborted(my)) return stop();
       await tween(t(650), tt => {                       // w3 -> u3, sfumo tutto il resto
         view.u3 = { vec: lerp3(geom.w3, geom.u3, tt), a: 1 };
         view.w3 = 1 - tt;
-        view.p3a = view.p3b = view.drop3a = view.drop3b = 1 - tt;
+        view.p3a = view.p3b = view.drop3b = 1 - tt;
       }); if (aborted(my)) return stop();
 
       // chiusura: resta la base ortonormale
