@@ -11,16 +11,9 @@
 
   Componente nativo: nessuna libreria a runtime, proiezione 3D->2D a mano su
   <canvas>. Vettori trascinabili (in modalita' Modifica), vista orbitabile e
-  zoomabile (rotella / pinch). Formule KaTeX renderizzate a build-time.
+  zoomabile (rotella / pinch). Le formule del procedimento NON sono piu'
+  renderizzate qui: vivono nella pagina .mdx che ospita il componente.
 --------------------------------------------------------------------------*/
-import katex from 'katex';
-
-const tex = (s: string) =>
-  katex.renderToString(s, { displayMode: true, throwOnError: false });
-
-const F1 = tex(String.raw`\vec w_1=\vec v_1`);
-const F2 = tex(String.raw`\vec w_2=\vec v_2-\dfrac{\vec v_2\cdot\vec w_1}{\vec w_1\cdot\vec w_1}\,\vec w_1`);
-const F3 = tex(String.raw`\vec w_3=\vec v_3-\dfrac{\vec v_3\cdot\vec w_1}{\vec w_1\cdot\vec w_1}\,\vec w_1-\dfrac{\vec v_3\cdot\vec w_2}{\vec w_2\cdot\vec w_2}\,\vec w_2`);
 
 const uid = 'gso3d-' + Math.random().toString(36).slice(2, 9);
 
@@ -33,17 +26,19 @@ const lang: 'it' | 'en' = locale.startsWith('en') ? 'en' : 'it';
 const STR = {
   it: {
     aria: 'Ortogonalizzazione di Gram-Schmidt in 3D',
-    compute: '▶ Calcola e mantieni',
-    edit: '✋ Modifica v₁ v₂ v₃',
-    reset: '↺ Reset',
+    compute: 'Calcola e mantieni',
+    edit: 'Modifica v₁ v₂ v₃',
+    reset: 'Reset',
+    slow: 'rallentatore',
     hintEdit: 'Trascina le punte di <b>v₁, v₂, v₃</b> · sfondo = ruota · rotella o pinch = zoom',
     hintExplore: 'Ruota: trascina · Zoom: rotella o pinch · «Modifica» per spostare i vettori',
   },
   en: {
     aria: 'Gram-Schmidt orthogonalization in 3D',
-    compute: '▶ Compute & keep',
-    edit: '✋ Edit v₁ v₂ v₃',
-    reset: '↺ Reset',
+    compute: 'Compute & keep',
+    edit: 'Edit v₁ v₂ v₃',
+    reset: 'Reset',
+    slow: 'slow motion',
     hintEdit: 'Drag the tips of <b>v₁, v₂, v₃</b> · background = rotate · wheel or pinch = zoom',
     hintExplore: 'Rotate: drag · Zoom: wheel or pinch · “Edit” to move the vectors',
   },
@@ -57,23 +52,20 @@ const STR = {
     <div class="gso3d__hint"></div>
   </div>
 
-  <div class="gso3d__side">
-    <div class="gso3d__controls">
-      <button class="gso3d__btn gso3d__mode gso3d__compute active" type="button" aria-pressed="true">{STR.compute}</button>
-      <button class="gso3d__btn gso3d__mode gso3d__edit" type="button" aria-pressed="false">{STR.edit}</button>
-      <button class="gso3d__btn gso3d__reset" type="button">{STR.reset}</button>
-    </div>
+  <div class="gso3d__controls">
+    <button class="gso3d__btn gso3d__mode gso3d__compute active" type="button" aria-pressed="true">{STR.compute}</button>
+    <button class="gso3d__btn gso3d__mode gso3d__edit" type="button" aria-pressed="false">{STR.edit}</button>
+    <button class="gso3d__btn gso3d__reset" type="button">{STR.reset}</button>
+    <span class="gso3d__slowcell">
+      <label for={uid + '-slow'}>{STR.slow}</label>
+      <input type="range" id={uid + '-slow'} class="gso3d__slow" min="0.1" max="1" value="1" step="0.05" />
+      <span class="gso3d__slow-val">1.00×</span>
+    </span>
+  </div>
 
-    <ol class="gso3d__steps">
-      <li data-step="1"><span class="gso3d__dot" style="--c:#3b82f6"></span><div set:html={F1} /></li>
-      <li data-step="2"><span class="gso3d__dot" style="--c:#10b981"></span><div set:html={F2} /></li>
-      <li data-step="3"><span class="gso3d__dot" style="--c:#f59e0b"></span><div set:html={F3} /></li>
-    </ol>
-
-    <div class="gso3d__check">
-      <span class="gso3d__cell">‖w₁‖,‖w₂‖,‖w₃‖ = <b class="gso3d__norms">—</b> <small>(≠ 1)</small></span>
-      <span class="gso3d__cell">w₁·w₂, w₁·w₃, w₂·w₃ = <b class="gso3d__dots">—</b></span>
-    </div>
+  <div class="gso3d__check">
+    <span class="gso3d__cell">‖w₁‖,‖w₂‖,‖w₃‖ = <b class="gso3d__norms">—</b> <small>(≠ 1)</small></span>
+    <span class="gso3d__cell">w₁·w₂, w₁·w₃, w₂·w₃ = <b class="gso3d__dots">—</b></span>
   </div>
 </figure>
 
@@ -122,7 +114,8 @@ const STR = {
     const editBtn = root.querySelector('.gso3d__edit') as HTMLButtonElement;
     const resetBtn = root.querySelector('.gso3d__reset') as HTMLButtonElement;
     const hintEl = root.querySelector('.gso3d__hint') as HTMLElement;
-    const stepEls = Array.from(root.querySelectorAll('.gso3d__steps li')) as HTMLElement[];
+    const slowEl = root.querySelector('.gso3d__slow') as HTMLInputElement;
+    const slowValEl = root.querySelector('.gso3d__slow-val') as HTMLElement;
 
     const V0: V3[] = [[2.0, 0.6, 0.4], [0.5, 2.0, 0.3], [0.4, 0.5, 2.0]];
     let v: V3[] = V0.map(a => [...a] as V3);
@@ -216,10 +209,6 @@ const STR = {
     let view: View = {};
     function staticView() { view = { r1: 1, r2: 1, r3: 1 }; } // a riposo: i tre w pieni
 
-    function highlightStep(n: number) {
-      stepEls.forEach(li => li.classList.toggle('active', +li.dataset.step! === n));
-    }
-
     function draw() {
       cam = camera(az, el);
       ctx.clearRect(0, 0, W, H);
@@ -250,6 +239,19 @@ const STR = {
         .map(x => (Math.abs(x) < 5e-3 ? '0.00' : x.toFixed(2))).join(', ');
     }
 
+    // ---------- rallentatore: fattore di velocita' dell'animazione ----------
+    // 1.00 = velocita' attuale (nessuna modifica); valori piu' bassi = piu' lento.
+    // Il fattore viene letto una volta all'avvio di ogni play(), cosi' una
+    // riproduzione in corso resta coerente anche se lo slider viene toccato.
+    let speed = 1;
+    function updateSpeedLabel() {
+      slowValEl.textContent = speed.toFixed(2) + '×';
+    }
+    slowEl.addEventListener('input', () => {
+      speed = +slowEl.value;
+      updateSpeedLabel();
+    });
+
     // ---------- animazione a fasi ----------
     let animToken = 0;
     let runId = 0;
@@ -266,40 +268,41 @@ const STR = {
         requestAnimationFrame(frame);
       });
     }
-    const wait = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
+    const wait = (ms: number) => new Promise<void>(r => {
+      const tok = animToken; setTimeout(() => { if (tok === animToken) r(); else r(); }, ms);
+    });
 
     async function play() {
       const my = ++runId;
+      const spd = Math.max(0.05, speed);    // fattore congelato per questa riproduzione
+      const t = (ms: number) => ms / spd;   // scala una durata in base al rallentatore
       geom = gramSchmidtOrtho(v[0], v[1], v[2]);
       view = {}; animToken++;
       computeBtn.disabled = true;
       const stop = () => { computeBtn.disabled = false; };
 
       // PASSO 1: w1 = v1 (nessuna normalizzazione: cresce fino a v1 e basta)
-      highlightStep(1);
-      await tween(650, t => { view.r1 = t; }); if (aborted(my)) return stop();
-      await wait(250); if (aborted(my)) return stop();
+      await tween(t(650), tt => { view.r1 = tt; }); if (aborted(my)) return stop();
+      await wait(t(250)); if (aborted(my)) return stop();
 
       // PASSO 2: proietto v2 su w1, sottraggo -> w2 (NON normalizzo)
-      highlightStep(2);
-      await tween(650, t => { view.p2 = t; view.drop2 = t; }); if (aborted(my)) return stop();
-      await tween(650, t => {                       // cresce w2, sfumano proiezione/tratteggio
-        view.r2 = t; view.p2 = 1 - t; view.drop2 = 1 - t;
+      await tween(t(650), tt => { view.p2 = tt; view.drop2 = tt; }); if (aborted(my)) return stop();
+      await tween(t(650), tt => {                       // cresce w2, sfumano proiezione/tratteggio
+        view.r2 = tt; view.p2 = 1 - tt; view.drop2 = 1 - tt;
       }); if (aborted(my)) return stop();
       view.r2 = 1; view.p2 = view.drop2 = 0;
-      await wait(250); if (aborted(my)) return stop();
+      await wait(t(250)); if (aborted(my)) return stop();
 
       // PASSO 3: DUE proiezioni in SEQUENZA (su w1, poi su w2), sottraggo -> w3
-      highlightStep(3);
-      await tween(650, t => { view.p3a = t; view.drop3a = t; }); if (aborted(my)) return stop();
-      await wait(180); if (aborted(my)) return stop();
-      await tween(650, t => { view.p3b = t; view.drop3b = t; }); if (aborted(my)) return stop();
-      await tween(700, t => {                       // cresce w3, sfuma tutto il resto
-        view.r3 = t;
-        view.p3a = view.p3b = view.drop3a = view.drop3b = 1 - t;
+      await tween(t(650), tt => { view.p3a = tt; view.drop3a = tt; }); if (aborted(my)) return stop();
+      await wait(t(180)); if (aborted(my)) return stop();
+      await tween(t(650), tt => { view.p3b = tt; view.drop3b = tt; }); if (aborted(my)) return stop();
+      await tween(t(700), tt => {                       // cresce w3, sfuma tutto il resto
+        view.r3 = tt;
+        view.p3a = view.p3b = view.drop3a = view.drop3b = 1 - tt;
       }); if (aborted(my)) return stop();
 
-      staticView(); highlightStep(0); draw();
+      staticView(); draw();
       computeBtn.disabled = false;
     }
 
@@ -410,14 +413,15 @@ const STR = {
     computeBtn.addEventListener('click', () => { setMode('explore'); play(); });
     editBtn.addEventListener('click', () => {
       animToken++; runId++; computeBtn.disabled = false;
-      setMode('edit'); staticView(); highlightStep(0); draw();
+      setMode('edit'); staticView(); draw();
     });
     resetBtn.addEventListener('click', () => {
+      // NOTA: il rallentatore NON viene toccato dal reset (resta come l'ha impostato l'utente)
       animToken++; runId++; computeBtn.disabled = false;
       v = V0.map(a => [...a] as V3);
       az = 0.7; el = 0.5; zoom = 1; applyScale();
       geom = gramSchmidtOrtho(v[0], v[1], v[2]);
-      setMode('explore'); staticView(); highlightStep(0); updateReadout(); draw();
+      setMode('explore'); staticView(); updateReadout(); draw();
     });
 
     // ---------- avvio ----------
@@ -425,6 +429,7 @@ const STR = {
     setMode('explore');
     staticView();
     updateReadout();
+    updateSpeedLabel();
     new ResizeObserver(resize).observe(canvas);
     new MutationObserver(() => { refreshThemeColors(); draw(); })
       .observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'class'] });
@@ -437,12 +442,10 @@ const STR = {
 <style>
   .gso3d {
     margin: 1.5rem 0;
-    display: grid;
-    grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
-    gap: 1rem;
-    align-items: start;
+    display: flex;
+    flex-direction: column;
+    gap: 0.7rem;
   }
-  @media (max-width: 720px) { .gso3d { grid-template-columns: 1fr; } }
 
   .gso3d__stage {
     border: 1px solid var(--sl-color-gray-5, #3a3a3a);
@@ -463,8 +466,7 @@ const STR = {
     border-top: 1px solid var(--sl-color-gray-5, #3a3a3a);
   }
 
-  .gso3d__side { display: flex; flex-direction: column; gap: 0.8rem; }
-  .gso3d__controls { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+  .gso3d__controls { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
   .gso3d__btn {
     font: inherit; font-size: 0.85rem;
     padding: 0.4rem 0.8rem; border-radius: 8px;
@@ -481,30 +483,17 @@ const STR = {
     color: var(--sl-color-black, #fff);
   }
 
-  .gso3d__steps {
-    list-style: none; margin: 0; padding: 0;
-    display: flex; flex-direction: column; gap: 0.55rem;
+  .gso3d__slowcell {
+    display: flex; align-items: center; gap: 0.5rem;
+    margin-left: auto;
+    font-size: 0.82rem;
+    color: var(--sl-color-gray-2, #b8b8c4);
   }
-  .gso3d__steps li {
-    position: relative;
-    padding: 0.4rem 0.55rem 0.4rem 1.4rem;
-    border-radius: 8px; border: 1px solid transparent;
-    font-size: 0.92rem;
-    transition: background 0.2s, border-color 0.2s;
-    overflow-x: auto;
-  }
-  .gso3d__steps li.active {
-    background: color-mix(in srgb, var(--sl-color-accent, #5b8def) 14%, transparent);
-    border-color: var(--sl-color-accent, #5b8def);
-  }
-  .gso3d__dot {
-    position: absolute; left: 0.5rem; top: 0.72rem;
-    width: 0.55rem; height: 0.55rem; border-radius: 50%;
-    background: var(--c);
-  }
+  .gso3d__slow { width: 110px; accent-color: var(--sl-color-accent, #5b8def); }
+  .gso3d__slow-val { font-variant-numeric: tabular-nums; min-width: 3.4em; text-align: right; }
 
   .gso3d__check {
-    display: flex; flex-direction: column; gap: 0.3rem;
+    display: flex; flex-wrap: wrap; gap: 0.3rem 1.4rem;
     font-size: 0.82rem;
     color: var(--sl-color-gray-2, #b8b8c4);
     border-top: 1px solid var(--sl-color-gray-5, #3a3a3a);
@@ -512,7 +501,4 @@ const STR = {
   }
   .gso3d__check b { color: var(--sl-color-white, #fff); font-variant-numeric: tabular-nums; }
   .gso3d__check small { opacity: 0.7; }
-
-  .gso3d__steps :global(.katex) { font-size: 0.95em; }
-  .gso3d__steps :global(.katex-display) { margin: 0; }
 </style>

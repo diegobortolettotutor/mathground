@@ -1,12 +1,66 @@
 ---
 title: Gram-Schmidt 3D without normalization
-description: Interactive 3D simulator of Gram-Schmidt orthogonalization without normalization, with draggable vectors and orbit camera.
+description: Interactive 3D simulator of Gram-Schmidt orthogonalization without normalization, with draggable vectors and an orbiting camera.
 sidebar:
   hidden: false
   label: Gram-Schmidt 3D without normalization
   order: 5
 tableOfContents: false
 ---
+
 import GramSchmidt3DSoloOrto from '@components/GramSchmidt3DSoloOrto.astro';
 
+This is the variant of the Gram-Schmidt process that stops at
+**orthogonalization**: starting from three vectors $\vec v_1,\vec v_2,\vec v_3$ in
+$\mathbb{R}^3$, it produces three mutually orthogonal vectors $\vec w_1,\vec w_2,\vec w_3$
+that are **not** of length $1$ (the final normalization step is missing). The tips of the
+vectors can be dragged in "Edit v₁ v₂ v₃" mode.
+
 <GramSchmidt3DSoloOrto />
+
+## The process, step by step
+
+<span style="display:inline-block;width:0.6em;height:0.6em;border-radius:50%;background:#3b82f6;margin-right:0.4em;vertical-align:middle;"></span>**Step 1.**
+The first resulting vector coincides with $\vec v_1$: nothing needs to be subtracted or
+normalized.
+
+$$\vec w_1=\vec v_1$$
+
+<span style="display:inline-block;width:0.6em;height:0.6em;border-radius:50%;background:#10b981;margin-right:0.4em;vertical-align:middle;"></span>**Step 2.**
+The projection of $\vec v_2$ onto $\vec w_1$ is subtracted. Since $\vec w_1$ is not a unit
+vector, the projection coefficient is $\dfrac{\vec v_2\cdot\vec w_1}{\vec w_1\cdot\vec w_1}$
+(the dot product alone is not enough, as it would be with a unit vector):
+
+$$\vec w_2=\vec v_2-\dfrac{\vec v_2\cdot\vec w_1}{\vec w_1\cdot\vec w_1}\,\vec w_1$$
+
+<span style="display:inline-block;width:0.6em;height:0.6em;border-radius:50%;background:#f59e0b;margin-right:0.4em;vertical-align:middle;"></span>**Step 3.**
+**Both** projections are subtracted from $\vec v_3$, onto $\vec w_1$ and onto $\vec w_2$,
+using the same kind of coefficient normalized by the squared norm of the vector being
+projected onto:
+
+$$\vec w_3=\vec v_3-\dfrac{\vec v_3\cdot\vec w_1}{\vec w_1\cdot\vec w_1}\,\vec w_1-\dfrac{\vec v_3\cdot\vec w_2}{\vec w_2\cdot\vec w_2}\,\vec w_2$$
+
+Pressing "Compute & keep" animates this sequence on the simulator, color by color, in the
+same order described above. The "slow motion" slider allows following it at a gentler
+pace, without changing the final result.
+
+## Checking orthogonality
+
+Right below the simulator's buttons, two numeric rows update live while the starting
+vectors are dragged:
+
+- the **norms** $\lVert\vec w_1\rVert,\lVert\vec w_2\rVert,\lVert\vec w_3\rVert$, marked
+  with "$\neq 1$" because, unlike the orthonormalized version, they are **not** expected
+  to equal $1$: the length of the resulting vectors depends on the starting vectors;
+- the **cross dot products** $\vec w_1\cdot\vec w_2,\ \vec w_1\cdot\vec w_3,\
+  \vec w_2\cdot\vec w_3$, which should instead stay at $0$ (the resulting vectors are
+  pairwise orthogonal, even though not unit length).
+
+A zero dot product is, on its own, the defining property of orthogonality: that live
+number offers a way to check, for any linearly independent starting triple, that the
+process worked correctly, regardless of the length of the resulting vectors.
+
+:::tip[See also]
+For the full variant, which also normalizes the resulting vectors into an orthonormal
+basis, see [Gram-Schmidt 3D](/en/simulatori/gram-schmidt3D/).
+:::

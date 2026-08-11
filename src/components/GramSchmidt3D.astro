@@ -7,23 +7,14 @@
   - la proiezione 3D -> 2D e' calcolata a mano su un <canvas> 2D;
   - i tre vettori di partenza v1, v2, v3 sono TRASCINABILI con dito/mouse;
   - la vista si ruota (orbita) trascinando lo sfondo vuoto;
-  - "Mostra costruzione" anima i tre passi; al terzo passo le DUE proiezioni
+  - "Calcola e mantieni" anima i tre passi; al terzo passo le DUE proiezioni
     (su u1 e su u2) compaiono in sequenza.
 
-  Le formule sono renderizzate qui nel frontmatter con KaTeX (a build-time):
-  nessun costo JavaScript a runtime per la matematica. Richiede il pacchetto
-  "katex" (gia' presente se usi rehype-katex). Il CSS di KaTeX e' gia'
-  caricato a livello di sito su MathGround.
+  Le formule del procedimento NON sono piu' renderizzate qui: vivono nella
+  pagina .mdx che ospita il componente (spiegazione dopo il simulatore).
+  Il componente resta canvas + controlli + verifica numerica dal vivo
+  (norme e prodotti scalari), cosi' da restare autonomo e leggero.
 --------------------------------------------------------------------------*/
-import katex from 'katex';
-
-const tex = (s: string) =>
-  katex.renderToString(s, { displayMode: true, throwOnError: false });
-
-// le tre formule dei passi (vec = freccia, lVert..rVert = norma)
-const F1 = tex(String.raw`\vec u_1=\dfrac{\vec v_1}{\lVert \vec v_1\rVert}`);
-const F2 = tex(String.raw`\vec w_2=\vec v_2-(\vec v_2\!\cdot\!\vec u_1)\,\vec u_1,\qquad \vec u_2=\dfrac{\vec w_2}{\lVert \vec w_2\rVert}`);
-const F3 = tex(String.raw`\vec w_3=\vec v_3-(\vec v_3\!\cdot\!\vec u_1)\,\vec u_1-(\vec v_3\!\cdot\!\vec u_2)\,\vec u_2,\qquad \vec u_3=\dfrac{\vec w_3}{\lVert \vec w_3\rVert}`);
 
 // id unico: cosi' il componente puo' comparire piu' volte nella stessa pagina
 const uid = 'gs3d-' + Math.random().toString(36).slice(2, 9);
@@ -37,17 +28,19 @@ const lang: 'it' | 'en' = locale.startsWith('en') ? 'en' : 'it';
 const STR = {
   it: {
     aria: 'Ortonormalizzazione di Gram-Schmidt in 3D',
-    compute: '▶ Calcola e mantieni',
-    edit: '✋ Modifica v₁ v₂ v₃',
-    reset: '↺ Reset',
+    compute: 'Calcola e mantieni',
+    edit: 'Modifica v₁ v₂ v₃',
+    reset: 'Reset',
+    slow: 'rallentatore',
     hintEdit: 'Trascina le punte di <b>v₁, v₂, v₃</b> · sfondo = ruota · rotella o pinch = zoom',
     hintExplore: 'Ruota: trascina · Zoom: rotella o pinch · «Modifica» per spostare i vettori',
   },
   en: {
     aria: 'Gram-Schmidt orthonormalization in 3D',
-    compute: '▶ Compute & keep',
-    edit: '✋ Edit v₁ v₂ v₃',
-    reset: '↺ Reset',
+    compute: 'Compute & keep',
+    edit: 'Edit v₁ v₂ v₃',
+    reset: 'Reset',
+    slow: 'slow motion',
     hintEdit: 'Drag the tips of <b>v₁, v₂, v₃</b> · background = rotate · wheel or pinch = zoom',
     hintExplore: 'Rotate: drag · Zoom: wheel or pinch · “Edit” to move the vectors',
   },
@@ -61,23 +54,20 @@ const STR = {
     <div class="gs3d__hint"></div>
   </div>
 
-  <div class="gs3d__side">
-    <div class="gs3d__controls">
-      <button class="gs3d__btn gs3d__mode gs3d__compute active" type="button" aria-pressed="true">{STR.compute}</button>
-      <button class="gs3d__btn gs3d__mode gs3d__edit" type="button" aria-pressed="false">{STR.edit}</button>
-      <button class="gs3d__btn gs3d__reset" type="button">{STR.reset}</button>
-    </div>
+  <div class="gs3d__controls">
+    <button class="gs3d__btn gs3d__mode gs3d__compute active" type="button" aria-pressed="true">{STR.compute}</button>
+    <button class="gs3d__btn gs3d__mode gs3d__edit" type="button" aria-pressed="false">{STR.edit}</button>
+    <button class="gs3d__btn gs3d__reset" type="button">{STR.reset}</button>
+    <span class="gs3d__slowcell">
+      <label for={uid + '-slow'}>{STR.slow}</label>
+      <input type="range" id={uid + '-slow'} class="gs3d__slow" min="0.1" max="1" value="1" step="0.05" />
+      <span class="gs3d__slow-val">1.00×</span>
+    </span>
+  </div>
 
-    <ol class="gs3d__steps">
-      <li data-step="1"><span class="gs3d__dot" style="--c:#3b82f6"></span><div set:html={F1} /></li>
-      <li data-step="2"><span class="gs3d__dot" style="--c:#10b981"></span><div set:html={F2} /></li>
-      <li data-step="3"><span class="gs3d__dot" style="--c:#f59e0b"></span><div set:html={F3} /></li>
-    </ol>
-
-    <div class="gs3d__check">
-      <span class="gs3d__cell">‖u₁‖,‖u₂‖,‖u₃‖ = <b class="gs3d__norms">—</b></span>
-      <span class="gs3d__cell">u₁·u₂, u₁·u₃, u₂·u₃ = <b class="gs3d__dots">—</b></span>
-    </div>
+  <div class="gs3d__check">
+    <span class="gs3d__cell">‖u₁‖,‖u₂‖,‖u₃‖ = <b class="gs3d__norms">—</b></span>
+    <span class="gs3d__cell">u₁·u₂, u₁·u₃, u₂·u₃ = <b class="gs3d__dots">—</b></span>
   </div>
 </figure>
 
@@ -130,7 +120,8 @@ const STR = {
     const editBtn = root.querySelector('.gs3d__edit') as HTMLButtonElement;
     const resetBtn = root.querySelector('.gs3d__reset') as HTMLButtonElement;
     const hintEl = root.querySelector('.gs3d__hint') as HTMLElement;
-    const stepEls = Array.from(root.querySelectorAll('.gs3d__steps li')) as HTMLElement[];
+    const slowEl = root.querySelector('.gs3d__slow') as HTMLInputElement;
+    const slowValEl = root.querySelector('.gs3d__slow-val') as HTMLElement;
 
     // stato iniziale: vettori "storti" vicini agli assi, cosi' l'effetto si vede
     const V0: V3[] = [[2.0, 0.6, 0.4], [0.5, 2.0, 0.3], [0.4, 0.5, 2.0]];
@@ -236,7 +227,6 @@ const STR = {
       p2?: number; p3a?: number; p3b?: number;     // frazione di lunghezza
       w2?: number; w3?: number;                    // frazione di lunghezza
       drop2?: number; drop3a?: number; drop3b?: number; // opacita' tratteggi
-      label?: number;                              // passo evidenziato (1,2,3,0)
     };
     let view: View = {};
     function staticView() {
@@ -245,12 +235,7 @@ const STR = {
         u1: { vec: geom.u1, a: 1 },
         u2: { vec: geom.u2, a: 1 },
         u3: { vec: geom.u3, a: 1 },
-        label: 0,
       };
-    }
-
-    function highlightStep(n: number) {
-      stepEls.forEach(li => li.classList.toggle('active', +li.dataset.step! === n));
     }
 
     function draw() {
@@ -287,6 +272,19 @@ const STR = {
         .map(x => (Math.abs(x) < 5e-3 ? '0.00' : x.toFixed(2))).join(', ');
     }
 
+    // ---------- rallentatore: fattore di velocita' dell'animazione ----------
+    // 1.00 = velocita' attuale (nessuna modifica); valori piu' bassi = piu' lento.
+    // Il fattore viene letto una volta all'avvio di ogni play(), cosi' una
+    // riproduzione in corso resta coerente anche se lo slider viene toccato.
+    let speed = 1;
+    function updateSpeedLabel() {
+      slowValEl.textContent = speed.toFixed(2) + '×';
+    }
+    slowEl.addEventListener('input', () => {
+      speed = +slowEl.value;
+      updateSpeedLabel();
+    });
+
     // ---------- animazione a fasi (tween awaitable) ----------
     let animToken = 0;   // annulla il singolo tween in corso
     let runId = 0;       // annulla l'INTERA sequenza play()
@@ -309,44 +307,42 @@ const STR = {
 
     async function play() {
       const my = ++runId;                   // identita' di questa esecuzione
+      const spd = Math.max(0.05, speed);    // fattore congelato per questa riproduzione
+      const t = (ms: number) => ms / spd;   // scala una durata in base al rallentatore
       geom = gramSchmidt(v[0], v[1], v[2]); // congelo la geometria corrente
       view = {}; animToken++;               // azzero ed escludo tween precedenti
       computeBtn.disabled = true;
       const stop = () => { computeBtn.disabled = false; };
 
       // PASSO 1: normalizzo v1 -> u1 (la freccia si "accorcia" al versore)
-      highlightStep(1);
-      await tween(700, t => { view.u1 = { vec: lerp3(v[0], geom.u1, t), a: 1 }; });
+      await tween(t(700), tt => { view.u1 = { vec: lerp3(v[0], geom.u1, tt), a: 1 }; });
       if (aborted(my)) return stop();
       view.u1 = { vec: geom.u1, a: 1 };
-      await wait(250); if (aborted(my)) return stop();
+      await wait(t(250)); if (aborted(my)) return stop();
 
       // PASSO 2: proietto v2 su u1, sottraggo, normalizzo
-      highlightStep(2);
-      await tween(650, t => { view.p2 = t; view.drop2 = t; }); if (aborted(my)) return stop();
-      await tween(600, t => { view.w2 = t; }); if (aborted(my)) return stop();
-      await tween(650, t => {                       // w2 -> u2, sfumo proiezione/tratteggio
-        view.u2 = { vec: lerp3(geom.w2, geom.u2, t), a: 1 };
-        view.w2 = 1 - t; view.p2 = 1 - t; view.drop2 = 1 - t;
+      await tween(t(650), tt => { view.p2 = tt; view.drop2 = tt; }); if (aborted(my)) return stop();
+      await tween(t(600), tt => { view.w2 = tt; }); if (aborted(my)) return stop();
+      await tween(t(650), tt => {                       // w2 -> u2, sfumo proiezione/tratteggio
+        view.u2 = { vec: lerp3(geom.w2, geom.u2, tt), a: 1 };
+        view.w2 = 1 - tt; view.p2 = 1 - tt; view.drop2 = 1 - tt;
       }); if (aborted(my)) return stop();
       view.u2 = { vec: geom.u2, a: 1 }; view.w2 = view.p2 = view.drop2 = 0;
-      await wait(250); if (aborted(my)) return stop();
+      await wait(t(250)); if (aborted(my)) return stop();
 
       // PASSO 3: DUE proiezioni in SEQUENZA (su u1, poi su u2), poi sottraggo e normalizzo
-      highlightStep(3);
-      await tween(650, t => { view.p3a = t; view.drop3a = t; }); if (aborted(my)) return stop();
-      await wait(180); if (aborted(my)) return stop();
-      await tween(650, t => { view.p3b = t; view.drop3b = t; }); if (aborted(my)) return stop();
-      await tween(600, t => { view.w3 = t; }); if (aborted(my)) return stop();
-      await tween(650, t => {                       // w3 -> u3, sfumo tutto il resto
-        view.u3 = { vec: lerp3(geom.w3, geom.u3, t), a: 1 };
-        view.w3 = 1 - t;
-        view.p3a = view.p3b = view.drop3a = view.drop3b = 1 - t;
+      await tween(t(650), tt => { view.p3a = tt; view.drop3a = tt; }); if (aborted(my)) return stop();
+      await wait(t(180)); if (aborted(my)) return stop();
+      await tween(t(650), tt => { view.p3b = tt; view.drop3b = tt; }); if (aborted(my)) return stop();
+      await tween(t(600), tt => { view.w3 = tt; }); if (aborted(my)) return stop();
+      await tween(t(650), tt => {                       // w3 -> u3, sfumo tutto il resto
+        view.u3 = { vec: lerp3(geom.w3, geom.u3, tt), a: 1 };
+        view.w3 = 1 - tt;
+        view.p3a = view.p3b = view.drop3a = view.drop3b = 1 - tt;
       }); if (aborted(my)) return stop();
 
       // chiusura: resta la base ortonormale
       staticView();
-      highlightStep(0);
       draw();
       computeBtn.disabled = false;
     }
@@ -465,14 +461,15 @@ const STR = {
     computeBtn.addEventListener('click', () => { setMode('explore'); play(); });
     editBtn.addEventListener('click', () => {
       animToken++; runId++; computeBtn.disabled = false;
-      setMode('edit'); staticView(); highlightStep(0); draw();
+      setMode('edit'); staticView(); draw();
     });
     resetBtn.addEventListener('click', () => {
+      // NOTA: il rallentatore NON viene toccato dal reset (resta come l'ha impostato l'utente)
       animToken++; runId++; computeBtn.disabled = false;
       v = V0.map(a => [...a] as V3);
       az = 0.7; el = 0.5; zoom = 1; applyScale();
       geom = gramSchmidt(v[0], v[1], v[2]);
-      setMode('explore'); staticView(); highlightStep(0); updateReadout(); draw();
+      setMode('explore'); staticView(); updateReadout(); draw();
     });
 
     // ---------- avvio ----------
@@ -480,6 +477,7 @@ const STR = {
     setMode('explore');               // a riposo i vettori sono bloccati
     staticView();
     updateReadout();
+    updateSpeedLabel();
     new ResizeObserver(resize).observe(canvas);
     // ricalcolo i colori quando l'utente cambia tema (Starlight cambia data-theme)
     new MutationObserver(() => { refreshThemeColors(); draw(); })
@@ -493,12 +491,10 @@ const STR = {
 <style>
   .gs3d {
     margin: 1.5rem 0;
-    display: grid;
-    grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
-    gap: 1rem;
-    align-items: start;
+    display: flex;
+    flex-direction: column;
+    gap: 0.7rem;
   }
-  @media (max-width: 720px) { .gs3d { grid-template-columns: 1fr; } }
 
   .gs3d__stage {
     border: 1px solid var(--sl-color-gray-5, #3a3a3a);
@@ -519,8 +515,7 @@ const STR = {
     border-top: 1px solid var(--sl-color-gray-5, #3a3a3a);
   }
 
-  .gs3d__side { display: flex; flex-direction: column; gap: 0.8rem; }
-  .gs3d__controls { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+  .gs3d__controls { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
   .gs3d__btn {
     font: inherit;
     font-size: 0.85rem;
@@ -539,40 +534,21 @@ const STR = {
     color: var(--sl-color-black, #fff);
   }
 
-  .gs3d__steps {
-    list-style: none;
-    margin: 0; padding: 0;
-    display: flex; flex-direction: column; gap: 0.55rem;
+  .gs3d__slowcell {
+    display: flex; align-items: center; gap: 0.5rem;
+    margin-left: auto;
+    font-size: 0.82rem;
+    color: var(--sl-color-gray-2, #b8b8c4);
   }
-  .gs3d__steps li {
-    position: relative;
-    padding: 0.4rem 0.55rem 0.4rem 1.4rem;
-    border-radius: 8px;
-    border: 1px solid transparent;
-    font-size: 0.92rem;
-    transition: background 0.2s, border-color 0.2s;
-    overflow-x: auto;
-  }
-  .gs3d__steps li.active {
-    background: color-mix(in srgb, var(--sl-color-accent, #5b8def) 14%, transparent);
-    border-color: var(--sl-color-accent, #5b8def);
-  }
-  .gs3d__dot {
-    position: absolute; left: 0.5rem; top: 0.72rem;
-    width: 0.55rem; height: 0.55rem; border-radius: 50%;
-    background: var(--c);
-  }
+  .gs3d__slow { width: 110px; accent-color: var(--sl-color-accent, #5b8def); }
+  .gs3d__slow-val { font-variant-numeric: tabular-nums; min-width: 3.4em; text-align: right; }
 
   .gs3d__check {
-    display: flex; flex-direction: column; gap: 0.3rem;
+    display: flex; flex-wrap: wrap; gap: 0.3rem 1.4rem;
     font-size: 0.82rem;
     color: var(--sl-color-gray-2, #b8b8c4);
     border-top: 1px solid var(--sl-color-gray-5, #3a3a3a);
     padding-top: 0.6rem;
   }
   .gs3d__check b { color: var(--sl-color-white, #fff); font-variant-numeric: tabular-nums; }
-
-  /* le formule KaTeX non devono sforare su mobile */
-  .gs3d__steps :global(.katex) { font-size: 0.95em; }
-  .gs3d__steps :global(.katex-display) { margin: 0; }
 </style>
