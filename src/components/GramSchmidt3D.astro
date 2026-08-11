@@ -207,14 +207,21 @@ const STR = {
     function arrow(vec: V3, color: string, width: number, alpha = 1, label?: string) {
       const A = project([0, 0, 0]), B = project(vec);
       const dx = B[0]-A[0], dy = B[1]-A[1], L = Math.hypot(dx, dy);
+      const h = 11, w = 6;
+      const hasHead = L > h; // sotto questa lunghezza la punta non ci sta: resta solo il segmento
+      // l'asta si ferma alla BASE del triangolo (non alla punta): cosi' l'estremita'
+      // arrotondata della linea (lineCap 'round') resta coperta dal triangolo pieno,
+      // invece di sporgere oltre la punta della freccia.
+      const ux = L > 0 ? dx/L : 0, uy = L > 0 ? dy/L : 0;
+      const bx = B[0]-ux*h, by = B[1]-uy*h;
+      const shaftEnd: [number, number] = hasHead ? [bx, by] : [B[0], B[1]];
       ctx.save();
       ctx.globalAlpha = alpha;
       ctx.strokeStyle = color; ctx.fillStyle = color;
       ctx.lineWidth = width; ctx.lineCap = 'round';
-      ctx.beginPath(); ctx.moveTo(A[0], A[1]); ctx.lineTo(B[0], B[1]); ctx.stroke();
-      if (L > 6) { // punta della freccia
-        const ux = dx/L, uy = dy/L, h = 11, w = 6;
-        const bx = B[0]-ux*h, by = B[1]-uy*h, px = -uy, py = ux;
+      ctx.beginPath(); ctx.moveTo(A[0], A[1]); ctx.lineTo(shaftEnd[0], shaftEnd[1]); ctx.stroke();
+      if (hasHead) { // punta della freccia
+        const px = -uy, py = ux;
         ctx.beginPath();
         ctx.moveTo(B[0], B[1]);
         ctx.lineTo(bx + px*w, by + py*w);
