@@ -104,6 +104,26 @@ const STR = {
     a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0],
   ];
   const normv = (a: V3): V3 => { const n = len(a) || 1; return scl(a, 1/n); };
+  const lerp3 = (a: V3, b: V3, t: number): V3 =>
+    [a[0]+(b[0]-a[0])*t, a[1]+(b[1]-a[1])*t, a[2]+(b[2]-a[2])*t];
+
+  // ---- ribaltamento di 180° di una proiezione, per l'animazione "punta-coda" ----
+  // Ruota 'p' attorno a un asse unitario PERPENDICOLARE a 'p' (Rodrigues si riduce
+  // a due soli termini, dato dot(axis,p)=0): a theta=0 resta p, a theta=PI diventa -p.
+  function rotatePerp(p: V3, axis: V3, theta: number): V3 {
+    return add(scl(p, Math.cos(theta)), scl(cross(axis, p), Math.sin(theta)));
+  }
+  // asse di ribaltamento: perpendicolare al piano proiezione/tratteggio (p, v-p),
+  // cosi' il ribaltamento avviene nello stesso piano gia' mostrato dal tratteggio.
+  // Fallback per il caso degenere (v gia' allineato a p, tratteggio nullo).
+  function flipAxis(p: V3, dropVec: V3): V3 {
+    const n = cross(p, dropVec);
+    const L = len(n);
+    if (L > 1e-6) return scl(n, 1/L);
+    const fb: V3 = Math.abs(p[0]) < 0.9 ? [1, 0, 0] : [0, 1, 0];
+    const f = cross(p, fb);
+    return normv(f);
+  }
 
   // ORTOGONALIZZAZIONE (niente normalizzazione): coefficiente (v·w)/(w·w)
   function gramSchmidtOrtho(v1: V3, v2: V3, v3: V3) {
@@ -297,13 +317,30 @@ const STR = {
 
     // ---------- stato della "vista costruzione" ----------
     // r1,r2,r3 = frazione di crescita dei vettori risultato w1,w2,w3
+    // flipN = ribaltamento punta-coda di una proiezione: rot (0->1, rotazione di
+    // 180° in loco), shift (0->1, traslazione della coda fino al punto di aggancio),
+    // alpha (per il fade finale insieme a proiezione originale e tratteggio).
+    type FlipState = { rot: number; shift: number; alpha: number };
     type View = {
       r1?: number; r2?: number; r3?: number;
       p2?: number; p3a?: number; p3b?: number;
       drop2?: number; drop3a?: number; drop3b?: number;
+      flip2?: FlipState; flip3a?: FlipState; flip3b?: FlipState;
     };
     let view: View = {};
     function staticView() { view = { r1: 1, r2: 1, r3: 1 }; } // a riposo: i tre w pieni
+
+    // disegna il segmento ribaltato-traslato di una proiezione: parte da 'pOrig'
+    // ruotato in loco fino a -pOrig (rot), poi trasla la coda dall'origine fino a
+    // 'tailTarget' (shift), mantenendo -pOrig come vettore libero attaccato.
+    function drawFlip(pOrig: V3, dropVec: V3, tailTarget: V3, f: FlipState | undefined, color: string) {
+      if (!f || f.alpha <= 0.02) return;
+      const axis = flipAxis(pOrig, dropVec);
+      const rotP = rotatePerp(pOrig, axis, f.rot * Math.PI);
+      const tail = lerp3([0, 0, 0], tailTarget, f.shift);
+      const tip = add(tail, rotP);
+      arrow(tip, color, 3, f.alpha * 0.95, undefined, tail);
+    }
 
     function draw() {
       cam = camera(az, el);
@@ -322,6 +359,12 @@ const STR = {
       if (view.drop3a) { line(geom.p3a, v[2], ink, 1.5, 0.5 * view.drop3a, [5, 4]); rightAngleMark(geom.p3a, normv(geom.p3a), normv(sub(v[2], geom.p3a)), view.drop3a); }
       if (view.p3b) arrow(scl(geom.p3b, view.p3b), COL.proj, 3, 0.95);
       if (view.drop3b) { line(geom.p3b, v[2], ink, 1.5, 0.5 * view.drop3b, [5, 4]); rightAngleMark(geom.p3b, normv(geom.p3b), normv(sub(v[2], geom.p3b)), view.drop3b); }
+
+      // segmenti ribaltati (180°) e traslati punta-coda: -p2 sulla punta di v2;
+      // -p3a sulla punta di v3, poi -p3b accodato sulla punta di -p3a gia' traslato
+      drawFlip(geom.p2, sub(v[1], geom.p2), v[1], view.flip2, COL.proj);
+      drawFlip(geom.p3a, sub(v[2], geom.p3a), v[2], view.flip3a, COL.proj);
+      drawFlip(geom.p3b, sub(v[2], geom.p3b), sub(v[2], geom.p3a), view.flip3b, COL.proj);
 
       // risultato: i tre vettori ortogonali w1, w2, w3 (vivi), in crescita
       if (view.r1) arrow(scl(geom.w1, view.r1), COL.res[0], 3.5, 1, view.r1 > 0.9 ? 'w₁' : undefined, [0, 0, 0], mirrorOffsetAcrossAxis(v[0], [8, -6]));
@@ -447,29 +490,59 @@ const STR = {
       await tween(650, tt => { view.r1 = tt; }); if (aborted(my)) return stop();
       await wait(250); if (aborted(my)) return stop();
 
-      // PASSO 2: proietto v2 su w1, sottraggo -> w2 (NON normalizzo)
+      // PASSO 2: proietto v2 su w1, poi ribalto la proiezione di 180° e la traslo
+      // punta-coda sulla punta di v2 (v2 + (-p2) = v2 - p2 = w2): solo a quel punto
+      // w2 cresce dall'origine fino alla punta raggiunta, e infine svanisce tutto
+      // il resto (proiezione originale, tratteggio, segmento ribaltato-traslato).
       await tween(650, tt => { view.p2 = tt; view.drop2 = tt; }); if (aborted(my)) return stop();
-      await tween(650, tt => {                       // cresce w2, sfumano proiezione/tratteggio
-        view.r2 = tt; view.p2 = 1 - tt; view.drop2 = 1 - tt;
+      await wait(180); if (aborted(my)) return stop();
+
+      view.flip2 = { rot: 0, shift: 0, alpha: 1 };
+      await tween(550, tt => { view.flip2!.rot = tt; }); if (aborted(my)) return stop();
+      await wait(150); if (aborted(my)) return stop();
+      await tween(550, tt => { view.flip2!.shift = tt; }); if (aborted(my)) return stop();
+      await wait(200); if (aborted(my)) return stop();
+
+      await tween(650, tt => { view.r2 = tt; }); if (aborted(my)) return stop();
+      await wait(150); if (aborted(my)) return stop();
+
+      await tween(450, tt => {
+        view.p2 = 1 - tt; view.drop2 = 1 - tt; view.flip2!.alpha = 1 - tt;
       }); if (aborted(my)) return stop();
-      view.r2 = 1; view.p2 = view.drop2 = 0;
+      view.p2 = view.drop2 = 0; view.flip2 = undefined;
       await wait(250); if (aborted(my)) return stop();
 
       // PASSO 3: DUE proiezioni INDIPENDENTI (su w1 e su w2), calcolate ciascuna
       // direttamente sul proprio vettore GIA' ortogonale (coefficiente (v3*w1)/(w1*w1)
       // e (v3*w2)/(w2*w2) presi separatamente): NON e' una proiezione sul piano w1-w2.
-      // La freccia della seconda proiezione (p3b) viene disegnata in coda alla prima
-      // (dalla punta di p3a, non dall'origine): resta comunque parallela a w2 - e' solo
-      // una traslazione per addizione vettoriale - ma cosi' si vede chiaramente che e'
-      // un passo lungo w2, non un salto diagonale nel piano. Entrambe le proiezioni (e i
-      // relativi tratteggi guida) restano visibili insieme finche' non vengono sottratte
-      // da v3 per formare w3.
+      // Vengono mostrate entrambe dall'origine, poi ribaltate e traslate punta-coda
+      // in sequenza: prima -p3a sulla punta di v3, poi -p3b accodato sulla punta
+      // appena raggiunta da -p3a (non su v3 direttamente). w3 cresce dall'origine
+      // fino alla punta finale della catena (v3 - p3a - p3b), poi svanisce tutto
+      // il resto.
       await tween(650, tt => { view.p3a = tt; view.drop3a = tt; }); if (aborted(my)) return stop();
       await wait(180); if (aborted(my)) return stop();
       await tween(650, tt => { view.p3b = tt; view.drop3b = tt; }); if (aborted(my)) return stop();
-      await tween(700, tt => {                       // cresce w3, sfuma tutto il resto
-        view.r3 = tt;
+      await wait(180); if (aborted(my)) return stop();
+
+      view.flip3a = { rot: 0, shift: 0, alpha: 1 };
+      await tween(550, tt => { view.flip3a!.rot = tt; }); if (aborted(my)) return stop();
+      await wait(150); if (aborted(my)) return stop();
+      await tween(550, tt => { view.flip3a!.shift = tt; }); if (aborted(my)) return stop();
+      await wait(150); if (aborted(my)) return stop();
+
+      view.flip3b = { rot: 0, shift: 0, alpha: 1 };
+      await tween(550, tt => { view.flip3b!.rot = tt; }); if (aborted(my)) return stop();
+      await wait(150); if (aborted(my)) return stop();
+      await tween(550, tt => { view.flip3b!.shift = tt; }); if (aborted(my)) return stop();
+      await wait(200); if (aborted(my)) return stop();
+
+      await tween(700, tt => { view.r3 = tt; }); if (aborted(my)) return stop();
+      await wait(150); if (aborted(my)) return stop();
+
+      await tween(450, tt => {
         view.p3a = view.p3b = view.drop3a = view.drop3b = 1 - tt;
+        view.flip3a!.alpha = view.flip3b!.alpha = 1 - tt;
       }); if (aborted(my)) return stop();
 
       staticView(); draw();
