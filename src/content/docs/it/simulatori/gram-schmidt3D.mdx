@@ -1,0 +1,73 @@
+---
+title: Gram-Schmidt 3D
+description: Simulatore 3D interattivo del procedimento di Gram-Schmidt, con vettori trascinabili e camera orbitale per visualizzare l'ortonormalizzazione.
+sidebar:
+  hidden: false
+  label: Gram-Schmidt 3D
+  order: 4
+tableOfContents: false
+---
+
+import GramSchmidt3D from '@components/GramSchmidt3D.astro';
+
+Il procedimento di Gram-Schmidt trasforma tre vettori $\vec v_1,\vec v_2,\vec v_3$ di
+$\mathbb{R}^3$, in generale non ortogonali tra loro, in una **base ortonormale**
+$\vec u_1,\vec u_2,\vec u_3$. Le punte dei vettori sono trascinabili in modalità
+"Modifica v₁ v₂ v₃"; la vista si ruota trascinando lo sfondo.
+
+<GramSchmidt3D />
+
+## Il procedimento passo-passo
+
+<span style="display:inline-block;width:0.6em;height:0.6em;border-radius:50%;background:#3b82f6;margin-right:0.4em;vertical-align:middle;"></span>**Passo 1.**
+Il primo versore si ottiene normalizzando $\vec v_1$, cioè dividendolo per la propria norma:
+
+$$\vec u_1=\dfrac{\vec v_1}{\lVert \vec v_1\rVert}$$
+
+<span style="display:inline-block;width:0.6em;height:0.6em;border-radius:50%;background:#10b981;margin-right:0.4em;vertical-align:middle;"></span>**Passo 2.**
+Da $\vec v_2$ si toglie la sua componente lungo $\vec u_1$ (la proiezione su $\vec u_1$),
+ottenendo la parte ortogonale $\vec w_2$; si normalizza infine $\vec w_2$:
+
+$$\vec w_2=\vec v_2-(\vec v_2\cdot\vec u_1)\,\vec u_1,\qquad \vec u_2=\dfrac{\vec w_2}{\lVert \vec w_2\rVert}$$
+
+<span style="display:inline-block;width:0.6em;height:0.6em;border-radius:50%;background:#f59e0b;margin-right:0.4em;vertical-align:middle;"></span>**Passo 3.**
+Da $\vec v_3$ si tolgono **entrambe** le proiezioni, su $\vec u_1$ e su $\vec u_2$; il resto
+ortogonale $\vec w_3$ viene poi normalizzato:
+
+$$\vec w_3=\vec v_3-(\vec v_3\cdot\vec u_1)\,\vec u_1-(\vec v_3\cdot\vec u_2)\,\vec u_2,\qquad \vec u_3=\dfrac{\vec w_3}{\lVert \vec w_3\rVert}$$
+
+Premendo "Calcola e mantieni" questa sequenza viene animata sul simulatore, colore per
+colore, nello stesso ordine appena descritto. Lo slider "rallentatore" permette di
+seguirla con più calma, senza modificare il risultato finale.
+
+## Verifica di ortonormalità
+
+Sotto i pulsanti del simulatore compaiono quattro righe numeriche, sempre aggiornate dal
+vivo:
+
+- le **coordinate** dei vettori di partenza $\vec v_1,\vec v_2,\vec v_3$ (modificabili
+  anche digitandole direttamente, in modalità "Modifica v₁ v₂ v₃");
+- le **coordinate** dei versori risultato $\vec u_1,\vec u_2,\vec u_3$, che compaiono una
+  alla volta durante "Calcola e mantieni", in sincrono con l'animazione;
+- le **norme** $\lVert\vec u_1\rVert,\lVert\vec u_2\rVert,\lVert\vec u_3\rVert$, che devono
+  restare pari a $1$ (i vettori risultato sono versori, cioè di lunghezza unitaria);
+- i **prodotti scalari incrociati** $\vec u_1\cdot\vec u_2,\ \vec u_1\cdot\vec u_3,\
+  \vec u_2\cdot\vec u_3$, che devono restare pari a $0$ (i vettori risultato sono a due
+  a due ortogonali).
+
+Norme unitarie e prodotti scalari nulli sono, insieme, proprio la definizione di base
+ortonormale: quei numeri dal vivo sono un modo per verificare, per qualunque terna di
+vettori di partenza linearmente indipendenti, che il procedimento ha funzionato
+correttamente.
+
+:::tip[Vedi anche]
+Per la versione che si ferma all'ortogonalità, senza normalizzare i vettori risultato,
+vedi [Gram-Schmidt 3D senza normalizzazione](/it/simulatori/gram-schmidt3D-solo-orto/).
+:::
+
+:::tip[Vedi anche]
+Questo simulatore lavora solo in $\mathbb{R}^3$ e mostra i risultati come numeri
+decimali approssimati. Per la soluzione **esatta** (in aritmetica razionale, con
+frazioni al posto dei decimali) e per lavorare con **più di tre vettori o dimensioni**,
+usa il risolutore di [ortonormalizzazione di Gram-Schmidt](/it/risolutori/gram-schmidt/).
+:::
