@@ -1,89 +1,92 @@
 ---
-title: Gram-Schmidt 3D without normalization
-description: Interactive 3D simulator of Gram-Schmidt orthogonalization without normalization, with draggable vectors and an orbiting camera.
+title: Gram-Schmidt 3D senza normalizzazione
+description: Simulatore 3D interattivo di ortogonalizzazione di Gram-Schmidt senza normalizzazione, vettori trascinabili e camera orbitale.
 sidebar:
   hidden: false
-  label: Gram-Schmidt 3D without normalization
+  label: Gram-Schmidt 3D senza normalizzazione
   order: 5
 tableOfContents: false
 ---
 
 import GramSchmidt3DSoloOrto from '@components/GramSchmidt3DSoloOrto.astro';
 
-This is the variant of the Gram-Schmidt process that stops at
-**orthogonalization**: starting from three vectors $\vec v_1,\vec v_2,\vec v_3$ in
-$\mathbb{R}^3$, it produces three mutually orthogonal vectors $\vec w_1,\vec w_2,\vec w_3$
-that are **not** of length $1$ (the final normalization step is missing). The tips of the
-vectors can be dragged in "Edit v₁ v₂ v₃" mode.
+Questa è la variante del procedimento di Gram-Schmidt che si ferma
+all'**ortogonalizzazione**: a partire da tre vettori $\vec v_1,\vec v_2,\vec v_3$ di
+$\mathbb{R}^3$ produce tre vettori $\vec w_1,\vec w_2,\vec w_3$ mutuamente ortogonali,
+ma **non** di lunghezza $1$ (manca l'ultimo passo di normalizzazione). Le punte dei
+vettori sono trascinabili in modalità "Modifica v₁ v₂ v₃".
 
 <GramSchmidt3DSoloOrto />
 
-## The process, step by step
+## Il procedimento passo-passo
 
-<span style="display:inline-block;width:0.6em;height:0.6em;border-radius:50%;background:#3b82f6;margin-right:0.4em;vertical-align:middle;"></span>**Step 1.**
-The first resulting vector coincides with $\vec v_1$: nothing needs to be subtracted or
-normalized.
+<span style="display:inline-block;width:0.6em;height:0.6em;border-radius:50%;background:#3b82f6;margin-right:0.4em;vertical-align:middle;"></span>**Passo 1.**
+Il primo vettore risultato coincide con $\vec v_1$: non c'è nulla da togliere né da
+normalizzare.
 
 $$\vec w_1=\vec v_1$$
 
-<span style="display:inline-block;width:0.6em;height:0.6em;border-radius:50%;background:#10b981;margin-right:0.4em;vertical-align:middle;"></span>**Step 2.**
-The projection of $\vec v_2$ onto $\vec w_1$ is subtracted. Since $\vec w_1$ is not a unit
-vector, the projection coefficient is $\dfrac{\vec v_2\cdot\vec w_1}{\vec w_1\cdot\vec w_1}$
-(the dot product alone is not enough, as it would be with a unit vector):
+<span style="display:inline-block;width:0.6em;height:0.6em;border-radius:50%;background:#10b981;margin-right:0.4em;vertical-align:middle;"></span>**Passo 2.**
+Da $\vec v_2$ si toglie la sua proiezione su $\vec w_1$. Poiché $\vec w_1$ non è un
+versore, il coefficiente di proiezione è $\dfrac{\vec v_2\cdot\vec w_1}{\vec w_1\cdot\vec w_1}$
+(non basta il solo prodotto scalare, come accadrebbe con un versore):
 
 $$\vec w_2=\vec v_2-\dfrac{\vec v_2\cdot\vec w_1}{\vec w_1\cdot\vec w_1}\,\vec w_1$$
 
-<span style="display:inline-block;width:0.6em;height:0.6em;border-radius:50%;background:#f59e0b;margin-right:0.4em;vertical-align:middle;"></span>**Step 3.**
-**Both** projections are subtracted from $\vec v_3$, onto $\vec w_1$ and onto $\vec w_2$,
-using the same kind of coefficient normalized by the squared norm of the vector being
-projected onto:
+<span style="display:inline-block;width:0.6em;height:0.6em;border-radius:50%;background:#f59e0b;margin-right:0.4em;vertical-align:middle;"></span>**Passo 3.**
+Da $\vec v_3$ si tolgono **entrambe** le proiezioni, su $\vec w_1$ e su $\vec w_2$, con lo
+stesso tipo di coefficiente normalizzato per la norma al quadrato del vettore su cui si
+proietta:
 
 $$\vec w_3=\vec v_3-\dfrac{\vec v_3\cdot\vec w_1}{\vec w_1\cdot\vec w_1}\,\vec w_1-\dfrac{\vec v_3\cdot\vec w_2}{\vec w_2\cdot\vec w_2}\,\vec w_2$$
 
-Pressing "Compute & keep" animates this sequence on the simulator, color by color, in the
-same order described above. The "slow motion" slider allows following it at a gentler
-pace, without changing the final result.
+Premendo "Calcola e mantieni" questa sequenza viene animata sul simulatore, colore per
+colore, nello stesso ordine appena descritto. Lo slider "rallentatore" permette di
+seguirla con più calma, senza modificare il risultato finale.
 
-:::note[Why the projections flip]
-In the animation, projections don't just fade away as the orthogonal vector grows: they
-are first flipped by $180°$ around the origin (giving their opposite, since subtracting a
-vector is the same as adding its opposite), then translated tip-to-tail onto the tip of
-the starting vector (in step 3, the second flipped projection is chained onto the tip of
-the first). The orthogonal vector then grows from the origin to the tip of this chain.
-This is a deliberate teaching choice: vectors are handled only in additive, tip-to-tail
-logic, and a subtraction is always carried out by adding the opposite, never by "peeling
-off" a piece by eye.
+:::note[Perché le proiezioni si ribaltano]
+Nell'animazione le proiezioni non si limitano a sparire mentre il vettore ortogonale
+cresce: prima vengono ribaltate di $180°$ attorno all'origine (si ottiene così il loro
+opposto, dato che sottrarre un vettore equivale a sommare il proprio opposto), poi
+traslate punta-coda sulla punta del vettore di partenza (nel passo 3, la seconda
+proiezione ribaltata si accoda alla punta della prima). Il vettore ortogonale cresce
+quindi dall'origine fino alla punta di questa catena. È una scelta didattica precisa:
+con i vettori si lavora solo in logica additiva, punta-coda. Anche una sottrazione si
+esegue così, sommando l'opposto del vettore da togliere, e non sovrapponendo le due
+frecce per poi far sparire a vista la parte in comune.
 :::
 
-## Checking orthogonality
+## Verifica di ortogonalità
 
-Below the simulator's buttons, four numeric rows are always kept up to date:
+Sotto i pulsanti del simulatore compaiono quattro righe numeriche, sempre aggiornate dal
+vivo:
 
-- the **coordinates** of the starting vectors $\vec v_1,\vec v_2,\vec v_3$ (also
-  editable by typing them directly, in "Edit v₁ v₂ v₃" mode);
-- the **coordinates** of the resulting vectors $\vec w_1,\vec w_2,\vec w_3$, which appear
-  one at a time during "Compute & keep", in sync with the animation;
-- the **norms** $\lVert\vec w_1\rVert,\lVert\vec w_2\rVert,\lVert\vec w_3\rVert$, marked
-  as "not necessarily 1" because, unlike the orthonormalized version, they are **not**
-  generally expected to equal $1$: the length of the resulting vectors depends on the
-  starting vectors (for some particular starting triples they may still turn out to be
-  $1$: that is a special case, not the rule);
-- the **cross dot products** $\vec w_1\cdot\vec w_2,\ \vec w_1\cdot\vec w_3,\
-  \vec w_2\cdot\vec w_3$, which should instead stay at $0$ (the resulting vectors are
-  pairwise orthogonal, even though not unit length).
+- le **coordinate** dei vettori di partenza $\vec v_1,\vec v_2,\vec v_3$ (modificabili
+  anche digitandole direttamente, in modalità "Modifica v₁ v₂ v₃");
+- le **coordinate** dei vettori risultato $\vec w_1,\vec w_2,\vec w_3$, che compaiono uno
+  alla volta durante "Calcola e mantieni", in sincrono con l'animazione;
+- le **norme** $\lVert\vec w_1\rVert,\lVert\vec w_2\rVert,\lVert\vec w_3\rVert$, segnate
+  come "non necessariamente 1" perché qui, a differenza della versione ortonormalizzata,
+  **non** ci si aspetta in generale che valgano $1$: la lunghezza dei vettori risultato
+  dipende dai vettori di partenza (può capitare, per alcune terne di partenza, che valgano
+  comunque $1$: è un caso particolare, non la regola);
+- i **prodotti scalari incrociati** $\vec w_1\cdot\vec w_2,\ \vec w_1\cdot\vec w_3,\
+  \vec w_2\cdot\vec w_3$, che invece devono restare pari a $0$ (i vettori risultato sono
+  a due a due ortogonali, anche se non unitari).
 
-A zero dot product is, on its own, the defining property of orthogonality: that live
-number offers a way to check, for any linearly independent starting triple, that the
-process worked correctly, regardless of the length of the resulting vectors.
+Il prodotto scalare nullo è, da solo, la proprietà che definisce l'ortogonalità: quel
+numero dal vivo è un modo per verificare, per qualunque terna di vettori di partenza
+linearmente indipendenti, che il procedimento ha funzionato correttamente, indipendentemente
+dalla lunghezza dei vettori ottenuti.
 
-:::tip[See also]
-For the full variant, which also normalizes the resulting vectors into an orthonormal
-basis, see [Gram-Schmidt 3D](/en/simulatori/gram-schmidt3d/).
+:::tip[Vedi anche]
+Per la versione completa, che normalizza anche i vettori risultato ottenendo una base
+ortonormale, vedi [Gram-Schmidt 3D](/it/simulatori/gram-schmidt3d/).
 :::
 
-:::tip[See also]
-This simulator only works in $\mathbb{R}^3$ and shows results as approximate decimal
-numbers. For the **exact** solution (in rational arithmetic, with fractions instead of
-decimals) and to work with **more than three vectors or dimensions**, use the
-[Gram-Schmidt orthogonalization solver](/en/risolutori/gram-schmidt-solo-orto/).
+:::tip[Vedi anche]
+Questo simulatore lavora solo in $\mathbb{R}^3$ e mostra i risultati come numeri
+decimali approssimati. Per la soluzione **esatta** (in aritmetica razionale, con
+frazioni al posto dei decimali) e per lavorare con **più di tre vettori o dimensioni**,
+usa il risolutore di [ortogonalizzazione di Gram-Schmidt](/it/risolutori/gram-schmidt-solo-orto/).
 :::
