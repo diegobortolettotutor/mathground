@@ -40,6 +40,17 @@ Pressing "Compute & keep" animates this sequence on the simulator, color by colo
 same order described above. The "slow motion" slider allows following it at a gentler
 pace, without changing the final result.
 
+:::note[Why the projections flip]
+In the animation, projections don't just fade away as the orthogonal vector grows: they
+are first flipped by $180°$ around the origin (giving their opposite, since subtracting a
+vector is the same as adding its opposite), then translated tip-to-tail onto the tip of
+the starting vector (in step 3, the second flipped projection is chained onto the tip of
+the first). The orthogonal vector then grows from the origin to the tip of this chain.
+This is a deliberate teaching choice: vectors are handled only in additive, tip-to-tail
+logic, and a subtraction is always carried out by adding the opposite, never by "peeling
+off" a piece by eye.
+:::
+
 ## Checking orthonormality
 
 Below the simulator's buttons, four numeric rows are always kept up to date:

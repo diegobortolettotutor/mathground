@@ -40,6 +40,17 @@ Premendo "Calcola e mantieni" questa sequenza viene animata sul simulatore, colo
 colore, nello stesso ordine appena descritto. Lo slider "rallentatore" permette di
 seguirla con più calma, senza modificare il risultato finale.
 
+:::note[Perché le proiezioni si ribaltano]
+Nell'animazione le proiezioni non si limitano a sparire mentre il vettore ortogonale
+cresce: prima vengono ribaltate di $180°$ attorno all'origine (si ottiene così il loro
+opposto, dato che sottrarre un vettore equivale a sommare il proprio opposto), poi
+traslate punta-coda sulla punta del vettore di partenza (nel passo 3, la seconda
+proiezione ribaltata si accoda alla punta della prima). Il vettore ortogonale cresce
+quindi dall'origine fino alla punta di questa catena. È una scelta didattica precisa:
+con i vettori si lavora solo in logica additiva, punta-coda, e una sottrazione si
+esegue sempre sommando l'opposto, mai "staccando" un pezzo a occhio.
+:::
+
 ## Verifica di ortonormalità
 
 Sotto i pulsanti del simulatore compaiono quattro righe numeriche, sempre aggiornate dal
