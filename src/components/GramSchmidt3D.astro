@@ -347,6 +347,7 @@ const STR = {
     type View = {
       u1?: { vec: V3; a: number }; u2?: { vec: V3; a: number }; u3?: { vec: V3; a: number };
       p2?: number; p3a?: number; p3b?: number;     // frazione di lunghezza
+      p2Alpha?: number; p3aAlpha?: number; p3bAlpha?: number; // fade finale: solo opacita', lunghezza ferma
       w2?: number; w3?: number;                    // frazione di lunghezza
       drop2?: number; drop3a?: number; drop3b?: number; // opacita' tratteggi
       flip2?: FlipState; flip3a?: FlipState; flip3b?: FlipState;
@@ -384,11 +385,11 @@ const STR = {
         arrow(v[i], COL.v[i], 2.5, 0.55, ['v₁', 'v₂', 'v₃'][i]);
 
       // proiezioni (giallo) e tratteggi
-      if (view.p2)  arrow(scl(geom.u1, dot(v[1], geom.u1) * view.p2), COL.proj, 3, 0.95);
+      if (view.p2)  arrow(scl(geom.u1, dot(v[1], geom.u1) * view.p2), COL.proj, 3, 0.95 * (view.p2Alpha ?? 1));
       if (view.drop2) { line(geom.p2, v[1], ink, 1.5, 0.5 * view.drop2, [5, 4]); rightAngleMark(geom.p2, norm(geom.p2), norm(sub(v[1], geom.p2)), view.drop2); }
-      if (view.p3a) arrow(scl(geom.u1, dot(v[2], geom.u1) * view.p3a), COL.proj, 3, 0.95);
+      if (view.p3a) arrow(scl(geom.u1, dot(v[2], geom.u1) * view.p3a), COL.proj, 3, 0.95 * (view.p3aAlpha ?? 1));
       if (view.drop3a) { line(geom.p3a, v[2], ink, 1.5, 0.5 * view.drop3a, [5, 4]); rightAngleMark(geom.p3a, norm(geom.p3a), norm(sub(v[2], geom.p3a)), view.drop3a); }
-      if (view.p3b) arrow(scl(geom.u2, dot(v[2], geom.u2) * view.p3b), COL.proj, 3, 0.95);
+      if (view.p3b) arrow(scl(geom.u2, dot(v[2], geom.u2) * view.p3b), COL.proj, 3, 0.95 * (view.p3bAlpha ?? 1));
       if (view.drop3b) { line(geom.p3b, v[2], ink, 1.5, 0.5 * view.drop3b, [5, 4]); rightAngleMark(geom.p3b, norm(geom.p3b), norm(sub(v[2], geom.p3b)), view.drop3b); }
 
       // segmenti ribaltati (180°) e traslati punta-coda: -p2 sulla punta di v2;
@@ -545,9 +546,9 @@ const STR = {
       await wait(150); if (aborted(my)) return stop();
 
       await tween(450, tt => {
-        view.p2 = 1 - tt; view.drop2 = 1 - tt; view.flip2!.alpha = 1 - tt;
+        view.p2Alpha = 1 - tt; view.drop2 = 1 - tt; view.flip2!.alpha = 1 - tt;
       }); if (aborted(my)) return stop();
-      view.p2 = view.drop2 = 0; view.flip2 = undefined;
+      view.p2 = view.drop2 = 0; view.p2Alpha = 1; view.flip2 = undefined;
       await wait(150); if (aborted(my)) return stop();
 
       await tween(650, tt => {                       // w2 -> u2 (normalizzo)
@@ -585,10 +586,11 @@ const STR = {
       await wait(150); if (aborted(my)) return stop();
 
       await tween(450, tt => {
-        view.p3a = view.p3b = view.drop3a = view.drop3b = 1 - tt;
+        view.p3aAlpha = 1 - tt; view.p3bAlpha = 1 - tt; view.drop3a = view.drop3b = 1 - tt;
         view.flip3a!.alpha = view.flip3b!.alpha = 1 - tt;
       }); if (aborted(my)) return stop();
       view.p3a = view.p3b = view.drop3a = view.drop3b = 0;
+      view.p3aAlpha = view.p3bAlpha = 1;
       view.flip3a = view.flip3b = undefined;
       await wait(150); if (aborted(my)) return stop();
 
