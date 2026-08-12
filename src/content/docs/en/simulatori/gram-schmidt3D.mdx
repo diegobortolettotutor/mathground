@@ -42,9 +42,12 @@ pace, without changing the final result.
 
 ## Checking orthonormality
 
-Right below the simulator's buttons, two numeric rows update live while the starting
-vectors are dragged:
+Below the simulator's buttons, four numeric rows are always kept up to date:
 
+- the **coordinates** of the starting vectors $\vec v_1,\vec v_2,\vec v_3$ (also
+  editable by typing them directly, in "Edit v₁ v₂ v₃" mode);
+- the **coordinates** of the resulting unit vectors $\vec u_1,\vec u_2,\vec u_3$, which
+  appear one at a time during "Compute & keep", in sync with the animation;
 - the **norms** $\lVert\vec u_1\rVert,\lVert\vec u_2\rVert,\lVert\vec u_3\rVert$, which
   should stay at $1$ (the resulting vectors are unit vectors);
 - the **cross dot products** $\vec u_1\cdot\vec u_2,\ \vec u_1\cdot\vec u_3,\
@@ -52,10 +55,17 @@ vectors are dragged:
   orthogonal).
 
 Unit norms together with zero dot products are exactly the definition of an orthonormal
-basis: those two live numbers offer a way to check, for any linearly independent starting
+basis: those live numbers offer a way to check, for any linearly independent starting
 triple, that the process worked correctly.
 
 :::tip[See also]
 For the variant that stops at orthogonality without normalizing the resulting vectors,
 see [Gram-Schmidt 3D without normalization](/en/simulatori/gram-schmidt3D-solo-orto/).
+:::
+
+:::tip[See also]
+This simulator only works in $\mathbb{R}^3$ and shows results as approximate decimal
+numbers. For the **exact** solution (in rational arithmetic, with fractions instead of
+decimals) and to work with **more than three vectors or dimensions**, use the
+[Gram-Schmidt orthonormalization solver](/en/risolutori/gram-schmidt/).
 :::

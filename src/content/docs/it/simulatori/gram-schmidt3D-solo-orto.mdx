@@ -46,13 +46,18 @@ seguirla con più calma, senza modificare il risultato finale.
 
 ## Verifica di ortogonalità
 
-Appena sotto i pulsanti del simulatore compaiono due righe numeriche, aggiornate in
-tempo reale mentre si trascinano i vettori di partenza:
+Sotto i pulsanti del simulatore compaiono quattro righe numeriche, sempre aggiornate dal
+vivo:
 
+- le **coordinate** dei vettori di partenza $\vec v_1,\vec v_2,\vec v_3$ (modificabili
+  anche digitandole direttamente, in modalità "Modifica v₁ v₂ v₃");
+- le **coordinate** dei vettori risultato $\vec w_1,\vec w_2,\vec w_3$, che compaiono uno
+  alla volta durante "Calcola e mantieni", in sincrono con l'animazione;
 - le **norme** $\lVert\vec w_1\rVert,\lVert\vec w_2\rVert,\lVert\vec w_3\rVert$, segnate
-  con "$\neq 1$" perché qui, a differenza della versione ortonormalizzata, **non** ci si
-  aspetta che valgano $1$: la lunghezza dei vettori risultato dipende dai vettori di
-  partenza;
+  come "non necessariamente 1" perché qui, a differenza della versione ortonormalizzata,
+  **non** ci si aspetta in generale che valgano $1$: la lunghezza dei vettori risultato
+  dipende dai vettori di partenza (può capitare, per alcune terne di partenza, che valgano
+  comunque $1$: è un caso particolare, non la regola);
 - i **prodotti scalari incrociati** $\vec w_1\cdot\vec w_2,\ \vec w_1\cdot\vec w_3,\
   \vec w_2\cdot\vec w_3$, che invece devono restare pari a $0$ (i vettori risultato sono
   a due a due ortogonali, anche se non unitari).
@@ -65,4 +70,11 @@ dalla lunghezza dei vettori ottenuti.
 :::tip[Vedi anche]
 Per la versione completa, che normalizza anche i vettori risultato ottenendo una base
 ortonormale, vedi [Gram-Schmidt 3D](/it/simulatori/gram-schmidt3D/).
+:::
+
+:::tip[Vedi anche]
+Questo simulatore lavora solo in $\mathbb{R}^3$ e mostra i risultati come numeri
+decimali approssimati. Per la soluzione **esatta** (in aritmetica razionale, con
+frazioni al posto dei decimali) e per lavorare con **più di tre vettori o dimensioni**,
+usa il risolutore di [ortogonalizzazione di Gram-Schmidt](/it/risolutori/gram-schmidt-solo-orto/).
 :::

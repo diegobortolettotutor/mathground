@@ -46,12 +46,17 @@ pace, without changing the final result.
 
 ## Checking orthogonality
 
-Right below the simulator's buttons, two numeric rows update live while the starting
-vectors are dragged:
+Below the simulator's buttons, four numeric rows are always kept up to date:
 
+- the **coordinates** of the starting vectors $\vec v_1,\vec v_2,\vec v_3$ (also
+  editable by typing them directly, in "Edit v₁ v₂ v₃" mode);
+- the **coordinates** of the resulting vectors $\vec w_1,\vec w_2,\vec w_3$, which appear
+  one at a time during "Compute & keep", in sync with the animation;
 - the **norms** $\lVert\vec w_1\rVert,\lVert\vec w_2\rVert,\lVert\vec w_3\rVert$, marked
-  with "$\neq 1$" because, unlike the orthonormalized version, they are **not** expected
-  to equal $1$: the length of the resulting vectors depends on the starting vectors;
+  as "not necessarily 1" because, unlike the orthonormalized version, they are **not**
+  generally expected to equal $1$: the length of the resulting vectors depends on the
+  starting vectors (for some particular starting triples they may still turn out to be
+  $1$: that is a special case, not the rule);
 - the **cross dot products** $\vec w_1\cdot\vec w_2,\ \vec w_1\cdot\vec w_3,\
   \vec w_2\cdot\vec w_3$, which should instead stay at $0$ (the resulting vectors are
   pairwise orthogonal, even though not unit length).
@@ -63,4 +68,11 @@ process worked correctly, regardless of the length of the resulting vectors.
 :::tip[See also]
 For the full variant, which also normalizes the resulting vectors into an orthonormal
 basis, see [Gram-Schmidt 3D](/en/simulatori/gram-schmidt3D/).
+:::
+
+:::tip[See also]
+This simulator only works in $\mathbb{R}^3$ and shows results as approximate decimal
+numbers. For the **exact** solution (in rational arithmetic, with fractions instead of
+decimals) and to work with **more than three vectors or dimensions**, use the
+[Gram-Schmidt orthogonalization solver](/en/risolutori/gram-schmidt-solo-orto/).
 :::

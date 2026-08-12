@@ -42,9 +42,13 @@ seguirla con più calma, senza modificare il risultato finale.
 
 ## Verifica di ortonormalità
 
-Appena sotto i pulsanti del simulatore compaiono due righe numeriche, aggiornate in
-tempo reale mentre si trascinano i vettori di partenza:
+Sotto i pulsanti del simulatore compaiono quattro righe numeriche, sempre aggiornate dal
+vivo:
 
+- le **coordinate** dei vettori di partenza $\vec v_1,\vec v_2,\vec v_3$ (modificabili
+  anche digitandole direttamente, in modalità "Modifica v₁ v₂ v₃");
+- le **coordinate** dei versori risultato $\vec u_1,\vec u_2,\vec u_3$, che compaiono una
+  alla volta durante "Calcola e mantieni", in sincrono con l'animazione;
 - le **norme** $\lVert\vec u_1\rVert,\lVert\vec u_2\rVert,\lVert\vec u_3\rVert$, che devono
   restare pari a $1$ (i vettori risultato sono versori, cioè di lunghezza unitaria);
 - i **prodotti scalari incrociati** $\vec u_1\cdot\vec u_2,\ \vec u_1\cdot\vec u_3,\
@@ -52,11 +56,18 @@ tempo reale mentre si trascinano i vettori di partenza:
   a due ortogonali).
 
 Norme unitarie e prodotti scalari nulli sono, insieme, proprio la definizione di base
-ortonormale: quei due numeri dal vivo sono un modo per verificare, per qualunque terna di
+ortonormale: quei numeri dal vivo sono un modo per verificare, per qualunque terna di
 vettori di partenza linearmente indipendenti, che il procedimento ha funzionato
 correttamente.
 
 :::tip[Vedi anche]
 Per la versione che si ferma all'ortogonalità, senza normalizzare i vettori risultato,
 vedi [Gram-Schmidt 3D senza normalizzazione](/it/simulatori/gram-schmidt3D-solo-orto/).
+:::
+
+:::tip[Vedi anche]
+Questo simulatore lavora solo in $\mathbb{R}^3$ e mostra i risultati come numeri
+decimali approssimati. Per la soluzione **esatta** (in aritmetica razionale, con
+frazioni al posto dei decimali) e per lavorare con **più di tre vettori o dimensioni**,
+usa il risolutore di [ortonormalizzazione di Gram-Schmidt](/it/risolutori/gram-schmidt/).
 :::

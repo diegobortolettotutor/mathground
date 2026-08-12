@@ -34,6 +34,7 @@ const STR = {
     slow: 'rallentatore',
     hintEdit: 'Trascina le punte di <b>v₁, v₂, v₃</b> · sfondo = ruota · rotella o pinch = zoom',
     hintExplore: 'Ruota: trascina · Zoom: rotella o pinch · «Modifica» per spostare i vettori',
+    normsNote: 'non necessariamente 1',
   },
   en: {
     aria: 'Gram-Schmidt orthogonalization in 3D',
@@ -45,6 +46,7 @@ const STR = {
     slow: 'slow motion',
     hintEdit: 'Drag the tips of <b>v₁, v₂, v₃</b> · background = rotate · wheel or pinch = zoom',
     hintExplore: 'Rotate: drag · Zoom: wheel or pinch · “Edit” to move the vectors',
+    normsNote: 'not necessarily 1',
   },
 }[lang];
 ---
@@ -85,7 +87,7 @@ const STR = {
   <div class="gso3d__coords">
     <span class="gso3d__cell">v₁, v₂, v₃ = <b class="gso3d__vcoords">—</b></span>
     <span class="gso3d__cell">w₁, w₂, w₃ = <b class="gso3d__wcoords">—</b></span>
-    <span class="gso3d__cell">‖w₁‖, ‖w₂‖, ‖w₃‖ = <b class="gso3d__norms">—</b> <small>(≠ 1)</small></span>
+    <span class="gso3d__cell">‖w₁‖, ‖w₂‖, ‖w₃‖ = <b class="gso3d__norms">—</b> <small>({STR.normsNote})</small></span>
     <span class="gso3d__cell">w₁·w₂, w₁·w₃, w₂·w₃ = <b class="gso3d__dots">—</b></span>
   </div>
 </figure>
