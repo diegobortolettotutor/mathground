@@ -824,7 +824,9 @@ const STR = {
   }
   .gs3d__check b { color: var(--sl-color-white, #fff); font-variant-numeric: tabular-nums; }
   .gs3d__coords {
-    display: flex; flex-wrap: wrap; gap: 0.3rem 1.4rem;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0.6rem;
     font-size: 0.82rem;
     color: var(--sl-color-gray-2, #b8b8c4);
   }
