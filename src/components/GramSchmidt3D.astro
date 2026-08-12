@@ -84,13 +84,11 @@ const STR = {
     </span>
   </div>
 
-  <div class="gs3d__check">
-    <span class="gs3d__cell">‖u₁‖,‖u₂‖,‖u₃‖ = <b class="gs3d__norms">—</b></span>
-    <span class="gs3d__cell">u₁·u₂, u₁·u₃, u₂·u₃ = <b class="gs3d__dots">—</b></span>
-  </div>
   <div class="gs3d__coords">
     <span class="gs3d__cell">v₁, v₂, v₃ = <b class="gs3d__vcoords">—</b></span>
     <span class="gs3d__cell">u₁, u₂, u₃ = <b class="gs3d__ucoords">—</b></span>
+    <span class="gs3d__cell">‖u₁‖, ‖u₂‖, ‖u₃‖ = <b class="gs3d__norms">—</b></span>
+    <span class="gs3d__cell">u₁·u₂, u₁·u₃, u₂·u₃ = <b class="gs3d__dots">—</b></span>
   </div>
 </figure>
 
@@ -372,9 +370,15 @@ const STR = {
 
     function updateReadout() {
       const { u1, u2, u3 } = geom;
-      normsEl.textContent = [u1, u2, u3].map(u => len(u).toFixed(2)).join(', ');
+      // norme: versori u sempre unitari (1), mostra 0 decimali (interi); se non ancora visibili, mostra "—"
+      normsEl.textContent = [
+        view.u1 ? len(u1).toFixed(0) : '—',
+        view.u2 ? len(u2).toFixed(0) : '—',
+        view.u3 ? len(u3).toFixed(0) : '—',
+      ].join(', ');
+      // prodotti scalari: 0 decimali (interi)
       dotsEl.textContent = [dot(u1, u2), dot(u1, u3), dot(u2, u3)]
-        .map(x => (Math.abs(x) < 5e-3 ? '0.00' : x.toFixed(2))).join(', ');
+        .map(x => (Math.abs(x) < 0.5 ? '0' : Math.round(x).toString())).join(', ');
 
       // coordinate: v (1 decimale, come le caselle di Modifica) sempre visibili;
       // u (2 decimali) si rivelano una per una, in sincrono con l'animazione: 'view.uN'

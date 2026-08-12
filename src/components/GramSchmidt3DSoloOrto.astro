@@ -82,13 +82,11 @@ const STR = {
     </span>
   </div>
 
-  <div class="gso3d__check">
-    <span class="gso3d__cell">‖w₁‖,‖w₂‖,‖w₃‖ = <b class="gso3d__norms">—</b> <small>(≠ 1)</small></span>
-    <span class="gso3d__cell">w₁·w₂, w₁·w₃, w₂·w₃ = <b class="gso3d__dots">—</b></span>
-  </div>
   <div class="gso3d__coords">
     <span class="gso3d__cell">v₁, v₂, v₃ = <b class="gso3d__vcoords">—</b></span>
     <span class="gso3d__cell">w₁, w₂, w₃ = <b class="gso3d__wcoords">—</b></span>
+    <span class="gso3d__cell">‖w₁‖, ‖w₂‖, ‖w₃‖ = <b class="gso3d__norms">—</b> <small>(≠ 1)</small></span>
+    <span class="gso3d__cell">w₁·w₂, w₁·w₃, w₂·w₃ = <b class="gso3d__dots">—</b></span>
   </div>
 </figure>
 
@@ -333,9 +331,15 @@ const STR = {
 
     function updateReadout() {
       const { w1, w2, w3 } = geom;
-      normsEl.textContent = [w1, w2, w3].map(w => len(w).toFixed(2)).join(', ');
+      // norme: w non sono unitarie, mostra 2 decimali; se non ancora visibili, mostra "—"
+      normsEl.textContent = [
+        view.r1 ? len(scl(geom.w1, view.r1)).toFixed(2) : '—',
+        view.r2 ? len(scl(geom.w2, view.r2)).toFixed(2) : '—',
+        view.r3 ? len(scl(geom.w3, view.r3)).toFixed(2) : '—',
+      ].join(', ');
+      // prodotti scalari: 0 decimali (interi)
       dotsEl.textContent = [dot(w1, w2), dot(w1, w3), dot(w2, w3)]
-        .map(x => (Math.abs(x) < 5e-3 ? '0.00' : x.toFixed(2))).join(', ');
+        .map(x => (Math.abs(x) < 0.5 ? '0' : Math.round(x).toString())).join(', ');
 
       // coordinate: v (1 decimale, come le caselle di Modifica) sempre visibili;
       // w (2 decimali) si rivelano una per una, in sincrono con l'animazione: 'view.rN'
