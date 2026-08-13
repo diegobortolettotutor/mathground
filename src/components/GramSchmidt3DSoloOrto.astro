@@ -125,6 +125,17 @@ const STR = {
     return normv(f);
   }
 
+  // interpola linearmente due colori esadecimali (#rrggbb) in base a t (0->1)
+  function lerpColor(c1: string, c2: string, t: number): string {
+    const p1 = parseInt(c1.slice(1), 16), p2 = parseInt(c2.slice(1), 16);
+    const r1 = (p1 >> 16) & 255, g1 = (p1 >> 8) & 255, b1 = p1 & 255;
+    const r2 = (p2 >> 16) & 255, g2 = (p2 >> 8) & 255, b2 = p2 & 255;
+    const r = Math.round(r1 + (r2 - r1) * t);
+    const g = Math.round(g1 + (g2 - g1) * t);
+    const b = Math.round(b1 + (b2 - b1) * t);
+    return `rgb(${r},${g},${b})`;
+  }
+
   // ORTOGONALIZZAZIONE (niente normalizzazione): coefficiente (v·w)/(w·w)
   function gramSchmidtOrtho(v1: V3, v2: V3, v3: V3) {
     const w1: V3 = [...v1] as V3;                 // w1 = v1 (resta tale e quale)
@@ -175,7 +186,8 @@ const STR = {
     const COL = {
       v: ['#7aa2f7', '#5fd0a0', '#f0bd6a'],     // input (tinte tenui)
       res: ['#3b82f6', '#10b981', '#f59e0b'],   // risultato w1, w2, w3 (vivi)
-      proj: '#eab308',                          // proiezioni
+      proj: '#f97316',                          // proiezioni (arancione)
+      flip: '#ef4444',                          // proiezioni ribaltate/in rotazione (rosso)
       rightAngle: 'rgba(220,38,38,0.55)',       // segno di angolo retto (rosso tenue)
     };
     let ink = 'rgba(128,128,128,0.9)';
@@ -333,13 +345,17 @@ const STR = {
 
     // disegna il segmento ribaltato-traslato di una proiezione: parte da 'pOrig'
     // ruotato in loco fino a -pOrig (rot), poi trasla la coda dall'origine fino a
-    // 'tailTarget' (shift), mantenendo -pOrig come vettore libero attaccato.
-    function drawFlip(pOrig: V3, dropVec: V3, tailTarget: V3, f: FlipState | undefined, color: string) {
+    // 'tailTarget' (shift), mantenendo -pOrig come vettore libero attaccato. Il colore
+    // passa linearmente da arancione (proiezione) a rosso (copia ribaltata) seguendo
+    // 'rot': a rotazione ancora a zero e' arancione come l'originale, a rotazione
+    // completa (180°) e' rosso pieno.
+    function drawFlip(pOrig: V3, dropVec: V3, tailTarget: V3, f: FlipState | undefined) {
       if (!f || f.alpha <= 0.02) return;
       const axis = flipAxis(pOrig, dropVec);
       const rotP = rotatePerp(pOrig, axis, f.rot * Math.PI);
       const tail = lerp3([0, 0, 0], tailTarget, f.shift);
       const tip = add(tail, rotP);
+      const color = lerpColor(COL.proj, COL.flip, f.rot);
       arrow(tip, color, 3, f.alpha * 0.95, undefined, tail);
     }
 
@@ -363,9 +379,9 @@ const STR = {
 
       // segmenti ribaltati (180°) e traslati punta-coda: -p2 sulla punta di v2;
       // -p3a sulla punta di v3, poi -p3b accodato sulla punta di -p3a gia' traslato
-      drawFlip(geom.p2, sub(v[1], geom.p2), v[1], view.flip2, COL.proj);
-      drawFlip(geom.p3a, sub(v[2], geom.p3a), v[2], view.flip3a, COL.proj);
-      drawFlip(geom.p3b, sub(v[2], geom.p3b), sub(v[2], geom.p3a), view.flip3b, COL.proj);
+      drawFlip(geom.p2, sub(v[1], geom.p2), v[1], view.flip2);
+      drawFlip(geom.p3a, sub(v[2], geom.p3a), v[2], view.flip3a);
+      drawFlip(geom.p3b, sub(v[2], geom.p3b), sub(v[2], geom.p3a), view.flip3b);
 
       // risultato: i tre vettori ortogonali w1, w2, w3 (vivi), in crescita
       if (view.r1) arrow(scl(geom.w1, view.r1), COL.res[0], 3.5, 1, view.r1 > 0.9 ? 'w₁' : undefined, [0, 0, 0], mirrorOffsetAcrossAxis(v[0], [8, -6]));
