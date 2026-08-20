@@ -47,7 +47,7 @@ const uid = "collatz-" + Math.random().toString(36).slice(2, 9);
   data-stats-label={t.statsLabel}
   data-umami-event={t.umamiEvent}
 >
-  <canvas class="collatz-canvas" width="800" height="500" aria-label={t.title}></canvas>
+  <canvas class="collatz-canvas" aria-label={t.title}></canvas>
   <div class="collatz-message" role="status"></div>
 
   <div class="collatz-controls">
@@ -115,6 +115,30 @@ const uid = "collatz-" + Math.random().toString(36).slice(2, 9);
   const speedSlider = root.querySelector(".collatz-speed-slider") as HTMLInputElement;
   const speedValue = root.querySelector(".collatz-speed-value") as HTMLElement;
 
+  // Scala del canvas adattata al device pixel ratio: su schermi ad alta
+  // densità (retina, 4K) usiamo una risoluzione più alta per nitidezza,
+  // su schermi normali/telefoni usiamo una risoluzione più bassa per
+  // performance. Rapporto base: 800x500 (fisso); scaling factor dal DPR.
+  const dpr = window.devicePixelRatio ?? 1;
+  const baseWidth = 800;
+  const baseHeight = 500;
+  let canvasWidth = baseWidth;
+  let canvasHeight = baseHeight;
+  let radiusScale = 1;
+  let lineWidthScale = 1;
+
+  // Su schermi ad alta densità (DPR >= 2), raddoppia la risoluzione
+  // per mantenere nitidezza. Su schermi normali/telefono, mantieni base.
+  if (dpr >= 2) {
+    canvasWidth = baseWidth * 2;
+    canvasHeight = baseHeight * 2;
+    radiusScale = 2;
+    lineWidthScale = 2;
+  }
+
+  canvas.width = canvasWidth;
+  canvas.height = canvasHeight;
+
   // Scala non lineare dello slider: passi fini da 0.5x a 1.5x (0.1 alla
   // volta), poi si passa a passi interi da 2x in su. Lo slider stesso
   // resta un semplice indice 0..N-1 su questo elenco di valori.
@@ -137,7 +161,7 @@ const uid = "collatz-" + Math.random().toString(36).slice(2, 9);
   };
 
   const S = 0.9; // frazione dell'asse usata per la distanza
-  const BASE_RADIUS = 6; // raggio a riposo dei pallini (-25% rispetto a 8)
+  const BASE_RADIUS = 6 * radiusScale; // raggio a riposo dei pallini (scalato dal DPR)
 
   // Durata di un "passo" della sequenza a velocita' 1x, suddivisa in tre
   // fasi consecutive e non sovrapposte: zoom (riposiziona i punti
@@ -307,7 +331,7 @@ const uid = "collatz-" + Math.random().toString(36).slice(2, 9);
     ctx.fillRect(x0, y0 - axisHeight, axisWidth, axisHeight);
 
     ctx.strokeStyle = "rgba(100, 100, 100, 0.5)";
-    ctx.lineWidth = 2;
+    ctx.lineWidth = 2 * lineWidthScale;
     ctx.beginPath();
     ctx.moveTo(x0, y0);
     ctx.lineTo(x0 + axisWidth, y0);
@@ -334,7 +358,7 @@ const uid = "collatz-" + Math.random().toString(36).slice(2, 9);
       const x2 = px(i + 1);
       const y2 = py(seq[i + 1]);
       ctx.strokeStyle = seq[i + 1] > seq[i] ? "#FFD700" : "#FF8C00";
-      ctx.lineWidth = 2.5;
+      ctx.lineWidth = 2.5 * lineWidthScale;
       ctx.beginPath();
       ctx.moveTo(x1, y1);
       ctx.lineTo(x2, y2);
@@ -353,7 +377,7 @@ const uid = "collatz-" + Math.random().toString(36).slice(2, 9);
       const xEnd = lerp(xPrev, xTarget, e);
       const yEnd = lerp(yPrev, yTarget, e);
       ctx.strokeStyle = seq[k] > seq[k - 1] ? "#FFD700" : "#FF8C00";
-      ctx.lineWidth = 2.5;
+      ctx.lineWidth = 2.5 * lineWidthScale;
       ctx.beginPath();
       ctx.moveTo(xPrev, yPrev);
       ctx.lineTo(xEnd, yEnd);
@@ -364,7 +388,7 @@ const uid = "collatz-" + Math.random().toString(36).slice(2, 9);
       const x2 = px(k);
       const y2 = py(seq[k]);
       ctx.strokeStyle = seq[k] > seq[k - 1] ? "#FFD700" : "#FF8C00";
-      ctx.lineWidth = 2.5;
+      ctx.lineWidth = 2.5 * lineWidthScale;
       ctx.beginPath();
       ctx.moveTo(x1, y1);
       ctx.lineTo(x2, y2);
@@ -372,7 +396,7 @@ const uid = "collatz-" + Math.random().toString(36).slice(2, 9);
     }
 
     // ----- punti "fermi" -----
-    ctx.lineWidth = 2;
+    ctx.lineWidth = 2 * lineWidthScale;
     for (let i = 0; i < existingCount; i++) {
       const x = px(i);
       const y = py(seq[i]);
