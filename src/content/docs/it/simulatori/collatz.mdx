@@ -1,0 +1,102 @@
+---
+title: Congettura di Collatz (3n+1)
+description: Visualizzatore interattivo della congettura di Collatz con animazione dinamica dei valori
+sidebar:
+  hidden: false
+  label: Congettura di Collatz (3n+1)
+  order: 7
+tableOfContents: false
+---
+
+import SimulatoreCollatz from '../../../components/SimulatoreCollatz.astro';
+
+## Introduzione
+
+La **congettura di Collatz**, anche nota come *congettura 3n+1*, è uno dei problemi aperti più affascinanti della matematica contemporanea. Nonostante la sua formulazione estremamente semplice, rimane irrisolta da più di ottant'anni.
+
+<div class="callout-info">
+<strong>Enunciato della congettura:</strong>  
+Dato un numero intero positivo $n$, si applica la seguente procedura iterativa:
+- Se $n$ è **pari**, dividi per 2: $n \to n/2$
+- Se $n$ è **dispari**, calcola $3n+1$: $n \to 3n+1$
+
+La congettura sostiene che, indipendentemente dal valore iniziale di $n$, la sequenza raggiungerà sempre il valore 1 (e poi entrerà nel ciclo 1 → 4 → 2 → 1).
+</div>
+
+## Il Simulatore
+
+Lo strumento seguente visualizza la progressione della sequenza di Collatz per un numero iniziale a scelta. I punti sono colorati secondo le loro proprietà matematiche, e i segmenti cambiano colore a seconda della direzione della variazione.
+
+<SimulatoreCollatz />
+
+## Colori e Significato
+
+Nel simulatore, ogni elemento visivo trasmette un'informazione didattica:
+
+| Elemento | Colore | Significato |
+|----------|--------|-------------|
+| Punto iniziale | <span style="color: #00aa00;">🟢 Verde</span> | Il numero da cui si parte |
+| Punto pari | <span style="color: #dd0000;">🔴 Rosso</span> | Un numero pari della sequenza |
+| Punto dispari | <span style="color: #0066ff;">🔵 Blu</span> | Un numero dispari della sequenza |
+| Punto finale | <span style="color: #00aa00;">🟢 Verde</span> | Quando si raggiunge 1 |
+| Segmento ascendente | <span style="color: #ffd700;">▬ Giallo</span> | Valore cresce ($n$ dispari: $3n+1$) |
+| Segmento discendente | <span style="color: #ff8c00;">▬ Arancione</span> | Valore decresce ($n$ pari: $n/2$) |
+
+## Come Usare il Simulatore
+
+1. **Inserisci un numero** (1–100) nella casella di input oppure premi "Numero casuale" per generarne uno.
+2. **Premi "Calcola"** per avviare l'animazione della sequenza.
+3. **Regola la velocità** con lo slider durante l'animazione (in tempo reale).
+4. **Durante l'animazione** puoi:
+   - Modificare l'input per un nuovo numero (non interrompe l'animazione in corso)
+   - Premere "Numero casuale" per generare un nuovo valore (non interrompe l'animazione in corso)
+   - Premere "Calcola" se il numero è cambiato: interromperà l'animazione e ricomincerà da capo
+   - Premere "Calcola" senza modifiche: l'animazione prosegue indisturbata
+
+### Interpretazione del Grafico
+
+- L'**asse orizzontale** rappresenta il **numero di passi** nell'algoritmo.
+- L'**asse verticale** rappresenta il **valore** nella sequenza, scalato dinamicamente.
+- Ogni volta che viene generato un nuovo numero che supera il massimo precedente, la scala verticale si aggiorna automaticamente.
+- Ogni volta che aumenta il numero di passi, la scala orizzontale si comprime per mantenere visibile l'intera progressione.
+
+## Osservazioni Interessanti
+
+### Cicli e Attractor
+La sequenza di Collatz, per ogni numero testato fino ad oggi, entra nel ciclo `1 → 4 → 2 → 1`. Il valore 1 funge da "attrattore" verso cui convergono tutte le sequenze osservate.
+
+### Crescita e Decrescita Alternata
+Si osserva che i numeri dispari causano un "salto" verso l'alto (moltiplicazione per 3), mentre gli intervalli di numeri pari generano una discesa progressiva (divisioni ripetute per 2).
+
+### Lunghezza Variabile
+La lunghezza della sequenza varia enormemente a seconda del numero iniziale:
+- Alcuni numeri raggiungono 1 in pochi passi (es. 16 → 8 → 4 → 2 → 1, solo 5 passi)
+- Altririchiedono moltissimi passi (il numero 27, ad esempio, richiede 112 passi prima di raggiungere 1)
+
+### Il Numero 27
+Un caso particolarmente interessante è $n = 27$: la sequenza raggiunge un picco di **9232** prima di tornare a scendere verso 1. È un ottimo esempio di come la congettura sfidi l'intuizione — un numero apparentemente modesto può generare un'escursione verticale drammatica.
+
+## Perché è Difficile?
+
+Nonostante sia formulabile con poche parole, la congettura di Collatz è straordinariamente difficile da provare o confutare:
+
+- **La natura caotica**: il comportamento della sequenza non segue pattern prevedibili; sembra quasi casuale.
+- **Dipendenza sensibile**: piccole variazioni nel numero iniziale generano sequenze completamente diverse.
+- **Assenza di struttura algebrica evidente**: i metodi di algebra lineare e teoria dei numeri "classici" si rivelano insufficienti.
+
+Anche i computer moderni, che hanno verificato la congettura per numeri enormemente grandi (oltre $2^{60}$), non hanno trovato alcun controesempio, ma nemmeno una dimostrazione generale.
+
+## Spunti Didattici
+
+Questo simulatore è utile per:
+
+- **Ricorsione e iterazione**: comprendere come un algoritmo semplice genera comportamenti complessi.
+- **Pensiero critico**: osservare che le sequenze raggiungono sempre 1 (empiricamente) non equivale a provarlo rigorosamente.
+- **Visualizzazione dinamica**: come la geometria del grafico cambia continuamente per adattarsi all'ampiezza e all'altezza della sequenza.
+- **Pattern recognition**: cercare regolarità, salti, e strutture nei dati grezzi.
+
+## Risorse Esterne
+
+- [OEIS A006370](https://oeis.org/A006370/) — Sequenza di Collatz (Online Encyclopedia of Integer Sequences)
+- [Collatz Conjecture — Numberphile](https://www.youtube.com/watch?v=xMsH3PqxjO0) — Divulgazione video affascinante
+- [Eric Weisstein — Collatz Conjecture](https://mathworld.wolfram.com/CollatzConjecture.html) — Wolfram MathWorld

@@ -1,0 +1,592 @@
+---
+// ============================================================================
+//  SimulatoreCollatz.astro
+//  Visualizzatore della congettura di Collatz (3n+1) con:
+//   - Animazione di scaling dinamico degli assi (n e valori)
+//   - Pop-up bounce dei punti, linee ancorate e colori didattici
+//   - Slider di velocità in tempo reale
+//   - Gestione del valore in sospeso: solo Calcola con modifica interrompe
+// ============================================================================
+const locale = Astro.currentLocale ?? "it";
+const lang = locale.startsWith("en") ? "en" : "it";
+
+const i18n = {
+  it: {
+    title: "Congettura di Collatz (3n+1)",
+    calcButton: "Calcola",
+    randomButton: "Numero casuale",
+    inputPlaceholder: "Inserisci numero (1-100)",
+    speedLabel: "Velocità animazione:",
+    errorRange: "Inserisci un numero da 1 a 100",
+    errorInvalid: "Inserisci un numero valido",
+    umamiEvent: "collatz_calculate",
+  },
+  en: {
+    title: "Collatz Conjecture (3n+1)",
+    calcButton: "Calculate",
+    randomButton: "Random Number",
+    inputPlaceholder: "Enter number (1-100)",
+    speedLabel: "Animation speed:",
+    errorRange: "Enter a number between 1 and 100",
+    errorInvalid: "Enter a valid number",
+    umamiEvent: "collatz_calculate",
+  },
+};
+
+const t = i18n[lang] || i18n.it;
+---
+
+<div class="collatz-root" data-locale={lang}>
+  <section class="collatz-panel">
+    <div class="collatz-controls">
+      <label class="collatz-speed-label">
+        <span>{t.speedLabel}</span>
+        <input type="range" class="collatz-speed-slider" min="0.1" max="2" step="0.1" value="1" />
+        <span class="collatz-speed-value">1.0x</span>
+      </label>
+    </div>
+  </section>
+
+  <section class="collatz-panel">
+    <canvas class="collatz-canvas" width="800" height="500" aria-label={t.title}></canvas>
+    <div class="collatz-message" role="status"></div>
+  </section>
+
+  <div class="collatz-buttons">
+    <button type="button" class="collatz-btn collatz-calc">{t.calcButton}</button>
+    <button type="button" class="collatz-btn collatz-random">{t.randomButton}</button>
+    <input
+      type="number"
+      class="collatz-input"
+      placeholder={t.inputPlaceholder}
+      min="1"
+      max="100"
+      inputmode="numeric"
+    />
+  </div>
+
+  <div class="collatz-formula"></div>
+</div>
+
+<script>
+  import umami from "@/lib/umami";
+
+  interface AnimationState {
+    isRunning: boolean;
+    startTime: number;
+    currentValue: number;
+    sequence: number[];
+    vmax: number;
+    lastVmax: number;
+    progress: number; // [0, 1] per il passo corrente
+  }
+
+  // ========================================================================
+  // INIZIALIZZAZIONE
+  // ========================================================================
+  const root = document.querySelector(".collatz-root") as HTMLElement;
+  const canvas = root.querySelector(".collatz-canvas") as HTMLCanvasElement;
+  const ctx = canvas.getContext("2d")!;
+  const msgBox = root.querySelector(".collatz-message") as HTMLElement;
+  const formulaBox = root.querySelector(".collatz-formula") as HTMLElement;
+  const calcBtn = root.querySelector(".collatz-calc") as HTMLButtonElement;
+  const randomBtn = root.querySelector(".collatz-random") as HTMLButtonElement;
+  const inputField = root.querySelector(".collatz-input") as HTMLInputElement;
+  const speedSlider = root.querySelector(".collatz-speed-slider") as HTMLInputElement;
+  const speedValue = root.querySelector(".collatz-speed-value") as HTMLElement;
+
+  let pendingValue: number | null = null;
+  let animState: AnimationState = {
+    isRunning: false,
+    startTime: 0,
+    currentValue: 0,
+    sequence: [],
+    vmax: 0,
+    lastVmax: 0,
+    progress: 0,
+  };
+
+  const S = 0.9; // frazione dell'asse usata per la distanza
+
+  // ========================================================================
+  // LOGICA DI COLLATZ
+  // ========================================================================
+  function computeSequence(n: number): number[] {
+    if (n < 1 || n > 100 || !Number.isInteger(n)) return [];
+    const seq: number[] = [n];
+    let current = n;
+    while (current !== 1 && seq.length < 10000) {
+      current = current % 2 === 0 ? current / 2 : 3 * current + 1;
+      seq.push(current);
+    }
+    return seq;
+  }
+
+  // ========================================================================
+  // VALIDAZIONE INPUT
+  // ========================================================================
+  function validateInput(val: string): number | null {
+    const n = parseInt(val, 10);
+    if (isNaN(n) || n < 1 || n > 100) {
+      msgBox.className = "collatz-message collatz-error";
+      msgBox.textContent =
+        n < 1 || n > 100 ? t.errorRange : t.errorInvalid;
+      return null;
+    }
+    msgBox.className = "collatz-message";
+    msgBox.textContent = "";
+    return n;
+  }
+
+  // ========================================================================
+  // EASING & ANIMAZIONE
+  // ========================================================================
+  // Easing elastico per il pop-up bounce
+  function easeOutElastic(t: number): number {
+    const c5 = (2 * Math.PI) / 4.5;
+    return t === 0
+      ? 0
+      : t === 1
+        ? 1
+        : Math.pow(2, -10 * t) * Math.sin((t * 10 - 0.75) * c5) + 1;
+  }
+
+  // ========================================================================
+  // RENDERING CANVAS
+  // ========================================================================
+  function drawSequence(
+    seq: number[],
+    nmax: number,
+    vmaxHist: number,
+    stepProgress: number = 1
+  ) {
+    const w = canvas.width;
+    const h = canvas.height;
+    const margin = 40;
+    const axisWidth = w - 2 * margin;
+    const axisHeight = h - 2 * margin;
+    const x0 = margin;
+    const y0 = h - margin;
+
+    ctx.clearRect(0, 0, w, h);
+    ctx.fillStyle = "rgba(200, 200, 200, 0.2)";
+    ctx.fillRect(x0, y0 - axisHeight, axisWidth, axisHeight);
+
+    // Assi
+    ctx.strokeStyle = "rgba(100, 100, 100, 0.5)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(x0, y0);
+    ctx.lineTo(x0 + axisWidth, y0);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x0, y0);
+    ctx.lineTo(x0, y0 - axisHeight);
+    ctx.stroke();
+
+    // Etichetta massimo corrente accanto a T
+    if (vmaxHist > 0) {
+      ctx.fillStyle = "rgba(100, 100, 100, 0.7)";
+      ctx.font = "12px monospace";
+      ctx.textAlign = "right";
+      ctx.fillText(`max=${vmaxHist}`, x0 - 5, y0 - axisHeight * S + 5);
+    }
+
+    if (seq.length === 0) return;
+
+    const nzoom = nmax > 0 ? 1 / nmax : 1;
+    const yzoom = vmaxHist > 0 ? 1 / vmaxHist : 1;
+
+    // Disegna linee (sotto ai punti)
+    for (let i = 0; i < seq.length - 1; i++) {
+      const x1 = x0 + (i * nzoom * axisWidth * S);
+      const y1 = y0 - seq[i] * yzoom * axisHeight * S;
+      const x2 = x0 + ((i + 1) * nzoom * axisWidth * S);
+      const y2 = y0 - seq[i + 1] * yzoom * axisHeight * S;
+
+      // Colore della linea: giallo se ascendente, arancione se discendente
+      if (seq[i + 1] > seq[i]) {
+        ctx.strokeStyle = "#FFD700"; // giallo
+      } else {
+        ctx.strokeStyle = "#FF8C00"; // arancione
+      }
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x2, y2);
+      ctx.stroke();
+    }
+
+    // Disegna punti
+    ctx.lineWidth = 2;
+    for (let i = 0; i < seq.length; i++) {
+      const x = x0 + (i * nzoom * axisWidth * S);
+      const y = y0 - seq[i] * yzoom * axisHeight * S;
+      let color: string;
+      let radius = 4;
+
+      if (seq[i] === 1) {
+        color = "#00AA00"; // verde (punto finale)
+      } else if (seq[i] % 2 === 0) {
+        color = "#DD0000"; // rosso (pari)
+      } else {
+        color = "#0066FF"; // blu (dispari)
+      }
+
+      // Se è il primo punto, usa sempre verde
+      if (i === 0) {
+        color = "#00AA00"; // verde (punto iniziale)
+      }
+
+      // Se è l'ultimo punto della sequenza visibile, applica animazione di bounce
+      if (i === seq.length - 1 && stepProgress < 1) {
+        const bounceScale = easeOutElastic(stepProgress);
+        radius = 4 * bounceScale;
+      }
+
+      ctx.fillStyle = color;
+      ctx.strokeStyle = "rgba(0, 0, 0, 0.3)";
+      ctx.beginPath();
+      ctx.arc(x, y, radius, 0, 2 * Math.PI);
+      ctx.fill();
+      ctx.stroke();
+    }
+  }
+
+  // ========================================================================
+  // ANIMAZIONE
+  // ========================================================================
+  function startAnimation(startVal: number) {
+    const seq = computeSequence(startVal);
+    if (seq.length === 0) return;
+
+    animState = {
+      isRunning: true,
+      startTime: performance.now(),
+      currentValue: startVal,
+      sequence: seq,
+      vmax: Math.max(...seq),
+      lastVmax: startVal,
+      progress: 0,
+    };
+
+    inputField.disabled = false; // Consenti editing anche durante animazione
+    calcBtn.disabled = false; // Consenti click calc durante animazione
+    randomBtn.disabled = false;
+    pendingValue = null;
+    updateFormula();
+
+    umami.track(t.umamiEvent, { startValue: startVal, sequenceLength: seq.length });
+    animate();
+  }
+
+  function animate() {
+    if (!animState.isRunning) return;
+
+    const now = performance.now();
+    const speedMult = parseFloat(speedSlider.value);
+    const stepDuration = 600 / speedMult; // durata in ms per passo
+    const elapsed = now - animState.startTime;
+    const stepIndex = Math.floor(elapsed / stepDuration);
+
+    if (stepIndex >= animState.sequence.length) {
+      animState.isRunning = false;
+      inputField.disabled = false;
+      calcBtn.disabled = false;
+      updateFormula();
+      drawSequence(
+        animState.sequence,
+        animState.sequence.length - 1,
+        animState.vmax,
+        1
+      );
+      return;
+    }
+
+    // Progress dentro il passo corrente [0, 1]
+    const progressInStep = (elapsed % stepDuration) / stepDuration;
+    animState.progress = Math.min(progressInStep, 1);
+
+    // Disegna con il numero di passi visibili fino a stepIndex
+    const visibleSeq = animState.sequence.slice(0, stepIndex + 1);
+    drawSequence(
+      visibleSeq,
+      stepIndex,
+      animState.vmax,
+      animState.progress
+    );
+
+    requestAnimationFrame(animate);
+  }
+
+  // ========================================================================
+  // AGGIORNAMENTO FORMULA
+  // ========================================================================
+  function updateFormula() {
+    if (animState.sequence.length === 0) {
+      formulaBox.innerHTML = "";
+      return;
+    }
+
+    let html = `f(${animState.currentValue}) = {`;
+    let numToShow = animState.sequence.length;
+
+    if (animState.isRunning) {
+      // Durante l'animazione, mostra solo i valori già "apparsi" sullo schermo
+      const speedMult = parseFloat(speedSlider.value);
+      const stepDuration = 600 / speedMult;
+      const elapsed = performance.now() - animState.startTime;
+      numToShow = Math.min(
+        Math.floor(elapsed / stepDuration) + 1,
+        animState.sequence.length
+      );
+    }
+
+    // Mostra i numeri
+    for (let i = 0; i < numToShow; i++) {
+      if (i > 0) html += ", ";
+      html += animState.sequence[i];
+    }
+
+    html += "}";
+    formulaBox.innerHTML = `<div class="collatz-formula-text">${html}</div>`;
+  }
+
+  // ========================================================================
+  // HANDLER BOTTONI
+  // ========================================================================
+  function handleCalc() {
+    const val = validateInput(inputField.value);
+    if (val === null) return;
+
+    // Se non c'è animazione in corso, avvia sempre
+    if (!animState.isRunning) {
+      startAnimation(val);
+      return;
+    }
+
+    // Se c'è animazione in corso:
+    // - Se c'è un valore in sospeso (diverso da quello attuale), ferma e riparta
+    // - Se non c'è cambio in sospeso, non fare nulla (l'animazione continua)
+    if (pendingValue !== null && pendingValue !== animState.currentValue) {
+      animState.isRunning = false;
+      startAnimation(pendingValue);
+    }
+    // Altrimenti non fare nulla: l'animazione continua indisturbata
+  }
+
+  function handleRandom() {
+    const val = 1 + Math.floor(Math.random() * 100);
+    inputField.value = String(val);
+    pendingValue = val;
+    updateFormula();
+    // Non interrompe l'animazione in corso
+  }
+
+  function handleInputChange() {
+    const val = validateInput(inputField.value);
+    if (val !== null) {
+      pendingValue = val;
+    }
+  }
+
+  function handleSpeedChange() {
+    const val = parseFloat(speedSlider.value);
+    speedValue.textContent = val.toFixed(1) + "x";
+    // La velocità si applica già in tempo reale tramite requestAnimationFrame
+  }
+
+  // ========================================================================
+  // EVENT LISTENERS
+  // ========================================================================
+  calcBtn.addEventListener("click", handleCalc);
+  randomBtn.addEventListener("click", handleRandom);
+  inputField.addEventListener("input", handleInputChange);
+  inputField.addEventListener("change", handleInputChange);
+  speedSlider.addEventListener("input", handleSpeedChange);
+
+  // Aggiorna formula periodicamente durante animazione
+  setInterval(() => {
+    if (animState.isRunning) {
+      updateFormula();
+    }
+  }, 50);
+
+  // Inizializzazione
+  updateFormula();
+</script>
+
+<style>
+  .collatz-root {
+    --collatz-accent: var(--sl-color-accent-light, #3b82f6);
+    --collatz-border: var(--sl-color-border, rgba(100, 100, 100, 0.2));
+    --collatz-surface: var(--sl-color-surface, rgba(0, 0, 0, 0.02));
+    --collatz-red: #dd0000;
+    --collatz-blue: #0066ff;
+    --collatz-green: #00aa00;
+    --collatz-yellow: #ffd700;
+    --collatz-orange: #ff8c00;
+  }
+
+  .collatz-panel {
+    padding: 1rem 1.25rem;
+    background: var(--collatz-surface);
+    border: 1px solid var(--collatz-border);
+    border-radius: 8px;
+    margin-bottom: 1rem;
+  }
+
+  .collatz-controls {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+
+  .collatz-speed-label {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    font-weight: 500;
+    font-size: 0.95rem;
+  }
+
+  .collatz-speed-slider {
+    width: 120px;
+    cursor: pointer;
+  }
+
+  .collatz-speed-value {
+    min-width: 3em;
+    text-align: right;
+    font-family: monospace;
+    font-size: 0.9rem;
+  }
+
+  .collatz-canvas {
+    display: block;
+    width: 100%;
+    height: auto;
+    border: 1px solid var(--collatz-border);
+    border-radius: 6px;
+    background: white;
+    margin-bottom: 1rem;
+  }
+
+  .collatz-message {
+    font-size: 0.95rem;
+    margin: 0;
+    padding: 0.6rem 0.8rem;
+    border-radius: 4px;
+  }
+
+  .collatz-message.collatz-error {
+    padding: 0.6rem 0.8rem;
+    border-left: 4px solid var(--collatz-red);
+    background: color-mix(in srgb, var(--collatz-red) 8%, transparent);
+    border-radius: 4px;
+    color: var(--collatz-red);
+  }
+
+  .collatz-buttons {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    align-items: stretch;
+    gap: 0.75rem;
+    margin: 1.25rem 0 0.6rem;
+  }
+
+  .collatz-btn,
+  .collatz-input {
+    box-sizing: border-box;
+    margin: 0;
+    height: 3.6rem;
+    padding: 0 1rem;
+    line-height: 1.2;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    border-radius: 999px;
+    border: 1.5px solid var(--collatz-border);
+    background: transparent;
+    color: var(--sl-color-text, inherit);
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+    transition: transform 0.1s ease, background 0.2s ease, border-color 0.2s ease,
+      color 0.2s ease;
+  }
+
+  .collatz-btn:hover:not(:disabled) {
+    border-color: var(--collatz-accent);
+    color: var(--collatz-accent);
+  }
+
+  .collatz-btn:active:not(:disabled) {
+    transform: scale(0.96);
+  }
+
+  .collatz-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .collatz-input {
+    display: flex;
+    justify-content: center;
+    font-weight: 400;
+  }
+
+  .collatz-input::placeholder {
+    color: var(--sl-color-gray-4, rgba(100, 100, 100, 0.5));
+  }
+
+  .collatz-input:focus {
+    outline: none;
+    border-color: var(--collatz-accent);
+    background: color-mix(in srgb, var(--collatz-accent) 4%, transparent);
+  }
+
+  .collatz-formula {
+    margin-top: 1rem;
+    padding: 0.8rem;
+    background: var(--collatz-surface);
+    border: 1px solid var(--collatz-border);
+    border-radius: 6px;
+    font-family: monospace;
+    font-size: 0.95rem;
+    word-break: break-word;
+    min-height: 2em;
+    display: flex;
+    align-items: center;
+  }
+
+  .collatz-formula-text {
+    width: 100%;
+  }
+
+  /* Mobile */
+  @media (max-width: 30rem) {
+    .collatz-buttons {
+      grid-template-columns: 1fr;
+    }
+
+    .collatz-controls {
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    .collatz-speed-label {
+      flex-direction: column;
+    }
+
+    .collatz-speed-slider {
+      width: 100%;
+    }
+
+    .collatz-speed-value {
+      text-align: center;
+    }
+  }
+</style>

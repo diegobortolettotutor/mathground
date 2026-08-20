@@ -1,0 +1,102 @@
+---
+title: Collatz Conjecture (3n+1)
+description: Interactive visualizer of the Collatz conjecture with dynamic animation of values
+sidebar:
+  hidden: false
+  label: Collatz Conjecture (3n+1)
+  order: 7
+tableOfContents: false
+---
+
+import SimulatoreCollatz from '../../../components/SimulatoreCollatz.astro';
+
+## Introduction
+
+The **Collatz Conjecture**, also known as the *3n+1 conjecture*, is one of the most fascinating open problems in contemporary mathematics. Despite its extraordinarily simple formulation, it has remained unsolved for more than eighty years.
+
+<div class="callout-info">
+<strong>Statement of the conjecture:</strong>  
+Given a positive integer $n$, apply the following iterative procedure:
+- If $n$ is **even**, divide by 2: $n \to n/2$
+- If $n$ is **odd**, compute $3n+1$: $n \to 3n+1$
+
+The conjecture asserts that, regardless of the initial value of $n$, the sequence will always reach the value 1 (and then enter the cycle 1 → 4 → 2 → 1).
+</div>
+
+## The Simulator
+
+The tool below visualizes the progression of the Collatz sequence for a chosen starting number. Points are colored according to their mathematical properties, and segments change color depending on the direction of the variation.
+
+<SimulatoreCollatz />
+
+## Colors and Meaning
+
+In the simulator, each visual element conveys didactic information:
+
+| Element | Color | Meaning |
+|---------|-------|---------|
+| Starting point | <span style="color: #00aa00;">🟢 Green</span> | The number you start with |
+| Even number | <span style="color: #dd0000;">🔴 Red</span> | An even number in the sequence |
+| Odd number | <span style="color: #0066ff;">🔵 Blue</span> | An odd number in the sequence |
+| Ending point | <span style="color: #00aa00;">🟢 Green</span> | When 1 is reached |
+| Ascending segment | <span style="color: #ffd700;">▬ Yellow</span> | Value increases ($n$ odd: $3n+1$) |
+| Descending segment | <span style="color: #ff8c00;">▬ Orange</span> | Value decreases ($n$ even: $n/2$) |
+
+## How to Use the Simulator
+
+1. **Enter a number** (1–100) in the input box or press "Random Number" to generate one.
+2. **Press "Calculate"** to start the animation of the sequence.
+3. **Adjust the speed** with the slider during animation (in real-time).
+4. **During animation** you can:
+   - Modify the input for a new number (does not interrupt the current animation)
+   - Press "Random Number" to generate a new value (does not interrupt the current animation)
+   - Press "Calculate" if the number has changed: this will stop the animation and restart from the beginning
+   - Press "Calculate" without changes: the animation continues undisturbed
+
+### Interpreting the Graph
+
+- The **horizontal axis** represents the **number of steps** in the algorithm.
+- The **vertical axis** represents the **value** in the sequence, scaled dynamically.
+- Whenever a new number is generated that exceeds the previous maximum, the vertical scale updates automatically.
+- As the number of steps increases, the horizontal scale compresses to keep the entire progression visible.
+
+## Interesting Observations
+
+### Cycles and Attractors
+The Collatz sequence, for every number tested to date, enters the cycle `1 → 4 → 2 → 1`. The value 1 acts as an "attractor" toward which all observed sequences converge.
+
+### Alternating Growth and Decay
+The sequence exhibits alternating behavior: odd numbers cause an "upward leap" (multiplication by 3), while intervals of even numbers generate progressive descent (repeated divisions by 2).
+
+### Variable Length
+The length of the sequence varies enormously depending on the starting number:
+- Some numbers reach 1 in just a few steps (e.g., 16 → 8 → 4 → 2 → 1, only 5 steps)
+- Others require many steps (the number 27, for example, requires 112 steps before reaching 1)
+
+### The Number 27
+A particularly interesting case is $n = 27$: the sequence reaches a peak of **9232** before descending back toward 1. It is an excellent example of how the conjecture defies intuition — a seemingly modest number can generate a dramatic vertical excursion.
+
+## Why Is It Difficult?
+
+Despite being formulable in just a few words, the Collatz Conjecture is extraordinarily difficult to prove or refute:
+
+- **Chaotic behavior**: the sequence's evolution does not follow predictable patterns; it appears almost random.
+- **Sensitive dependence**: small variations in the starting number generate completely different sequences.
+- **Lack of obvious algebraic structure**: classical methods from linear algebra and number theory prove insufficient.
+
+Even modern computers, which have verified the conjecture for astronomically large numbers (beyond $2^{60}$), have found no counterexample, but also no general proof.
+
+## Pedagogical Insights
+
+This simulator is useful for:
+
+- **Recursion and iteration**: understanding how a simple algorithm generates complex behavior.
+- **Critical thinking**: observing that sequences reach 1 (empirically) is not the same as proving it rigorously.
+- **Dynamic visualization**: how the graph's geometry continuously changes to accommodate the width and height of the sequence.
+- **Pattern recognition**: seeking regularities, jumps, and structures in the raw data.
+
+## External Resources
+
+- [OEIS A006370](https://oeis.org/A006370/) — Collatz sequence (Online Encyclopedia of Integer Sequences)
+- [Collatz Conjecture — Numberphile](https://www.youtube.com/watch?v=xMsH3PqxjO0) — Fascinating video outreach
+- [Eric Weisstein — Collatz Conjecture](https://mathworld.wolfram.com/CollatzConjecture.html) — Wolfram MathWorld
