@@ -33,6 +33,8 @@ The tool below visualizes the progression of the Collatz sequence for a chosen s
 
 In the simulator, each visual element conveys didactic information:
 
+<div style="display: flex; justify-content: center;">
+
 | Element | Color | Meaning |
 |---------|-------|---------|
 | Starting point | <span style="color: #00aa00;">🟢 Green</span> | The number you start with |
@@ -41,6 +43,8 @@ In the simulator, each visual element conveys didactic information:
 | Ending point | <span style="color: #00aa00;">🟢 Green</span> | When 1 is reached |
 | Ascending segment | <span style="color: #ffd700;">▬ Yellow</span> | Value increases ($n$ odd: $3n+1$) |
 | Descending segment | <span style="color: #ff8c00;">▬ Orange</span> | Value decreases ($n$ even: $n/2$) |
+
+</div>
 
 ## How to Use the Simulator
 
@@ -65,16 +69,13 @@ In the simulator, each visual element conveys didactic information:
 ### Cycles and Attractors
 The Collatz sequence, for every number tested to date, enters the cycle `1 → 4 → 2 → 1`. The value 1 acts as an "attractor" toward which all observed sequences converge.
 
-### Alternating Growth and Decay
-The sequence exhibits alternating behavior: odd numbers cause an "upward leap" (multiplication by 3), while intervals of even numbers generate progressive descent (repeated divisions by 2).
-
 ### Variable Length
 The length of the sequence varies enormously depending on the starting number:
 - Some numbers reach 1 in just a few steps (e.g., 16 → 8 → 4 → 2 → 1, only 5 steps)
-- Others require many steps (the number 27, for example, requires 112 steps before reaching 1)
+- Others require many steps (the number 97 is the number between 1 and 100 with the longest sequence, reaching 1 in 118 steps)
 
-### The Number 27
-A particularly interesting case is $n = 27$: the sequence reaches a peak of **9232** before descending back toward 1. It is an excellent example of how the conjecture defies intuition — a seemingly modest number can generate a dramatic vertical excursion.
+### The Peak at 9232
+A particularly interesting case is the number 27: the sequence reaches a peak of **9232** before descending back toward 1. It is noteworthy that 27 is not the only number between 1 and 100 (or even between 1 and 254) whose sequence reaches this maximum value, but it is an excellent example of how the conjecture defies intuition — a seemingly modest number can generate a dramatic vertical excursion.
 
 ## Why Is It Difficult?
 
@@ -98,5 +99,5 @@ This simulator is useful for:
 ## External Resources
 
 - [OEIS A006370](https://oeis.org/A006370/) — Collatz sequence (Online Encyclopedia of Integer Sequences)
-- [Collatz Conjecture — Numberphile](https://www.youtube.com/watch?v=xMsH3PqxjO0) — Fascinating video outreach
-- [Eric Weisstein — Collatz Conjecture](https://mathworld.wolfram.com/CollatzConjecture.html) — Wolfram MathWorld
+- [Collatz Conjecture — Veritasium](https://www.youtube.com/watch?v=094y1Z2wpJg) — Fascinating video outreach
+- [Collatz Conjecture — Wikipedia](https://en.wikipedia.org/wiki/Collatz_conjecture) — Wikipedia page

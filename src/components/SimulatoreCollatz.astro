@@ -63,8 +63,8 @@ const uid = "collatz-" + Math.random().toString(36).slice(2, 9);
     />
     <span class="collatz-speedcell">
       <label for={uid + "-speed"}>{t.speedLabel}</label>
-      <input type="range" id={uid + "-speed"} class="collatz-speed-slider" min="0" max="19" step="1" value="5" />
-      <span class="collatz-speed-value">1.0x</span>
+      <input type="range" id={uid + "-speed"} class="collatz-speed-slider" min="0" max="19" step="1" value="0" />
+      <span class="collatz-speed-value">0.5x</span>
     </span>
   </div>
 
@@ -285,12 +285,20 @@ const uid = "collatz-" + Math.random().toString(36).slice(2, 9);
         const e = easeInOutCubic(progress);
         nzoom = lerp(nzoomOld, nzoomNew, e);
         yzoom = lerp(yzoomOld, yzoomNew, e); // no-op se non c'e' nuovo massimo
-      } else {
-        // pop / line: lo zoom e' gia' completato, resta fermo sul target
+        // Durante zoom e line, mostra l'etichetta del numero precedente
+        labelN = oldNmax + 1;
+      } else if (phase === "line") {
         nzoom = nzoomNew;
         yzoom = yzoomNew;
+        // Durante line, ancora non aggiornare: il pop-up non è ancora iniziato
+        labelN = oldNmax + 1;
+      } else {
+        // pop: lo zoom e line sono gia' completati
+        nzoom = nzoomNew;
+        yzoom = yzoomNew;
+        // Durante pop, mostra l'etichetta del numero corrente (il pallino sta comparendo)
+        labelN = newNmax + 1;
       }
-      labelN = newNmax + 1;
     }
 
     // ----- sfondo, assi, etichette -----
@@ -517,10 +525,15 @@ const uid = "collatz-" + Math.random().toString(36).slice(2, 9);
     html += "}";
 
     // Conteggio nello stesso riquadro della sequenza, stesso font, con una
-    // riga di respiro (margin-top) invece di stare fuori dal box.
+    // riga di respiro (margin-top). Mostra SOLO quando la simulazione e'
+    // terminata, altrimenti distrae durante l'animazione.
+    let statsHtml = "";
+    if (!animState.isRunning && animState.sequence.length > 0) {
+      statsHtml = `<div class="collatz-formula-stats">${STR.statsLabel} ${animState.sequence.length}</div>`;
+    }
+
     formulaBox.innerHTML =
-      `<div class="collatz-formula-text">${html}</div>` +
-      `<div class="collatz-formula-stats">${STR.statsLabel} ${animState.sequence.length}</div>`;
+      `<div class="collatz-formula-text">${html}</div>` + statsHtml;
   }
 
   // ========================================================================
