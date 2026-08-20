@@ -4,6 +4,15 @@
   height: 2.75rem;
 }
 
+/* Colonna centrale più larga del default Starlight (45rem): il contenuto del
+   sito è quasi sempre testo intervallato da formule/matrici/passaggi lunghi,
+   quindi si tollera una riga più larga del range ottimale per la sola prosa
+   continua. È un max-width, non una larghezza fissa: sotto questa soglia il
+   contenuto si restringe normalmente (vedi min-width: 330px sui risolutori). */
+:root {
+  --sl-content-width: 52rem;
+}
+
 /* Colore di accento del sito (link, voce attiva nel menu, bottoni dei componenti) */
 :root {
   --sl-color-accent-low: #1a2a52;
