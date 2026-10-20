@@ -1,0 +1,160 @@
+---
+title: Scambiatore di calore
+description: Simulatore interattivo di uno scambiatore di calore a due canali, con flussi in controcorrente o in equicorrente, temperature lungo il percorso, efficienza ed entropia prodotta.
+sidebar:
+  hidden: false
+  label: Scambiatore di calore
+  order: 8
+tableOfContents: false
+---
+
+import Scambiatorecalore from '@components/Scambiatorecalore.astro';
+
+Due fluidi uguali, uno caldo e uno freddo, scorrono in due canali affiancati che seguono
+la stessa serpentina. I canali sono separati da una parete sottile che lascia passare il
+calore ma non il fluido: è il principio di tutti gli scambiatori di calore, da quelli a
+piastre delle caldaie ai recuperatori della ventilazione domestica. All'avvio i fluidi
+sono fermi e alla stessa temperatura; poi le pompe li mettono in moto e in circa
+3 secondi le temperature d'ingresso raggiungono i valori impostati.
+
+<Scambiatorecalore />
+
+## Come leggere il simulatore
+
+- Il **colore del fluido** indica la sua temperatura, dal blu (freddo) al rosso (caldo).
+  I pallini bianchi si muovono con il fluido e ne mostrano il verso e la velocità.
+- Le **frecce** attraversano la parete e indicano il verso del passaggio di calore,
+  sempre dal canale più caldo a quello più freddo. Il colore misura la differenza di
+  temperatura fra i due canali: gialle dove è grande, arancioni e poi marroni dove è
+  piccola. Dove la differenza si annulla, la freccia scompare.
+- Il **grafico** riporta la temperatura dei due fluidi in funzione della posizione lungo
+  la serpentina, misurata a partire dall'ingresso del fluido caldo.
+- Il **pannello** in basso mostra il tempo che un pacchetto di fluido impiega ad
+  attraversare la serpentina, il raffreddamento del fluido caldo, l'efficienza e
+  l'entropia prodotta, descritte più avanti.
+
+## Il modello
+
+Ogni canale è suddiviso in 900 piccoli elementi di fluido che avanzano lungo la
+serpentina con la velocità $v$ impostata. Due elementi affacciati, alle temperature
+$T_c$ (caldo) e $T_f$ (freddo), si scambiano in un breve intervallo $\Delta t$ un calore
+proporzionale alla loro differenza di temperatura. Poiché i fluidi sono uguali e
+scorrono con la stessa portata, la temperatura che perde l'uno è quella che guadagna
+l'altro:
+
+$$
+\Delta T_c = -k\,(T_c - T_f)\,\Delta t
+\qquad\qquad
+\Delta T_f = +k\,(T_c - T_f)\,\Delta t
+$$
+
+La costante $k = 0{,}25\ \text{s}^{-1}$ riassume le proprietà della parete (materiale,
+spessore, superficie di contatto) e la capacità termica del fluido. È la stessa legge del raffreddamento di una tazza di
+tè lasciata sul tavolo: più grande è la differenza di temperatura, più rapido è lo
+scambio.
+
+La serpentina è lunga $L = 1{,}2\ \text{m}$, quindi un pacchetto di fluido resta in
+contatto con l'altro canale per il **tempo di attraversamento**
+
+$$
+\tau = \frac{L}{v}
+$$
+
+ed è questo tempo, insieme a $k$, a decidere quanto calore riesce a passare.
+
+## Controcorrente ed equicorrente
+
+Il pulsante dei versi permette di confrontare le due configurazioni possibili.
+
+- In **equicorrente** (versi concordi) i due fluidi entrano dallo stesso lato. All'ingresso
+  la differenza di temperatura è massima e le frecce sono gialle; procedendo, le due
+  temperature si avvicinano e tendono entrambe al valore medio. Il fluido caldo non può
+  scendere sotto la media, perché a quel punto lo scambio si ferma.
+- In **controcorrente** (versi discordi) i fluidi entrano da lati opposti. Il fluido caldo,
+  mentre si raffredda, incontra fluido sempre più freddo: la differenza di temperatura
+  resta moderata e quasi uniforme lungo tutta la serpentina, e le frecce hanno tutte lo
+  stesso colore. A regime i due profili del grafico diventano rette parallele.
+
+Per confrontarle si usa l'**efficienza** $\varepsilon$: la frazione del raffreddamento
+massimo possibile che il fluido caldo ottiene davvero.
+
+$$
+\varepsilon = \frac{T_{c,\text{ingresso}} - T_{c,\text{uscita}}}{T_{c,\text{ingresso}} - T_{f,\text{ingresso}}}
+$$
+
+Con $\varepsilon = 100\%$ il fluido caldo uscirebbe alla temperatura d'ingresso del
+fluido freddo. I valori a regime dipendono dalla velocità:
+
+| Velocità | Tempo di attraversamento | Controcorrente | Equicorrente |
+|:--------:|:------------------------:|:--------------:|:------------:|
+| 5 cm/s   | 24 s                     | 86%            | 50%          |
+| 10 cm/s  | 12 s                     | 75%            | 50%          |
+| 20 cm/s  | 6 s                      | 60%            | 48%          |
+| 40 cm/s  | 3 s                      | 43%            | 39%          |
+
+La controcorrente vince sempre, e il divario cresce rallentando il fluido. In
+equicorrente l'efficienza non supera mai il 50%, qualunque sia la lunghezza della
+serpentina; in controcorrente invece può avvicinarsi al 100% se il fluido resta in
+contatto abbastanza a lungo. Si può dimostrare che, per due fluidi uguali con la stessa
+portata, in controcorrente vale $\varepsilon = \dfrac{k\tau}{1 + k\tau}$.
+
+:::tip[Da provare]
+Avvia la simulazione in controcorrente e aspetta il regime, poi passa a equicorrente senza
+fermarla: le frecce gialle si concentrano all'ingresso e l'efficienza scende. Prova poi a
+dimezzare e raddoppiare la velocità e osserva come cambiano il tempo di attraversamento
+e la temperatura di uscita del fluido caldo.
+:::
+
+## Un'applicazione: il recupero di calore in casa
+
+Nella **ventilazione meccanica controllata**, d'inverno, l'aria interna viziata e calda
+viene espulsa mentre entra aria esterna fredda. Senza recuperatore l'impianto di
+riscaldamento deve scaldare tutta l'aria nuova, dalla temperatura esterna a quella
+interna. Con un recuperatore l'aria espulsa cede calore all'aria in ingresso, che entra
+già preriscaldata: l'efficienza $\varepsilon$ è proprio la frazione di calore recuperata,
+mentre $1 - \varepsilon$ è la frazione che si perde comunque.
+
+Per esempio, con 150 m³ d'aria all'ora, 20 °C in casa e 0 °C fuori, senza recuperatore
+si perdono circa 1000 W; con $\varepsilon = 75\%$ l'aria entra a 15 °C e la perdita scende
+a circa 250 W. Per questo i recuperatori più efficienti sono in controcorrente; altri
+sono a flussi incrociati, con efficienze intermedie fra le due configurazioni simulate.
+
+## Entropia: dove si spreca
+
+Quando un calore $Q$ passa dal fluido caldo, a temperatura assoluta $T_c$, al fluido
+freddo, a temperatura $T_f$, la definizione di Clausius $\Delta S = Q/T$ dà:
+
+- il fluido caldo perde entropia $Q/T_c$;
+- il fluido freddo guadagna entropia $Q/T_f$.
+
+Poiché $T_f < T_c$, il guadagno supera la perdita e l'entropia totale aumenta:
+
+$$
+\Delta S = \frac{Q}{T_f} - \frac{Q}{T_c} > 0
+$$
+
+È il secondo principio al lavoro: il calore passa spontaneamente solo dal caldo al
+freddo, e ogni passaggio produce entropia. Quanta, però, dipende dalla differenza di
+temperatura. Per $Q = 100\ \text{J}$:
+
+- da 80 °C a 10 °C, cioè da 353 K a 283 K: $\Delta S \approx 0{,}070\ \text{J/K}$;
+- da 50 °C a 40 °C, cioè da 323 K a 313 K: $\Delta S \approx 0{,}010\ \text{J/K}$.
+
+Lo stesso calore scambiato con un salto di temperatura piccolo produce circa sette volte
+meno entropia. **Lo spreco sta nella differenza di temperatura, non nel calore
+scambiato.**
+
+Il simulatore applica questa formula a ogni coppia di elementi affacciati, somma su tutta
+la serpentina e divide per il calore totale scambiato, mostrando l'entropia prodotta per
+ogni kJ. Con le impostazioni iniziali, a regime, si ottiene circa 0,17 J/K in
+controcorrente e 0,35 J/K in equicorrente: la controcorrente scambia più calore e,
+per ogni joule, produce circa la metà dell'entropia. Le frecce lo mostrano a colpo
+d'occhio, perché il loro colore misura proprio la differenza di temperatura.
+
+:::note[Le idealizzazioni del modello]
+I due fluidi sono identici e hanno la stessa portata; la costante $k$ è uniforme lungo
+tutta la serpentina; il calore non si propaga lungo il canale ma solo attraverso la
+parete; il moto è ordinato, senza turbolenza, e non si considerano l'attrito e le perdite
+di pressione. In uno scambiatore reale, canali più lunghi e stretti migliorano lo scambio
+ma richiedono pompe più potenti: la progettazione cerca un compromesso fra i due effetti.
+:::

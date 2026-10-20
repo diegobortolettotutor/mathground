@@ -1,0 +1,816 @@
+---
+/*
+  ScambiatoreCalore.astro — MathGround
+  Scambiatore di calore a due canali affiancati lungo una serpentina (6 tratti verticali).
+  Modello 1D a elementi discreti, fluidi uguali (stessa capacità termica e portata):
+    ∂T_c/∂t ± v ∂T_c/∂s = −k (T_c − T_f)
+    ∂T_f/∂t ± v ∂T_f/∂s = +k (T_c − T_f)
+  Avvezione (trasporto): spostamento esatto di un elemento per volta (nessuna diffusione numerica).
+  Scambio: soluzione esatta in ogni elemento, la differenza decade come exp(−2k dt).
+  Entropia: in ogni elemento il calore δQ ∝ |T_c − T_f| passa dal più caldo al più freddo e produce
+    δS = δQ (1/T_freddo − 1/T_caldo) > 0   (temperature in kelvin, definizione di Clausius ΔS = Q/T).
+  Il pannello mostra ΣδS / ΣδQ, cioè l'entropia prodotta per ogni kJ di calore scambiato.
+*/
+const lang = Astro.url.pathname.startsWith('/en/') ? 'en' : 'it';
+
+const S = {
+  it: {
+    lang: 'it',
+    start: 'Avvia',
+    pause: 'Pausa',
+    resume: 'Riprendi',
+    reset: 'Reset',
+    dirLabel: 'Versi dei flussi',
+    counter: 'Discordi (controcorrente)',
+    co: 'Concordi (equicorrente)',
+    speed: 'Velocità dei fluidi (uguale nei due canali)',
+    tmax: "Temperatura d'ingresso del fluido caldo",
+    tmin: "Temperatura d'ingresso del fluido freddo",
+    inlet: 'ingresso',
+    outlet: 'uscita',
+    legendT: 'Temperatura del fluido',
+    legendQ: 'Frecce: verso del calore, dal canale caldo al freddo. Colore:',
+    small: 'ΔT piccola',
+    big: 'ΔT grande',
+    xLabel: 'posizione lungo la serpentina (m)',
+    yLabel: 'T (°C)',
+    hotCurve: 'fluido caldo',
+    coldCurve: 'fluido freddo',
+    time: 'Tempo simulato',
+    transit: 'Tempo di attraversamento della serpentina',
+    dTh: 'Raffreddamento del fluido caldo',
+    eff: 'Efficienza (frazione del salto termico massimo)',
+    entropy: 'Entropia prodotta per ogni kJ di calore scambiato',
+    aria: 'Animazione dello scambiatore di calore a serpentina',
+    ariaG: 'Grafico della temperatura dei due fluidi lungo la serpentina'
+  },
+  en: {
+    lang: 'en',
+    start: 'Start',
+    pause: 'Pause',
+    resume: 'Resume',
+    reset: 'Reset',
+    dirLabel: 'Flow directions',
+    counter: 'Opposite (counterflow)',
+    co: 'Same (parallel flow)',
+    speed: 'Fluid speed (same in both channels)',
+    tmax: 'Hot fluid inlet temperature',
+    tmin: 'Cold fluid inlet temperature',
+    inlet: 'inlet',
+    outlet: 'outlet',
+    legendT: 'Fluid temperature',
+    legendQ: 'Arrows: direction of heat flow, from the hot to the cold channel. Colour:',
+    small: 'small ΔT',
+    big: 'large ΔT',
+    xLabel: 'position along the coil (m)',
+    yLabel: 'T (°C)',
+    hotCurve: 'hot fluid',
+    coldCurve: 'cold fluid',
+    time: 'Simulated time',
+    transit: 'Transit time through the coil',
+    dTh: 'Temperature drop of the hot fluid',
+    eff: 'Effectiveness (fraction of the maximum temperature drop)',
+    entropy: 'Entropy produced per kJ of heat exchanged',
+    aria: 'Animation of the coil heat exchanger',
+    ariaG: 'Plot of the temperature of both fluids along the coil'
+  }
+}[lang];
+---
+
+<div class="phe-sim not-content" data-i18n={JSON.stringify(S)}>
+  <div class="phe-modes" role="group" aria-label={S.dirLabel}>
+    <button type="button" class="mode-btn phe-dir is-on" data-dir="counter" aria-pressed="true">{S.counter}</button>
+    <button type="button" class="mode-btn phe-dir" data-dir="co" aria-pressed="false">{S.co}</button>
+  </div>
+
+  <div class="phe-buttons">
+    <button type="button" class="phe-play primary">{S.start}</button>
+    <button type="button" class="phe-reset">{S.reset}</button>
+  </div>
+
+  <div class="phe-sliders">
+    <label class="cell">
+      <span class="lab">{S.speed}</span>
+      <input type="range" class="phe-v" min="2" max="40" step="1" value="10" />
+      <span class="val"><output class="phe-v-out">10</output> cm/s</span>
+    </label>
+    <label class="cell hot">
+      <span class="lab">{S.tmax}</span>
+      <input type="range" class="phe-tmax" min="40" max="95" step="1" value="80" />
+      <span class="val"><output class="phe-tmax-out">80</output> °C</span>
+    </label>
+    <label class="cell cold">
+      <span class="lab">{S.tmin}</span>
+      <input type="range" class="phe-tmin" min="0" max="35" step="1" value="10" />
+      <span class="val"><output class="phe-tmin-out">10</output> °C</span>
+    </label>
+  </div>
+
+  <canvas class="phe-canvas phe-panel" role="img" aria-label={S.aria}></canvas>
+
+  <div class="phe-legend">
+    <div class="phe-leg">
+      <span>{S.legendT}</span>
+      <span class="phe-lo">10 °C</span>
+      <span class="phe-bar phe-bar-t"></span>
+      <span class="phe-hi">80 °C</span>
+    </div>
+    <div class="phe-leg">
+      <span>{S.legendQ}</span>
+      <span>{S.small}</span>
+      <span class="phe-bar phe-bar-q"></span>
+      <span>{S.big}</span>
+    </div>
+  </div>
+
+  <canvas class="phe-graph phe-panel" role="img" aria-label={S.ariaG}></canvas>
+
+  <div class="phe-info">
+    <div class="phe-panel"><span>{S.time}</span><b class="phe-i-t">0 s</b></div>
+    <div class="phe-panel"><span>{S.transit}</span><b class="phe-i-tr">—</b></div>
+    <div class="phe-panel"><span>{S.dTh}</span><b class="phe-i-dt">—</b></div>
+    <div class="phe-panel"><span>{S.eff}</span><b class="phe-i-eff">—</b></div>
+    <div class="phe-panel"><span>{S.entropy}</span><b class="phe-i-s">—</b></div>
+  </div>
+</div>
+
+<style is:global>
+  /* Stile allineato a SimulatoreUrti.astro: nessun riquadro esterno, pannelli grigi chiari,
+     bottoni di modalità gialli quando selezionati, cursori con pallino azzurro. */
+  .phe-sim {
+    --ink: var(--sl-color-text, #26252a);
+    --muted: var(--sl-color-gray-3, #6c6b66);
+    --line: var(--sl-color-hairline, #d9d7cf);
+    --track: var(--sl-color-gray-5, #c8c6be);
+    --btn-bg: var(--sl-color-gray-6, #f0eeea);
+    --panel: var(--sl-color-gray-7, #fafaf8);
+    --accent: #ffcc44;
+    --thumb: #3b82f6;
+    color: var(--ink);
+    line-height: 1.5;
+    margin: 1.5rem 0;
+  }
+  :root[data-theme='dark'] .phe-sim {
+    --panel: #1a1a1a;
+    --line: #383838;
+  }
+  .phe-sim * { box-sizing: border-box; }
+  .phe-sim button,
+  .phe-sim input,
+  .phe-sim label,
+  .phe-sim canvas,
+  .phe-sim output { margin: 0; }
+
+  /* versi dei flussi: due bottoni mutuamente esclusivi */
+  .phe-sim .phe-modes { display: flex; gap: 8px; align-items: stretch; margin: 0 0 10px; }
+  .phe-modes .mode-btn {
+    flex: 1 1 0;
+    font: inherit; font-size: 13px; font-weight: 600;
+    padding: 9px 10px; margin: 0;
+    border-radius: 8px;
+    border: 1px solid var(--line);
+    background: var(--btn-bg); color: var(--muted);
+    cursor: pointer; text-align: center;
+    transition: background .12s, border-color .12s, color .12s;
+  }
+  .phe-modes .mode-btn:hover { border-color: var(--muted); color: var(--ink); }
+  .phe-modes .mode-btn.is-on {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #3a2f00;
+    box-shadow: inset 0 0 0 1px rgba(0,0,0,.06);
+  }
+  .phe-modes .mode-btn.is-on:hover { border-color: var(--accent); color: #3a2f00; }
+
+  /* avvio e reset */
+  .phe-sim .phe-buttons { display: flex; flex-wrap: wrap; align-items: stretch; gap: 8px; margin: 8px 0 14px; }
+  .phe-buttons button {
+    font: inherit; font-size: 13px; padding: 6px 12px; border-radius: 6px;
+    border: 1px solid var(--line); background: var(--btn-bg); color: var(--ink);
+    cursor: pointer; margin: 0;
+  }
+  .phe-buttons button:hover { border-color: var(--muted); }
+  .phe-buttons button.primary {
+    font-weight: 600;
+    min-width: 6.5rem;
+    background: var(--sl-color-accent);
+    border-color: var(--sl-color-accent);
+    color: var(--sl-color-text-invert, #ffffff);
+  }
+  .phe-buttons button.primary:hover { border-color: var(--ink); }
+
+  /* cursori */
+  .phe-sim .phe-sliders { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px 18px; align-items: end; margin: 0 0 16px; }
+  .phe-sliders .cell { display: flex; flex-direction: column; justify-content: flex-end; }
+  .phe-sliders .lab { font-size: 12px; color: var(--muted); line-height: 1.3; margin-bottom: 10px; }
+  .phe-sliders .cell.hot .lab { color: #dc2626; }
+  .phe-sliders .cell.cold .lab { color: #2563eb; }
+  :root[data-theme='dark'] .phe-sliders .cell.hot .lab { color: #ff7a7a; }
+  :root[data-theme='dark'] .phe-sliders .cell.cold .lab { color: #7fb2ff; }
+  .phe-sliders .val { font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; margin-top: 8px; }
+
+  .phe-sim input[type='range'] {
+    -webkit-appearance: none; appearance: none;
+    width: 100%; height: 4px;
+    background: var(--track); border-radius: 2px;
+    outline: none; cursor: pointer; margin: 0;
+  }
+  .phe-sim input[type='range']::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none; width: 16px; height: 16px; border-radius: 50%;
+    background: var(--thumb); border: 2px solid var(--sl-color-bg, #fff); cursor: pointer;
+  }
+  .phe-sim input[type='range']::-moz-range-thumb {
+    width: 16px; height: 16px; border-radius: 50%;
+    background: var(--thumb); border: 2px solid var(--sl-color-bg, #fff); cursor: pointer;
+  }
+  .phe-sim input[type='range']:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 3px rgba(59,130,246,.35); }
+  .phe-sim input[type='range']:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 3px rgba(59,130,246,.35); }
+
+  /* pannelli grigi chiari: serpentina, grafico, valori numerici */
+  .phe-panel {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+  }
+  .phe-canvas,
+  .phe-graph { display: block; width: 100%; }
+  .phe-canvas { border-radius: 10px; }
+
+  .phe-sim .phe-legend {
+    display: flex; flex-wrap: wrap; align-items: center;
+    gap: 6px 24px;
+    font-size: 13px; color: var(--muted);
+    margin: 10px 0 12px;
+  }
+  .phe-leg { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .phe-bar {
+    display: inline-block;
+    width: 130px; height: 12px;
+    border-radius: 3px;
+    border: 1px solid var(--line);
+  }
+  .phe-bar-t {
+    background: linear-gradient(90deg, rgb(33,102,172), rgb(103,169,207), rgb(236,231,242), rgb(239,138,98), rgb(178,24,43));
+  }
+  .phe-bar-q {
+    background: linear-gradient(90deg, rgb(96,56,20), rgb(236,124,12), rgb(255,232,40));
+  }
+
+  .phe-sim .phe-info {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: 8px;
+    align-items: stretch;
+    margin-top: 12px;
+  }
+  .phe-sim .phe-info > div {
+    display: flex; flex-direction: column; justify-content: space-between;
+    gap: 4px;
+    padding: 8px 12px;
+  }
+  .phe-info span { font-size: 12px; color: var(--muted); line-height: 1.3; }
+  .phe-info b { font-size: 17px; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+  @media (max-width: 700px) {
+    .phe-sliders { grid-template-columns: repeat(2, 1fr); }
+  }
+  @media (max-width: 420px) {
+    .phe-modes { flex-direction: column; }
+    .phe-sliders { grid-template-columns: 1fr; }
+  }
+</style>
+
+<script>
+  // ---------- Costanti di geometria (coordinate logiche del canvas) ----------
+  const W = 1040, H = 540;          // canvas della serpentina
+  const GW = 1040, GH = 300;        // canvas del grafico
+  const R = 60;                     // raggio delle curve a U (linea mediana)
+  const LW = 34;                    // larghezza di ciascun canale
+  const GAP = 8;                    // spessore della parete comune
+  const HALF = GAP / 2 + LW;        // semilarghezza del tubo doppio
+  const Y_TOP = 112, Y_BOT = 410;   // estremi dei tratti verticali
+
+  // ---------- Costanti fisiche ----------
+  const N = 900;          // elementi di fluido per canale
+  const NA = 64;          // frecce del flusso di calore
+  const NB = 128;         // livelli di colore
+  const L_PHYS = 1.2;     // lunghezza della serpentina (m)
+  const K_EX = 0.25;      // coefficiente di scambio (1/s): dT_c/dt = −k (T_c − T_f)
+  const RAMP = 3;         // durata dell'avviamento di pompe e temperature (s)
+  const TAU_V = 0.4;      // costante di tempo per le variazioni di velocità (s)
+
+  // ---------- Filtri anti-oscillazione (solo visualizzazione, la fisica non cambia) ----------
+  // Lo spostamento a celle discrete produce, in un punto fisso, una piccola oscillazione a dente
+  // di sega (ampiezza ≈ gradiente × lunghezza di un elemento). Per non farla vedere:
+  //  1) media spaziale su più elementi vicini (solo per le frecce);
+  //  2) filtro passa-basso del primo ordine: df/dt = (x − f)/TAU_F;
+  //  3) isteresi sul valore mostrato: cambia solo se il filtrato si allontana di più di HYST
+  //     (in unità dell'ultima cifra o del livello di colore) dal valore attualmente mostrato;
+  //  4) correzione lenta: se il filtrato resta per più di HOLD secondi più vicino a un altro
+  //     valore arrotondato, il valore mostrato si aggiorna (l'isteresi non lo blocca a lungo).
+  const TAU_F = 0.35;     // costante di tempo del filtro (s)
+  const HYST = 0.75;      // soglia di isteresi (0.5 = semplice arrotondamento, nessuna isteresi)
+  const HOLD = 1.0;       // tempo dopo cui si accetta comunque il nuovo arrotondamento (s)
+  const NL = 16;          // livelli di colore delle frecce
+  const SPAN = 4;         // media delle frecce sugli elementi i−SPAN … i+SPAN
+  const ARROW_ON = 0.006, ARROW_OFF = 0.003;   // soglie (frazione di Tmax − Tmin) per mostrare/nascondere
+
+  const FLUID_STOPS = [
+    [0, [33, 102, 172]], [0.25, [103, 169, 207]], [0.5, [236, 231, 242]],
+    [0.75, [239, 138, 98]], [1, [178, 24, 43]]
+  ];
+  const HEAT_STOPS = [[0, [96, 56, 20]], [0.5, [236, 124, 12]], [1, [255, 232, 40]]];
+
+  function lerpStops(stops, u) {
+    u = Math.min(1, Math.max(0, u));
+    for (let i = 1; i < stops.length; i++) {
+      if (u <= stops[i][0]) {
+        const u0 = stops[i - 1][0], c0 = stops[i - 1][1];
+        const u1 = stops[i][0], c1 = stops[i][1];
+        const f = (u - u0) / (u1 - u0);
+        return c0.map((c, k) => Math.round(c + (c1[k] - c) * f));
+      }
+    }
+    return stops[stops.length - 1][1];
+  }
+  const ARROW_PAL = Array.from({ length: NL }, (_, l) => 'rgb(' + lerpStops(HEAT_STOPS, l / (NL - 1)).join(',') + ')');
+  const PAL = Array.from({ length: NB }, (_, b) => 'rgb(' + lerpStops(FLUID_STOPS, b / (NB - 1)).join(',') + ')');
+  const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
+  const smooth = (x) => { x = clamp(x, 0, 1); return x * x * (3 - 2 * x); };
+
+  // ---------- Percorso della serpentina: 6 tratti verticali, 5 curve a U ----------
+  function buildPath() {
+    const xc = (j) => (W - 10 * R) / 2 + j * 2 * R;
+    const segs = [];
+    const line = (ax, ay, bx, by) => segs.push({ k: 0, ax, ay, bx, by, len: Math.hypot(bx - ax, by - ay) });
+    const arc = (cx, cy, a0, a1) => segs.push({ k: 1, cx, cy, a0, a1, len: R * Math.abs(a1 - a0) });
+    line(xc(0), H, xc(0), Y_TOP);
+    for (let j = 0; j < 5; j++) {
+      if (j % 2 === 0) {
+        arc(xc(j) + R, Y_TOP, Math.PI, 2 * Math.PI);           // curva in alto
+        line(xc(j + 1), Y_TOP, xc(j + 1), j === 4 ? H : Y_BOT);
+      } else {
+        arc(xc(j) + R, Y_BOT, Math.PI, 0);                     // curva in basso
+        line(xc(j + 1), Y_BOT, xc(j + 1), Y_TOP);
+      }
+    }
+    let s = 0;
+    for (const g of segs) { g.s0 = s; s += g.len; }
+    return { segs, L: s, xFirst: xc(0), xLast: xc(5) };
+  }
+
+  // Restituisce [x, y, tx, ty]: punto e versore tangente all'ascissa curvilinea s
+  function pointAt(geo, s) {
+    s = clamp(s, 0, geo.L);
+    let g = geo.segs[geo.segs.length - 1];
+    for (const q of geo.segs) { if (s <= q.s0 + q.len) { g = q; break; } }
+    const u = s - g.s0;
+    if (g.k === 0) {
+      const tx = (g.bx - g.ax) / g.len, ty = (g.by - g.ay) / g.len;
+      return [g.ax + tx * u, g.ay + ty * u, tx, ty];
+    }
+    const sg = Math.sign(g.a1 - g.a0);
+    const a = g.a0 + sg * u / R;
+    return [g.cx + R * Math.cos(a), g.cy + R * Math.sin(a), -sg * Math.sin(a), sg * Math.cos(a)];
+  }
+
+  function initPHE(root) {
+    const T = JSON.parse(root.dataset.i18n);
+    const it = T.lang === 'it';
+    const fmt = (v, d) => { const s = v.toFixed(d); return it ? s.replace('.', ',') : s; };
+
+    const cv = root.querySelector('.phe-canvas');
+    const ctx = cv.getContext('2d');
+    const gv = root.querySelector('.phe-graph');
+    const gctx = gv.getContext('2d');
+    const q = (sel) => root.querySelector(sel);
+
+    const btnPlay = q('.phe-play'), btnReset = q('.phe-reset');
+    const dirBtns = root.querySelectorAll('.phe-dir');
+    const inV = q('.phe-v'), inTmax = q('.phe-tmax'), inTmin = q('.phe-tmin');
+    const outV = q('.phe-v-out'), outTmax = q('.phe-tmax-out'), outTmin = q('.phe-tmin-out');
+    const legLo = q('.phe-lo'), legHi = q('.phe-hi');
+    const iS = q('.phe-i-s');
+    const iT = q('.phe-i-t'), iTr = q('.phe-i-tr'), iDt = q('.phe-i-dt'), iEff = q('.phe-i-eff');
+
+    // ---------- Geometria precalcolata ----------
+    const geo = buildPath();
+    const L = geo.L, ds = L / N, pxPerM = L / L_PHYS, dsPhys = L_PHYS / N;
+
+    // Quadrilateri degli elementi: canale A (caldo) sul lato +n, canale B (freddo) sul lato −n
+    const qa = new Float32Array(N * 8), qb = new Float32Array(N * 8);
+    function fillQuad(arr, i, p, r, o1, o2) {
+      const nx = -p[3], ny = p[2], mx = -r[3], my = r[2], k = i * 8;
+      arr[k] = p[0] + nx * o1; arr[k + 1] = p[1] + ny * o1;
+      arr[k + 2] = p[0] + nx * o2; arr[k + 3] = p[1] + ny * o2;
+      arr[k + 4] = r[0] + mx * o2; arr[k + 5] = r[1] + my * o2;
+      arr[k + 6] = r[0] + mx * o1; arr[k + 7] = r[1] + my * o1;
+    }
+    for (let i = 0; i < N; i++) {
+      const p = pointAt(geo, i * ds - 0.6), r = pointAt(geo, (i + 1) * ds + 0.6);
+      fillQuad(qa, i, p, r, GAP / 2, HALF);
+      fillQuad(qb, i, p, r, -HALF, -GAP / 2);
+    }
+
+    // Parete comune e bordi esterni
+    const M = 1400;
+    const wallPath = new Path2D(), edgeA = new Path2D(), edgeB = new Path2D();
+    {
+      const left = [], right = [];
+      for (let j = 0; j < M; j++) {
+        const p = pointAt(geo, j * L / (M - 1)), nx = -p[3], ny = p[2];
+        left.push([p[0] + nx * GAP / 2, p[1] + ny * GAP / 2]);
+        right.push([p[0] - nx * GAP / 2, p[1] - ny * GAP / 2]);
+        const ea = [p[0] + nx * HALF, p[1] + ny * HALF], eb = [p[0] - nx * HALF, p[1] - ny * HALF];
+        if (j === 0) { edgeA.moveTo(ea[0], ea[1]); edgeB.moveTo(eb[0], eb[1]); }
+        else { edgeA.lineTo(ea[0], ea[1]); edgeB.lineTo(eb[0], eb[1]); }
+      }
+      wallPath.moveTo(left[0][0], left[0][1]);
+      for (let j = 1; j < M; j++) wallPath.lineTo(left[j][0], left[j][1]);
+      for (let j = M - 1; j >= 0; j--) wallPath.lineTo(right[j][0], right[j][1]);
+      wallPath.closePath();
+    }
+
+    // Frecce equidistribuite lungo il percorso
+    const arrows = [];
+    for (let k = 0; k < NA; k++) {
+      const s = (k + 0.5) * L / NA, p = pointAt(geo, s);
+      arrows.push({ x: p[0], y: p[1], nx: -p[3], ny: p[2], i: Math.min(N - 1, Math.floor(s / ds)),
+        f: 0, lvl: -1, sgn: 1, hold: 0 });   // f: ΔT filtrata; lvl: livello di colore mostrato (−1 = nascosta)
+    }
+
+    // ---------- Stato ----------
+    const TA = new Float64Array(N), TB = new Float64Array(N);
+    let Tmax = +inTmax.value, Tmin = +inTmin.value, Teq = (Tmax + Tmin) / 2;
+    let vSet = +inV.value / 100, vS = vSet, vNow = 0;
+    let counter = true, running = false, started = false;
+    let t = 0, cellAcc = 0, phA = 0, phB = 0;
+    let tinA = Teq, tinB = Teq;      // temperature d'ingresso imposte in questo istante
+    let dirty = true, scale = 1, gscale = 1, lastInfo = 0;
+
+    // Letture numeriche filtrate con isteresi: q = valore dell'ultima cifra mostrata
+    function readout(q) { return { q, f: 0, shown: 0, hold: 0 }; }
+    const RD = {
+      a0: readout(0.1), b0: readout(0.1), aN: readout(0.1), bN: readout(0.1),
+      dTh: readout(0.1), den: readout(0.1), eff: readout(1),
+      sKJ: readout(0.01), qSum: readout(0.001)
+    };
+    const K0 = 273.15;   // conversione °C → K
+
+    // Entropia prodotta per kJ scambiato: Σ δQ (1/T_freddo − 1/T_caldo) / Σ δQ, con δQ ∝ |ΔT|.
+    // Le costanti di proporzionalità (k, capacità termica di un elemento, dt) si semplificano nel rapporto.
+    // Restituisce anche il ΔT medio, per sapere se c'è abbastanza scambio da rendere il rapporto significativo.
+    function entropyPerKJ() {
+      let sq = 0, ss = 0;
+      for (let i = 0; i < N; i++) {
+        const a = TA[i] + K0, b = TB[i] + K0, dq = Math.abs(a - b);
+        sq += dq;
+        ss += dq * (1 / Math.min(a, b) - 1 / Math.max(a, b));
+      }
+      return [sq > 0 ? 1000 * ss / sq : 0, sq / N];
+    }
+    // Isteresi con correzione lenta, comune a letture numeriche e livelli delle frecce:
+    // restituisce il nuovo valore mostrato (in unità di q) e aggiorna il contatore o.hold
+    function hysteresis(o, shown, y, dt, snap) {
+      const off = Math.abs(y - shown);
+      if (snap || off > HYST) { o.hold = 0; return Math.round(y); }
+      if (off > 0.5) { o.hold += dt; if (o.hold > HOLD) { o.hold = 0; return Math.round(y); } }
+      else o.hold = 0;
+      return shown;
+    }
+    function feed(r, x, alpha, dt) {
+      const snap = alpha >= 1;
+      r.f = snap ? x : r.f + (x - r.f) * alpha;
+      r.shown = hysteresis(r, r.shown / r.q, r.f / r.q, dt, snap) * r.q;
+    }
+
+    function arrowRaw(i) {
+      let sum = 0, cnt = 0;
+      for (let j = Math.max(0, i - SPAN); j <= Math.min(N - 1, i + SPAN); j++) { sum += TA[j] - TB[j]; cnt++; }
+      return sum / cnt;
+    }
+
+    // dt = 0 (o snap) → valori istantanei, usato a simulazione ferma e al reset
+    function updateFilters(dt) {
+      const alpha = dt > 0 ? 1 - Math.exp(-dt / TAU_F) : 1;
+      // agli ingressi si mostra la temperatura imposta dalla pompa, non il primo elemento
+      // (che durante il passo ha già scambiato un po' di calore)
+      feed(RD.a0, tinA, alpha, dt);
+      feed(RD.b0, counter ? TB[0] : tinB, alpha, dt);
+      feed(RD.aN, TA[N - 1], alpha, dt);
+      feed(RD.bN, counter ? tinB : TB[N - 1], alpha, dt);
+      const den = tinA - tinB, dTh = tinA - TA[N - 1];
+      feed(RD.dTh, dTh, alpha, dt); feed(RD.den, den, alpha, dt);
+      feed(RD.eff, Math.abs(den) > 0.5 ? 100 * dTh / den : 0, alpha, dt);
+      const [sKJ, dTmean] = entropyPerKJ();
+      feed(RD.qSum, dTmean / Math.max(1e-9, Tmax - Tmin), alpha, dt);
+      feed(RD.sKJ, sKJ, alpha, dt);
+
+      const range = Tmax - Tmin;
+      for (const ar of arrows) {
+        const raw = arrowRaw(ar.i);
+        ar.f = alpha >= 1 ? raw : ar.f + (raw - ar.f) * alpha;
+        const x = Math.abs(ar.f) / range;
+        const y = Math.pow(clamp(x, 0, 1), 0.6) * (NL - 1);   // livello continuo
+        if (ar.lvl < 0) {
+          if (x > ARROW_ON) { ar.lvl = Math.round(y); ar.sgn = ar.f > 0 ? -1 : 1; ar.hold = 0; }
+        } else if (x < ARROW_OFF) {
+          ar.lvl = -1;
+        } else {
+          ar.lvl = hysteresis(ar, ar.lvl, y, dt, alpha >= 1);
+          const s = ar.f > 0 ? -1 : 1;                     // il canale A sta sul lato +n
+          if (s !== ar.sgn && x > ARROW_ON) ar.sgn = s;
+        }
+      }
+    }
+
+    function resetState() {
+      Teq = (Tmax + Tmin) / 2;
+      TA.fill(Teq); TB.fill(Teq);
+      t = 0; cellAcc = 0; phA = 0; phB = 0; vS = vSet; vNow = 0; tinA = Teq; tinB = Teq;
+      running = false; started = false;
+      btnPlay.textContent = T.start;
+      for (const ar of arrows) { ar.f = 0; ar.lvl = -1; ar.sgn = 1; }
+      updateFilters(0);
+      dirty = true;
+    }
+
+    // Scambio termico esatto per ciascuna coppia di elementi affacciati
+    function exchange(dt) {
+      const f = Math.exp(-2 * K_EX * dt);
+      for (let i = 0; i < N; i++) {
+        const m = 0.5 * (TA[i] + TB[i]), d = 0.5 * (TA[i] - TB[i]) * f;
+        TA[i] = m + d; TB[i] = m - d;
+      }
+    }
+
+    function step(dt) {
+      t += dt;
+      const r = smooth(t / RAMP);
+      vS += (vSet - vS) * (1 - Math.exp(-dt / TAU_V));
+      vNow = vS * r;
+      tinA = Teq + (Tmax - Teq) * r;
+      tinB = Teq + (Tmin - Teq) * r;
+      cellAcc += vNow * dt / dsPhys;
+      const n = Math.floor(cellAcc);
+      cellAcc -= n;
+      const dtc = dt / (n + 1);
+      exchange(dtc);
+      for (let j = 0; j < n; j++) {
+        TA.copyWithin(1, 0, N - 1); TA[0] = tinA;
+        if (counter) { TB.copyWithin(0, 1); TB[N - 1] = tinB; }
+        else { TB.copyWithin(1, 0, N - 1); TB[0] = tinB; }
+        exchange(dtc);
+      }
+      const vpx = vNow * pxPerM;
+      phA = (phA + vpx * dt) % L;
+      phB = (phB + (counter ? -1 : 1) * vpx * dt) % L;
+      updateFilters(dt);
+    }
+
+    // ---------- Tema chiaro/scuro ----------
+    let C = {};
+    function readTheme() {
+      const dark = document.documentElement.dataset.theme === 'dark';
+      const txt = getComputedStyle(document.documentElement).getPropertyValue('--sl-color-white').trim();
+      C = {
+        text: txt || (dark ? '#ffffff' : '#111111'),
+        grid: dark ? '#353535' : '#e2e2e2',
+        axis: dark ? '#8a8a8a' : '#555555',
+        wall: dark ? '#9a9a9a' : '#5f5f5f',
+        edge: dark ? '#d0d0d0' : '#2b2b2b',
+        hot: dark ? '#ff7a7a' : '#c62828',
+        cold: dark ? '#7fb2ff' : '#1e5bb8'
+      };
+      dirty = true;
+    }
+    readTheme();
+    new MutationObserver(readTheme).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+
+    // ---------- Disegno della serpentina ----------
+    function bucket(Tv) {
+      return clamp(Math.round((Tv - Tmin) / (Tmax - Tmin) * (NB - 1)), 0, NB - 1);
+    }
+    function drawLane(Tarr, quads) {
+      const paths = new Array(NB);
+      for (let i = 0; i < N; i++) {
+        const b = bucket(Tarr[i]);
+        const p = paths[b] || (paths[b] = new Path2D());
+        const k = i * 8;
+        p.moveTo(quads[k], quads[k + 1]); p.lineTo(quads[k + 2], quads[k + 3]);
+        p.lineTo(quads[k + 4], quads[k + 5]); p.lineTo(quads[k + 6], quads[k + 7]);
+        p.closePath();
+      }
+      for (let b = 0; b < NB; b++) {
+        if (paths[b]) { ctx.fillStyle = PAL[b]; ctx.fill(paths[b]); }
+      }
+    }
+
+    function drawTracers(ph, side) {
+      const off = side * (GAP / 2 + LW / 2), SP = 48, cnt = Math.floor(L / SP);
+      ctx.fillStyle = 'rgba(255,255,255,0.8)';
+      ctx.strokeStyle = 'rgba(0,0,0,0.45)';
+      ctx.lineWidth = 1;
+      for (let k = 0; k < cnt; k++) {
+        const s = (((k * SP + ph) % L) + L) % L, p = pointAt(geo, s);
+        const x = p[0] - p[3] * off, y = p[1] + p[2] * off;
+        ctx.beginPath(); ctx.arc(x, y, 2.8, 0, 2 * Math.PI); ctx.fill(); ctx.stroke();
+      }
+    }
+
+    function drawArrow(x, y, dx, dy, col) {
+      const a = GAP / 2 + LW * 0.62, hl = 10, hw = 7;
+      const x1 = x - dx * a, y1 = y - dy * a, x2 = x + dx * a, y2 = y + dy * a;
+      const bx = x2 - dx * hl, by = y2 - dy * hl, px = -dy, py = dx;
+      const head = new Path2D();
+      head.moveTo(x2, y2); head.lineTo(bx + px * hw, by + py * hw); head.lineTo(bx - px * hw, by - py * hw); head.closePath();
+      ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      ctx.strokeStyle = 'rgba(20,12,4,0.85)';
+      ctx.lineWidth = 6.5;
+      ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(bx, by); ctx.stroke();
+      ctx.lineWidth = 3; ctx.stroke(head);
+      ctx.strokeStyle = col; ctx.lineWidth = 3.5;
+      ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(bx, by); ctx.stroke();
+      ctx.fillStyle = col; ctx.fill(head);
+    }
+
+    function drawEndLabels() {
+      const fb = clamp(15 / scale, 18, 36), fsm = fb * 0.78;
+      const blocks = [
+        { x: geo.xFirst - HALF - 12, align: 'right', a: RD.a0.shown, b: RD.b0.shown,
+          la: T.inlet, lb: counter ? T.outlet : T.inlet },
+        { x: geo.xLast + HALF + 12, align: 'left', a: RD.aN.shown, b: RD.bN.shown,
+          la: T.outlet, lb: counter ? T.inlet : T.outlet }
+      ];
+      ctx.textBaseline = 'alphabetic';
+      for (const bl of blocks) {
+        ctx.textAlign = bl.align;
+        let y = H - 12;
+        ctx.fillStyle = C.cold;
+        ctx.font = '700 ' + fb + 'px system-ui, sans-serif'; ctx.fillText(fmt(bl.b, 1) + ' °C', bl.x, y);
+        y -= fb * 0.95;
+        ctx.font = fsm + 'px system-ui, sans-serif'; ctx.fillText(bl.lb, bl.x, y);
+        y -= fsm * 1.7;
+        ctx.fillStyle = C.hot;
+        ctx.font = '700 ' + fb + 'px system-ui, sans-serif'; ctx.fillText(fmt(bl.a, 1) + ' °C', bl.x, y);
+        y -= fb * 0.95;
+        ctx.font = fsm + 'px system-ui, sans-serif'; ctx.fillText(bl.la, bl.x, y);
+      }
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, W, H);
+      drawLane(TA, qa);
+      drawLane(TB, qb);
+      ctx.fillStyle = C.wall; ctx.fill(wallPath);
+      ctx.strokeStyle = C.edge; ctx.lineWidth = 2; ctx.lineJoin = 'round';
+      ctx.stroke(edgeA); ctx.stroke(edgeB);
+      drawTracers(phA, +1);
+      drawTracers(phB, -1);
+      for (const ar of arrows) {
+        if (ar.lvl < 0) continue;
+        drawArrow(ar.x, ar.y, ar.nx * ar.sgn, ar.ny * ar.sgn, ARROW_PAL[ar.lvl]);
+      }
+      drawEndLabels();
+    }
+
+    // ---------- Grafico T(s) ----------
+    function drawGraph() {
+      gctx.clearRect(0, 0, GW, GH);
+      const fs = clamp(12.5 / gscale, 15, 32);
+      const ml = fs * 3.4, mr = 18, mt = fs * 2.3, mb = fs * 2.9;
+      const lo = Math.floor((Tmin - 5) / 10) * 10, hi = Math.ceil((Tmax + 5) / 10) * 10;
+      const stepT = hi - lo > 60 ? 20 : 10;
+      const X = (u) => ml + (GW - ml - mr) * u;
+      const Y = (Tv) => mt + (GH - mt - mb) * (1 - (Tv - lo) / (hi - lo));
+      gctx.font = fs + 'px system-ui, sans-serif';
+      gctx.lineWidth = 1;
+      gctx.textBaseline = 'middle';
+      gctx.textAlign = 'right';
+      for (let Tv = lo; Tv <= hi + 1e-9; Tv += stepT) {
+        gctx.strokeStyle = C.grid;
+        gctx.beginPath(); gctx.moveTo(X(0), Y(Tv)); gctx.lineTo(X(1), Y(Tv)); gctx.stroke();
+        gctx.fillStyle = C.text; gctx.fillText(String(Tv), X(0) - 8, Y(Tv));
+      }
+      gctx.textAlign = 'center'; gctx.textBaseline = 'top';
+      for (let m = 0; m <= 6; m++) {
+        const xm = m * 0.2, xx = X(xm / L_PHYS);
+        gctx.strokeStyle = C.grid;
+        gctx.beginPath(); gctx.moveTo(xx, Y(hi)); gctx.lineTo(xx, Y(lo)); gctx.stroke();
+        gctx.fillStyle = C.text; gctx.fillText(fmt(xm, 1), xx, Y(lo) + 6);
+      }
+      gctx.strokeStyle = C.axis; gctx.lineWidth = 1.5;
+      gctx.strokeRect(X(0), Y(hi), X(1) - X(0), Y(lo) - Y(hi));
+      gctx.fillStyle = C.text;
+      gctx.fillText(T.xLabel, (X(0) + X(1)) / 2, GH - fs * 1.35);
+      gctx.save();
+      gctx.translate(fs * 0.9, (Y(hi) + Y(lo)) / 2); gctx.rotate(-Math.PI / 2);
+      gctx.textBaseline = 'middle'; gctx.fillText(T.yLabel, 0, 0);
+      gctx.restore();
+
+      gctx.save();
+      gctx.beginPath(); gctx.rect(X(0), Y(hi), X(1) - X(0), Y(lo) - Y(hi)); gctx.clip();
+      gctx.lineWidth = 3; gctx.lineJoin = 'round';
+      for (const [arr, col] of [[TA, C.hot], [TB, C.cold]]) {
+        gctx.strokeStyle = col;
+        gctx.beginPath();
+        for (let i = 0; i < N; i++) {
+          const xx = X((i + 0.5) / N), yy = Y(arr[i]);
+          if (i === 0) gctx.moveTo(xx, yy); else gctx.lineTo(xx, yy);
+        }
+        gctx.stroke();
+      }
+      gctx.restore();
+
+      // legenda con verso di scorrimento
+      gctx.textBaseline = 'middle'; gctx.textAlign = 'left';
+      const yL = mt * 0.45;
+      let xL = X(0);
+      const items = [[C.hot, T.hotCurve + '  →'], [C.cold, T.coldCurve + (counter ? '  ←' : '  →')]];
+      for (const [col, lab] of items) {
+        gctx.strokeStyle = col; gctx.lineWidth = 3;
+        gctx.beginPath(); gctx.moveTo(xL, yL); gctx.lineTo(xL + fs * 1.6, yL); gctx.stroke();
+        gctx.fillStyle = C.text; gctx.fillText(lab, xL + fs * 2, yL);
+        xL += fs * 2.6 + gctx.measureText(lab).width + fs * 1.2;
+      }
+    }
+
+    // ---------- Pannello numerico ----------
+    function updateInfo() {
+      iT.textContent = fmt(t, 1) + ' s';
+      iTr.textContent = fmt(L_PHYS / vSet, 1) + ' s';
+      // l'entropia per kJ ha senso solo se si sta scambiando calore in misura apprezzabile
+      iS.textContent = started && RD.qSum.f > 0.01 ? fmt(RD.sKJ.shown, 2) + ' J/K' : '—';
+      if (!started || Math.abs(RD.den.f) < 0.5) { iDt.textContent = '—'; iEff.textContent = '—'; return; }
+      iDt.textContent = fmt(RD.dTh.shown, 1) + ' °C';
+      iEff.textContent = fmt(RD.eff.shown, 0) + ' %';
+    }
+
+    // ---------- Dimensionamento responsivo ----------
+    function resize() {
+      const dpr = window.devicePixelRatio || 1;
+      const cw = cv.clientWidth || W;
+      scale = cw / W;
+      cv.style.height = (cw * H / W) + 'px';
+      cv.width = Math.round(cw * dpr); cv.height = Math.round(cw * H / W * dpr);
+      ctx.setTransform(cv.width / W, 0, 0, cv.height / H, 0, 0);
+      const gw = gv.clientWidth || GW;
+      gscale = gw / GW;
+      gv.style.height = (gw * GH / GW) + 'px';
+      gv.width = Math.round(gw * dpr); gv.height = Math.round(gw * GH / GW * dpr);
+      gctx.setTransform(gv.width / GW, 0, 0, gv.height / GH, 0, 0);
+      dirty = true;
+    }
+    new ResizeObserver(resize).observe(root);
+    resize();
+
+    // ---------- Comandi ----------
+    btnPlay.addEventListener('click', () => {
+      if (running) { running = false; btnPlay.textContent = T.resume; }
+      else { running = true; started = true; btnPlay.textContent = T.pause; }
+    });
+    btnReset.addEventListener('click', resetState);
+    dirBtns.forEach((b) => b.addEventListener('click', () => {
+      counter = b.dataset.dir === 'counter';
+      RD.den.f = tinA - tinB;
+      dirBtns.forEach((o) => {
+        o.classList.toggle('is-on', o === b);
+        o.setAttribute('aria-pressed', String(o === b));
+      });
+      dirty = true;
+    }));
+    inV.addEventListener('input', () => {
+      vSet = +inV.value / 100;
+      outV.textContent = inV.value;
+      if (!started) vS = vSet;
+      updateInfo();
+    });
+    function onTemp() {
+      Tmax = +inTmax.value; Tmin = +inTmin.value;
+      outTmax.textContent = inTmax.value; outTmin.textContent = inTmin.value;
+      legLo.textContent = Tmin + ' °C'; legHi.textContent = Tmax + ' °C';
+      if (!started) { Teq = (Tmax + Tmin) / 2; tinA = Teq; tinB = Teq; TA.fill(Teq); TB.fill(Teq); updateFilters(0); }
+      dirty = true;
+    }
+    inTmax.addEventListener('input', onTemp);
+    inTmin.addEventListener('input', onTemp);
+
+    // ---------- Ciclo di animazione ----------
+    resetState();
+    onTemp();
+    updateInfo();
+    let last = performance.now();
+    function frame(now) {
+      if (!root.isConnected) return;
+      const dt = Math.min(0.05, (now - last) / 1000);
+      last = now;
+      if (running) { step(dt); dirty = true; }
+      if (dirty) { draw(); drawGraph(); dirty = false; }
+      if (now - lastInfo > 100) { updateInfo(); lastInfo = now; }
+      requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+  }
+
+  document.querySelectorAll('.phe-sim').forEach((el) => initPHE(el));
+</script>
