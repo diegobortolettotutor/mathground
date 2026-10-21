@@ -1,0 +1,421 @@
+---
+/*
+  ScatolaNera.astro — MathGround
+  Una scatola chiusa che contiene uno scambiatore di calore: dall'esterno si vedono solo i
+  quattro tubi (ingressi a sinistra, uscite a destra) e le quattro temperature.
+  Il modello fisico è una COPIA di quello di Scambiatorecalore.astro (stessi N, k, L,
+  avviamento, scambio esatto e filtri delle letture), così a parità di ingressi le uscite
+  coincidono con quelle del simulatore completo. Se si modifica il modello in uno dei due
+  file, va modificato anche nell'altro.
+
+  Proprietà:
+    lettera — nome scritto sulla scatola (per esempio "A")
+    verso   — 'co' (equicorrente) oppure 'counter' (controcorrente)
+  La velocità dei fluidi è fissa a 10 cm/s: fa parte del contenuto nascosto della scatola.
+*/
+interface Props {
+  lettera: string;
+  verso: 'co' | 'counter';
+}
+const { lettera, verso } = Astro.props;
+const lang = Astro.url.pathname.startsWith('/en/') ? 'en' : 'it';
+
+const S = {
+  it: {
+    lang: 'it',
+    start: 'Avvia',
+    pause: 'Pausa',
+    resume: 'Riprendi',
+    reset: 'Reset',
+    tmax: "Temperatura d'ingresso del fluido caldo",
+    tmin: "Temperatura d'ingresso del fluido freddo",
+    inlets: 'ingressi',
+    outlets: 'uscite',
+    hot: 'fluido caldo',
+    cold: 'fluido freddo',
+    closed: 'scatola chiusa',
+    time: 'Tempo simulato',
+    aria: 'Scatola chiusa'
+  },
+  en: {
+    lang: 'en',
+    start: 'Start',
+    pause: 'Pause',
+    resume: 'Resume',
+    reset: 'Reset',
+    tmax: 'Hot fluid inlet temperature',
+    tmin: 'Cold fluid inlet temperature',
+    inlets: 'inlets',
+    outlets: 'outlets',
+    hot: 'hot fluid',
+    cold: 'cold fluid',
+    closed: 'closed box',
+    time: 'Simulated time',
+    aria: 'Closed box'
+  }
+}[lang];
+---
+
+<div class="snb not-content" data-i18n={JSON.stringify(S)} data-lettera={lettera} data-verso={verso}>
+  <div class="snb-buttons">
+    <button type="button" class="snb-play primary">{S.start}</button>
+    <button type="button" class="snb-reset">{S.reset}</button>
+    <span class="snb-time">{S.time} <b class="snb-t">0,0 s</b></span>
+  </div>
+
+  <div class="snb-sliders">
+    <label class="cell hot">
+      <span class="lab">{S.tmax}</span>
+      <input type="range" class="snb-tmax" min="40" max="95" step="1" value="90" />
+      <span class="val"><output class="snb-tmax-out">90</output> °C</span>
+    </label>
+    <label class="cell cold">
+      <span class="lab">{S.tmin}</span>
+      <input type="range" class="snb-tmin" min="0" max="35" step="1" value="10" />
+      <span class="val"><output class="snb-tmin-out">10</output> °C</span>
+    </label>
+  </div>
+
+  <canvas class="snb-canvas" role="img" aria-label={S.aria + ' ' + lettera}></canvas>
+</div>
+
+<style is:global>
+  /* Stile allineato a Scambiatorecalore.astro, con prefisso proprio (snb) perché la pagina
+     può contenere anche il simulatore completo e i due script non devono confondersi. */
+  .snb {
+    --ink: var(--sl-color-text, #26252a);
+    --muted: var(--sl-color-gray-3, #6c6b66);
+    --line: var(--sl-color-hairline, #d9d7cf);
+    --track: var(--sl-color-gray-5, #c8c6be);
+    --btn-bg: var(--sl-color-gray-6, #f0eeea);
+    --panel: var(--sl-color-gray-7, #fafaf8);
+    --thumb: #3b82f6;
+    color: var(--ink);
+    line-height: 1.5;
+    margin: 1.5rem 0 2rem;
+  }
+  :root[data-theme='dark'] .snb {
+    --panel: #1a1a1a;
+    --line: #383838;
+  }
+  .snb * { box-sizing: border-box; }
+  .snb button,
+  .snb input,
+  .snb label,
+  .snb canvas,
+  .snb output { margin: 0; }
+
+  .snb .snb-buttons { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 14px; }
+  .snb-buttons button {
+    font: inherit; font-size: 13px; padding: 6px 12px; border-radius: 6px;
+    border: 1px solid var(--line); background: var(--btn-bg); color: var(--ink);
+    cursor: pointer; margin: 0;
+  }
+  .snb-buttons button:hover { border-color: var(--muted); }
+  .snb-buttons button.primary {
+    font-weight: 600;
+    min-width: 6.5rem;
+    background: var(--sl-color-accent);
+    border-color: var(--sl-color-accent);
+    color: var(--sl-color-text-invert, #ffffff);
+  }
+  .snb-buttons button.primary:hover { border-color: var(--ink); }
+  .snb-time { margin-left: auto; font-size: 13px; color: var(--muted); }
+  .snb-time b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+  .snb .snb-sliders { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px 18px; align-items: end; margin: 0 0 16px; }
+  .snb-sliders .cell { display: flex; flex-direction: column; justify-content: flex-end; }
+  .snb-sliders .lab { font-size: 12px; color: var(--muted); line-height: 1.3; margin-bottom: 10px; }
+  .snb-sliders .cell.hot .lab { color: #dc2626; }
+  .snb-sliders .cell.cold .lab { color: #2563eb; }
+  :root[data-theme='dark'] .snb-sliders .cell.hot .lab { color: #ff7a7a; }
+  :root[data-theme='dark'] .snb-sliders .cell.cold .lab { color: #7fb2ff; }
+  .snb-sliders .val { font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; margin-top: 8px; }
+
+  .snb input[type='range'] {
+    -webkit-appearance: none; appearance: none;
+    width: 100%; height: 4px;
+    background: var(--track); border-radius: 2px;
+    outline: none; cursor: pointer; margin: 0;
+  }
+  .snb input[type='range']::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none; width: 16px; height: 16px; border-radius: 50%;
+    background: var(--thumb); border: 2px solid var(--sl-color-bg, #fff); cursor: pointer;
+  }
+  .snb input[type='range']::-moz-range-thumb {
+    width: 16px; height: 16px; border-radius: 50%;
+    background: var(--thumb); border: 2px solid var(--sl-color-bg, #fff); cursor: pointer;
+  }
+  .snb input[type='range']:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 3px rgba(59,130,246,.35); }
+  .snb input[type='range']:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 3px rgba(59,130,246,.35); }
+
+  .snb-canvas {
+    display: block; width: 100%;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+  }
+
+  @media (max-width: 480px) {
+    .snb .snb-sliders { grid-template-columns: 1fr; }
+    .snb-time { margin-left: 0; width: 100%; }
+  }
+</style>
+
+<script>
+  // ---------- Geometria del disegno (coordinate logiche del canvas) ----------
+  const W = 1040, H = 360;
+  const BOX_X0 = 380, BOX_X1 = 660, BOX_Y0 = 58, BOX_Y1 = 322;   // scatola
+  const Y_HOT = 150, Y_COLD = 248;                                // asse dei due tubi
+  const PIPE_X0 = 268, PIPE_X1 = 772;                             // estremi esterni dei tubi
+  const PW = 30;                                                  // diametro dei tubi
+  const READ_L = 252, READ_R = 788;                               // ancoraggio delle letture
+
+  // ---------- Costanti fisiche: identiche a Scambiatorecalore.astro ----------
+  const N = 900;          // elementi di fluido per canale
+  const L_PHYS = 1.2;     // lunghezza della serpentina (m)
+  const K_EX = 0.25;      // coefficiente di scambio (1/s): dT_c/dt = −k (T_c − T_f)
+  const RAMP = 3;         // durata dell'avviamento di pompe e temperature (s)
+  const V_SET = 0.10;     // velocità fissa dei fluidi (m/s)
+  const TAU_F = 0.35, HYST = 0.75, HOLD = 1.0;   // filtri delle letture (solo visualizzazione)
+
+  const FLUID_STOPS = [
+    [0, [33, 102, 172]], [0.25, [103, 169, 207]], [0.5, [236, 231, 242]],
+    [0.75, [239, 138, 98]], [1, [178, 24, 43]]
+  ];
+  function lerpStops(stops, u) {
+    u = Math.min(1, Math.max(0, u));
+    for (let i = 1; i < stops.length; i++) {
+      if (u <= stops[i][0]) {
+        const u0 = stops[i - 1][0], c0 = stops[i - 1][1];
+        const u1 = stops[i][0], c1 = stops[i][1];
+        const f = (u - u0) / (u1 - u0);
+        return c0.map((c, k) => Math.round(c + (c1[k] - c) * f));
+      }
+    }
+    return stops[stops.length - 1][1];
+  }
+  const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
+  const smooth = (x) => { x = clamp(x, 0, 1); return x * x * (3 - 2 * x); };
+
+  function initBox(root) {
+    const T = JSON.parse(root.dataset.i18n);
+    const it = T.lang === 'it';
+    const counter = root.dataset.verso === 'counter';
+    const lettera = root.dataset.lettera || '';
+    const fmt = (v, d) => { const s = v.toFixed(d); return it ? s.replace('.', ',') : s; };
+    const q = (sel) => root.querySelector(sel);
+
+    const cv = q('.snb-canvas');
+    const ctx = cv.getContext('2d');
+    const btnPlay = q('.snb-play'), btnReset = q('.snb-reset');
+    const inTmax = q('.snb-tmax'), inTmin = q('.snb-tmin');
+    const outTmax = q('.snb-tmax-out'), outTmin = q('.snb-tmin-out');
+    const outT = q('.snb-t');
+
+    // ---------- Stato del modello (copia di Scambiatorecalore.astro) ----------
+    const dsPhys = L_PHYS / N;
+    const TA = new Float64Array(N), TB = new Float64Array(N);   // A = caldo, B = freddo
+    let Tmax = +inTmax.value, Tmin = +inTmin.value, Teq = (Tmax + Tmin) / 2;
+    let running = false, started = false;
+    let t = 0, cellAcc = 0, vNow = 0, phase = 0;
+    let tinA = Teq, tinB = Teq;
+    let dirty = true, scale = 1, lastInfo = 0;
+
+    function readout(qq) { return { q: qq, f: 0, shown: 0, hold: 0 }; }
+    const RD = { hIn: readout(0.1), hOut: readout(0.1), cIn: readout(0.1), cOut: readout(0.1) };
+
+    function hysteresis(o, shown, y, dt, snap) {
+      const off = Math.abs(y - shown);
+      if (snap || off > HYST) { o.hold = 0; return Math.round(y); }
+      if (off > 0.5) { o.hold += dt; if (o.hold > HOLD) { o.hold = 0; return Math.round(y); } }
+      else o.hold = 0;
+      return shown;
+    }
+    function feed(r, x, alpha, dt) {
+      const snap = alpha >= 1;
+      r.f = snap ? x : r.f + (x - r.f) * alpha;
+      r.shown = hysteresis(r, r.shown / r.q, r.f / r.q, dt, snap) * r.q;
+    }
+    // Uscita del fluido freddo: in controcorrente è all'estremo s = 0 della serpentina
+    function updateFilters(dt) {
+      const alpha = dt > 0 ? 1 - Math.exp(-dt / TAU_F) : 1;
+      feed(RD.hIn, tinA, alpha, dt);
+      feed(RD.cIn, tinB, alpha, dt);
+      feed(RD.hOut, TA[N - 1], alpha, dt);
+      feed(RD.cOut, counter ? TB[0] : TB[N - 1], alpha, dt);
+    }
+
+    function resetState() {
+      Teq = (Tmax + Tmin) / 2;
+      TA.fill(Teq); TB.fill(Teq);
+      t = 0; cellAcc = 0; vNow = 0; tinA = Teq; tinB = Teq;
+      running = false; started = false;
+      btnPlay.textContent = T.start;
+      updateFilters(0);
+      dirty = true;
+    }
+
+    // Scambio termico esatto per ciascuna coppia di elementi affacciati
+    function exchange(dt) {
+      const f = Math.exp(-2 * K_EX * dt);
+      for (let i = 0; i < N; i++) {
+        const m = 0.5 * (TA[i] + TB[i]), d = 0.5 * (TA[i] - TB[i]) * f;
+        TA[i] = m + d; TB[i] = m - d;
+      }
+    }
+
+    function step(dt) {
+      t += dt;
+      const r = smooth(t / RAMP);
+      vNow = V_SET * r;
+      tinA = Teq + (Tmax - Teq) * r;
+      tinB = Teq + (Tmin - Teq) * r;
+      cellAcc += vNow * dt / dsPhys;
+      const n = Math.floor(cellAcc);
+      cellAcc -= n;
+      const dtc = dt / (n + 1);
+      exchange(dtc);
+      for (let j = 0; j < n; j++) {
+        TA.copyWithin(1, 0, N - 1); TA[0] = tinA;
+        if (counter) { TB.copyWithin(0, 1); TB[N - 1] = tinB; }
+        else { TB.copyWithin(1, 0, N - 1); TB[0] = tinB; }
+        exchange(dtc);
+      }
+      phase = (phase + vNow * 600 * dt) % 44;    // pallini nei tubi: solo indicazione del moto
+      updateFilters(dt);
+    }
+
+    // ---------- Tema chiaro/scuro ----------
+    let C = {};
+    function readTheme() {
+      const dark = document.documentElement.dataset.theme === 'dark';
+      const txt = getComputedStyle(document.documentElement).getPropertyValue('--sl-color-white').trim();
+      C = {
+        text: txt || (dark ? '#ffffff' : '#111111'),
+        muted: dark ? '#9a9a9a' : '#6b6b6b',
+        edge: dark ? '#d0d0d0' : '#2b2b2b',
+        box: dark ? '#2e3442' : '#1e2430',
+        boxEdge: dark ? '#5b6477' : '#11151c',
+        boxSub: dark ? '#a9b0be' : '#8a93a3',
+        hot: dark ? '#ff7a7a' : '#c62828',
+        cold: dark ? '#7fb2ff' : '#1e5bb8'
+      };
+      dirty = true;
+    }
+    readTheme();
+    new MutationObserver(readTheme).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+
+    // ---------- Disegno ----------
+    function fluidColor(Tv) {
+      const span = Math.max(1e-9, Tmax - Tmin);
+      return 'rgb(' + lerpStops(FLUID_STOPS, (Tv - Tmin) / span).join(',') + ')';
+    }
+    function roundRect(x, y, w, h, r) {
+      ctx.beginPath();
+      ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y); ctx.arcTo(x + w, y, x + w, y + r, r);
+      ctx.lineTo(x + w, y + h - r); ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
+      ctx.lineTo(x + r, y + h); ctx.arcTo(x, y + h, x, y + h - r, r);
+      ctx.lineTo(x, y + r); ctx.arcTo(x, y, x + r, y, r);
+      ctx.closePath();
+    }
+    function pipe(x0, x1, y, Tv) {
+      ctx.fillStyle = fluidColor(Tv);
+      ctx.fillRect(x0, y - PW / 2, x1 - x0, PW);
+      ctx.strokeStyle = C.edge; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(x0, y - PW / 2); ctx.lineTo(x1, y - PW / 2);
+      ctx.moveTo(x0, y + PW / 2); ctx.lineTo(x1, y + PW / 2); ctx.stroke();
+      // pallini che scorrono con il fluido, da sinistra verso destra
+      ctx.fillStyle = 'rgba(255,255,255,0.8)';
+      ctx.strokeStyle = 'rgba(0,0,0,0.45)'; ctx.lineWidth = 1;
+      for (let x = x0 + 10 + phase; x < x1 - 6; x += 44) {
+        ctx.beginPath(); ctx.arc(x, y, 3.2, 0, 2 * Math.PI); ctx.fill(); ctx.stroke();
+      }
+    }
+    function reading(x, y, align, col, label, value, fb, fsm) {
+      ctx.textAlign = align; ctx.textBaseline = 'alphabetic'; ctx.fillStyle = col;
+      ctx.font = fsm + 'px system-ui, sans-serif';
+      ctx.fillText(label, x, y - fb * 0.62);
+      ctx.font = '700 ' + fb + 'px system-ui, sans-serif';
+      ctx.fillText(fmt(value, 1) + ' °C', x, y + fb * 0.36);
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, W, H);
+      const fb = clamp(15 / scale, 24, 44), fsm = clamp(11 / scale, 17, 30);
+
+      // tubi: ingressi a sinistra, uscite a destra (la disposizione interna resta nascosta)
+      pipe(PIPE_X0, BOX_X0 + 2, Y_HOT, RD.hIn.shown);
+      pipe(PIPE_X0, BOX_X0 + 2, Y_COLD, RD.cIn.shown);
+      pipe(BOX_X1 - 2, PIPE_X1, Y_HOT, RD.hOut.shown);
+      pipe(BOX_X1 - 2, PIPE_X1, Y_COLD, RD.cOut.shown);
+
+      // scatola
+      roundRect(BOX_X0, BOX_Y0, BOX_X1 - BOX_X0, BOX_Y1 - BOX_Y0, 14);
+      ctx.fillStyle = C.box; ctx.fill();
+      ctx.strokeStyle = C.boxEdge; ctx.lineWidth = 2; ctx.stroke();
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '700 120px system-ui, sans-serif';
+      ctx.fillText(lettera, (BOX_X0 + BOX_X1) / 2, (BOX_Y0 + BOX_Y1) / 2 - 12);
+      ctx.fillStyle = C.boxSub;
+      ctx.font = clamp(10 / scale, 18, 28) + 'px system-ui, sans-serif';
+      ctx.fillText(T.closed, (BOX_X0 + BOX_X1) / 2, BOX_Y1 - 34);
+
+      // intestazioni e letture
+      ctx.textBaseline = 'alphabetic'; ctx.fillStyle = C.muted;
+      ctx.font = '600 ' + fsm + 'px system-ui, sans-serif';
+      ctx.textAlign = 'right'; ctx.fillText(T.inlets.toUpperCase(), READ_L, 40);
+      ctx.textAlign = 'left'; ctx.fillText(T.outlets.toUpperCase(), READ_R, 40);
+      reading(READ_L, Y_HOT, 'right', C.hot, T.hot, RD.hIn.shown, fb, fsm);
+      reading(READ_L, Y_COLD, 'right', C.cold, T.cold, RD.cIn.shown, fb, fsm);
+      reading(READ_R, Y_HOT, 'left', C.hot, T.hot, RD.hOut.shown, fb, fsm);
+      reading(READ_R, Y_COLD, 'left', C.cold, T.cold, RD.cOut.shown, fb, fsm);
+    }
+
+    // ---------- Dimensionamento responsivo ----------
+    function resize() {
+      const dpr = window.devicePixelRatio || 1;
+      const cw = cv.clientWidth || W;
+      scale = cw / W;
+      cv.style.height = (cw * H / W) + 'px';
+      cv.width = Math.round(cw * dpr); cv.height = Math.round(cw * H / W * dpr);
+      ctx.setTransform(cv.width / W, 0, 0, cv.height / H, 0, 0);
+      dirty = true;
+    }
+    new ResizeObserver(resize).observe(root);
+    resize();
+
+    // ---------- Comandi ----------
+    btnPlay.addEventListener('click', () => {
+      if (running) { running = false; btnPlay.textContent = T.resume; }
+      else { running = true; started = true; btnPlay.textContent = T.pause; }
+    });
+    btnReset.addEventListener('click', resetState);
+    function onTemp() {
+      Tmax = +inTmax.value; Tmin = +inTmin.value;
+      outTmax.textContent = inTmax.value; outTmin.textContent = inTmin.value;
+      if (!started) { Teq = (Tmax + Tmin) / 2; tinA = Teq; tinB = Teq; TA.fill(Teq); TB.fill(Teq); updateFilters(0); }
+      dirty = true;
+    }
+    inTmax.addEventListener('input', onTemp);
+    inTmin.addEventListener('input', onTemp);
+
+    // ---------- Ciclo di animazione ----------
+    resetState();
+    onTemp();
+    let last = performance.now();
+    function frame(now) {
+      if (!root.isConnected) return;
+      const dt = Math.min(0.05, (now - last) / 1000);
+      last = now;
+      if (running) { step(dt); dirty = true; }
+      if (dirty) { draw(); dirty = false; }
+      if (now - lastInfo > 100) { outT.textContent = fmt(t, 1) + ' s'; lastInfo = now; }
+      requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+  }
+
+  document.querySelectorAll('.snb').forEach((el) => initBox(el));
+</script>

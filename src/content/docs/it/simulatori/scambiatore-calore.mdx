@@ -1,6 +1,6 @@
 ---
 title: Scambiatore di calore
-description: Simulatore interattivo di uno scambiatore di calore a due canali, con flussi in controcorrente o in equicorrente, temperature lungo il percorso, efficienza ed entropia prodotta.
+description: Due scatole chiuse dalle uscite sorprendenti e il simulatore interattivo dello scambiatore di calore che contengono, con flussi in controcorrente o in equicorrente, temperature lungo il percorso, efficienza ed entropia prodotta.
 sidebar:
   hidden: false
   label: Scambiatore di calore
@@ -9,13 +9,34 @@ tableOfContents: false
 ---
 
 import Scambiatorecalore from '@components/Scambiatorecalore.astro';
+import ScatolaNera from '@components/ScatolaNera.astro';
 
-Due fluidi uguali, uno caldo e uno freddo, scorrono in due canali affiancati che seguono
-la stessa serpentina. I canali sono separati da una parete sottile che lascia passare il
-calore ma non il fluido: è il principio di tutti gli scambiatori di calore, da quelli a
-piastre delle caldaie ai recuperatori della ventilazione domestica. All'avvio i fluidi
-sono fermi e alla stessa temperatura; poi le pompe li mettono in moto e in circa
-3 secondi le temperature d'ingresso raggiungono i valori impostati.
+Ognuna delle due scatole chiuse qui sotto è attraversata da due correnti d'acqua che non
+si mescolano: una calda e una fredda, con la stessa portata. Le scatole non scambiano
+calore con l'ambiente e dall'esterno sono identiche: si possono leggere soltanto le
+temperature dei quattro tubi, con gli ingressi a sinistra e le uscite a destra.
+All'avvio l'acqua è ferma e alla stessa temperatura; poi le pompe la mettono in moto e in
+circa 3 secondi le temperature d'ingresso raggiungono i valori impostati.
+
+:::tip[Prima di avviare]
+Quali temperature ti aspetti alle uscite? Scrivi la tua previsione, poi avvia le due
+scatole e aspetta che le letture si stabilizzino.
+:::
+
+<ScatolaNera lettera="A" verso="co" />
+
+<ScatolaNera lettera="B" verso="counter" />
+
+Gli ingressi sono gli stessi, le uscite no. Che cosa può esserci dentro le scatole? Una
+delle due viola il secondo principio della termodinamica?
+
+## Dentro le scatole
+
+Entrambe le scatole contengono uno scambiatore di calore. Due fluidi uguali, uno caldo e
+uno freddo, scorrono in due canali affiancati che seguono la stessa serpentina. I canali
+sono separati da una parete sottile che lascia passare il calore ma non il fluido: è il
+principio di tutti gli scambiatori di calore, da quelli a piastre delle caldaie ai
+recuperatori della ventilazione domestica.
 
 <Scambiatorecalore />
 
@@ -24,9 +45,10 @@ sono fermi e alla stessa temperatura; poi le pompe li mettono in moto e in circa
 - Il **colore del fluido** indica la sua temperatura, dal blu (freddo) al rosso (caldo).
   I pallini bianchi si muovono con il fluido e ne mostrano il verso e la velocità.
 - Le **frecce** attraversano la parete e indicano il verso del passaggio di calore,
-  sempre dal canale più caldo a quello più freddo. Il colore misura la differenza di
-  temperatura fra i due canali: gialle dove è grande, arancioni e poi marroni dove è
-  piccola. Dove la differenza si annulla, la freccia scompare.
+  sempre dal canale più caldo a quello più freddo. La loro forma misura la differenza di
+  temperatura fra i due canali: larghe dove è grande, sempre più sottili man mano che
+  diminuisce. Quando sono ridotte a un filo si accorciano, e dove la differenza si annulla
+  scompaiono.
 - Il **grafico** riporta la temperatura dei due fluidi in funzione della posizione lungo
   la serpentina, misurata a partire dall'ingresso del fluido caldo.
 - Il **pannello** in basso mostra il tempo che un pacchetto di fluido impiega ad
@@ -67,13 +89,13 @@ ed è questo tempo, insieme a $k$, a decidere quanto calore riesce a passare.
 Il pulsante dei versi permette di confrontare le due configurazioni possibili.
 
 - In **equicorrente** (versi concordi) i due fluidi entrano dallo stesso lato. All'ingresso
-  la differenza di temperatura è massima e le frecce sono gialle; procedendo, le due
+  la differenza di temperatura è massima e le frecce sono larghe; procedendo, le due
   temperature si avvicinano e tendono entrambe al valore medio. Il fluido caldo non può
   scendere sotto la media, perché a quel punto lo scambio si ferma.
 - In **controcorrente** (versi discordi) i fluidi entrano da lati opposti. Il fluido caldo,
   mentre si raffredda, incontra fluido sempre più freddo: la differenza di temperatura
-  resta moderata e quasi uniforme lungo tutta la serpentina, e le frecce hanno tutte lo
-  stesso colore. A regime i due profili del grafico diventano rette parallele.
+  resta moderata e quasi uniforme lungo tutta la serpentina, e le frecce hanno tutte la
+  stessa forma. A regime i due profili del grafico diventano rette parallele.
 
 Per confrontarle si usa l'**efficienza** $\varepsilon$: la frazione del raffreddamento
 massimo possibile che il fluido caldo ottiene davvero.
@@ -99,10 +121,22 @@ contatto abbastanza a lungo. Si può dimostrare che, per due fluidi uguali con l
 portata, in controcorrente vale $\varepsilon = \dfrac{k\tau}{1 + k\tau}$.
 
 :::tip[Da provare]
-Avvia la simulazione in controcorrente e aspetta il regime, poi passa a equicorrente senza
-fermarla: le frecce gialle si concentrano all'ingresso e l'efficienza scende. Prova poi a
-dimezzare e raddoppiare la velocità e osserva come cambiano il tempo di attraversamento
-e la temperatura di uscita del fluido caldo.
+Avvia la simulazione in equicorrente e aspetta il regime, poi passa a controcorrente senza
+fermarla: le frecce larghe, prima concentrate all'ingresso, lasciano il posto a frecce
+tutte uguali lungo l'intera serpentina, e l'efficienza sale. Prova poi a dimezzare e
+raddoppiare la velocità e osserva come cambiano il tempo di attraversamento e la
+temperatura di uscita del fluido caldo.
+:::
+
+:::note[Le scatole svelate]
+La scatola A contiene uno scambiatore in equicorrente, la scatola B uno in controcorrente,
+entrambi con velocità di 10 cm/s. Il simulatore parte con gli stessi ingressi e la stessa
+velocità delle scatole: confronta le uscite nelle due configurazioni. In ogni punto della
+serpentina il calore passa dal
+fluido più caldo a quello più freddo. Nella scatola B il fluido freddo esce a circa 70 °C
+dall'estremità in cui incontra il fluido caldo appena entrato a 90 °C; il fluido caldo esce
+a circa 30 °C dall'estremità opposta, dove incontra il fluido freddo a 10 °C. Le due
+correnti in uscita non si toccano mai.
 :::
 
 ## Un'applicazione: il recupero di calore in casa
@@ -146,10 +180,10 @@ scambiato.**
 
 Il simulatore applica questa formula a ogni coppia di elementi affacciati, somma su tutta
 la serpentina e divide per il calore totale scambiato, mostrando l'entropia prodotta per
-ogni kJ. Con le impostazioni iniziali, a regime, si ottiene circa 0,17 J/K in
-controcorrente e 0,35 J/K in equicorrente: la controcorrente scambia più calore e,
+ogni kJ. Con le impostazioni iniziali, a regime, si ottiene circa 0,19 J/K in
+controcorrente e 0,39 J/K in equicorrente: la controcorrente scambia più calore e,
 per ogni joule, produce circa la metà dell'entropia. Le frecce lo mostrano a colpo
-d'occhio, perché il loro colore misura proprio la differenza di temperatura.
+d'occhio, perché la loro forma misura proprio la differenza di temperatura.
 
 :::note[Le idealizzazioni del modello]
 I due fluidi sono identici e hanno la stessa portata; la costante $k$ è uniforme lungo

@@ -29,7 +29,7 @@ const S = {
     inlet: 'ingresso',
     outlet: 'uscita',
     legendT: 'Temperatura del fluido',
-    legendQ: 'Frecce: verso del calore, dal canale caldo al freddo. Colore:',
+    legendQ: 'Frecce: verso del calore, dal canale caldo al freddo. Spessore e lunghezza:',
     small: 'ΔT piccola',
     big: 'ΔT grande',
     xLabel: 'posizione lungo la serpentina (m)',
@@ -59,7 +59,7 @@ const S = {
     inlet: 'inlet',
     outlet: 'outlet',
     legendT: 'Fluid temperature',
-    legendQ: 'Arrows: direction of heat flow, from the hot to the cold channel. Colour:',
+    legendQ: 'Arrows: direction of heat flow, from the hot to the cold channel. Width and length:',
     small: 'small ΔT',
     big: 'large ΔT',
     xLabel: 'position along the coil (m)',
@@ -75,12 +75,33 @@ const S = {
     ariaG: 'Plot of the temperature of both fluids along the coil'
   }
 }[lang];
+
+// Legenda delle frecce: le stesse forme del disegno (vedi arrowShape nello script), in piccolo.
+// s va da 0 (differenza di temperatura nulla) a 1 (differenza massima).
+const LEG_K = 0.45, LEG_GAP = 28, LEG_H = 22;
+function legendArrow(cx: number, cy: number, s: number): string {
+  const S_W = 0.22, W_MAX = 14 * LEG_K, L_MAX = 50.16 * LEG_K, wMin = 1.2;
+  const w = s >= S_W ? wMin + (W_MAX - wMin) * (s - S_W) / (1 - S_W) : wMin;
+  const hw = 1.1 * w + 1, hl0 = 0.95 * hw + 1.6, lMin = hl0 + 2;
+  const len = s >= S_W ? L_MAX : lMin + (L_MAX - lMin) * s / S_W;
+  const hl = Math.min(hl0, 0.7 * len);
+  const tx = cx - len / 2, hx = cx + len / 2, bx = hx - hl;
+  const pts = [[tx, cy - w / 2], [bx, cy - w / 2], [bx, cy - hw], [hx, cy], [bx, cy + hw],
+    [bx, cy + w / 2], [tx, cy + w / 2]];
+  return '<polygon points="' + pts.map((q) => q[0].toFixed(2) + ',' + q[1].toFixed(2)).join(' ') + '" />';
+}
+const LEG_S = [0.06, 0.14, 0.24, 0.5, 1];
+const legendSvg =
+  '<svg class="phe-qleg" width="' + LEG_S.length * LEG_GAP + '" height="' + LEG_H + '" viewBox="0 0 ' +
+  LEG_S.length * LEG_GAP + ' ' + LEG_H + '" aria-hidden="true"><g fill="rgb(255,232,72)" ' +
+  'stroke="rgba(20,12,4,0.8)" stroke-width="1.4" stroke-linejoin="round" paint-order="stroke">' +
+  LEG_S.map((v, i) => legendArrow((i + 0.5) * LEG_GAP, LEG_H / 2, v)).join('') + '</g></svg>';
 ---
 
 <div class="phe-sim not-content" data-i18n={JSON.stringify(S)}>
   <div class="phe-modes" role="group" aria-label={S.dirLabel}>
-    <button type="button" class="mode-btn phe-dir is-on" data-dir="counter" aria-pressed="true">{S.counter}</button>
-    <button type="button" class="mode-btn phe-dir" data-dir="co" aria-pressed="false">{S.co}</button>
+    <button type="button" class="mode-btn phe-dir" data-dir="counter" aria-pressed="false">{S.counter}</button>
+    <button type="button" class="mode-btn phe-dir is-on" data-dir="co" aria-pressed="true">{S.co}</button>
   </div>
 
   <div class="phe-buttons">
@@ -96,8 +117,8 @@ const S = {
     </label>
     <label class="cell hot">
       <span class="lab">{S.tmax}</span>
-      <input type="range" class="phe-tmax" min="40" max="95" step="1" value="80" />
-      <span class="val"><output class="phe-tmax-out">80</output> °C</span>
+      <input type="range" class="phe-tmax" min="40" max="95" step="1" value="90" />
+      <span class="val"><output class="phe-tmax-out">90</output> °C</span>
     </label>
     <label class="cell cold">
       <span class="lab">{S.tmin}</span>
@@ -113,12 +134,12 @@ const S = {
       <span>{S.legendT}</span>
       <span class="phe-lo">10 °C</span>
       <span class="phe-bar phe-bar-t"></span>
-      <span class="phe-hi">80 °C</span>
+      <span class="phe-hi">90 °C</span>
     </div>
     <div class="phe-leg">
       <span>{S.legendQ}</span>
       <span>{S.small}</span>
-      <span class="phe-bar phe-bar-q"></span>
+      <Fragment set:html={legendSvg} />
       <span>{S.big}</span>
     </div>
   </div>
@@ -252,9 +273,7 @@ const S = {
   .phe-bar-t {
     background: linear-gradient(90deg, rgb(33,102,172), rgb(103,169,207), rgb(236,231,242), rgb(239,138,98), rgb(178,24,43));
   }
-  .phe-bar-q {
-    background: linear-gradient(90deg, rgb(96,56,20), rgb(236,124,12), rgb(255,232,40));
-  }
+  .phe-qleg { display: inline-block; vertical-align: middle; overflow: visible; }
 
   .phe-sim .phe-info {
     display: grid;
@@ -305,13 +324,13 @@ const S = {
   //  1) media spaziale su più elementi vicini (solo per le frecce);
   //  2) filtro passa-basso del primo ordine: df/dt = (x − f)/TAU_F;
   //  3) isteresi sul valore mostrato: cambia solo se il filtrato si allontana di più di HYST
-  //     (in unità dell'ultima cifra o del livello di colore) dal valore attualmente mostrato;
+  //     (in unità dell'ultima cifra o del livello di dimensione delle frecce) dal valore mostrato;
   //  4) correzione lenta: se il filtrato resta per più di HOLD secondi più vicino a un altro
   //     valore arrotondato, il valore mostrato si aggiorna (l'isteresi non lo blocca a lungo).
   const TAU_F = 0.35;     // costante di tempo del filtro (s)
   const HYST = 0.75;      // soglia di isteresi (0.5 = semplice arrotondamento, nessuna isteresi)
   const HOLD = 1.0;       // tempo dopo cui si accetta comunque il nuovo arrotondamento (s)
-  const NL = 16;          // livelli di colore delle frecce
+  const NL = 40;          // livelli di dimensione delle frecce
   const SPAN = 4;         // media delle frecce sugli elementi i−SPAN … i+SPAN
   const ARROW_ON = 0.006, ARROW_OFF = 0.003;   // soglie (frazione di Tmax − Tmin) per mostrare/nascondere
 
@@ -319,7 +338,16 @@ const S = {
     [0, [33, 102, 172]], [0.25, [103, 169, 207]], [0.5, [236, 231, 242]],
     [0.75, [239, 138, 98]], [1, [178, 24, 43]]
   ];
-  const HEAT_STOPS = [[0, [96, 56, 20]], [0.5, [236, 124, 12]], [1, [255, 232, 40]]];
+
+  // ---------- Forma delle frecce del calore ----------
+  // Tutte dello stesso giallo; la forma dice quanto è grande la differenza di temperatura.
+  // s ∈ [0, 1] cresce con |T_c − T_f|. Per s ≥ S_W la freccia ha lunghezza massima e il suo spessore
+  // cresce con s; per s < S_W è ridotta a un filo (spessore minimo, almeno un pixel sullo schermo)
+  // e si accorcia fino a scomparire.
+  const ARROW_COL = 'rgb(255,232,72)';
+  const ARROW_EDGE = 'rgba(20,12,4,0.8)';
+  const S_W = 0.22;       // soglia fra la fase "si assottiglia" e la fase "si accorcia"
+  const W_MAX = 14;       // spessore massimo del gambo (unità logiche del canvas)
 
   function lerpStops(stops, u) {
     u = Math.min(1, Math.max(0, u));
@@ -333,7 +361,6 @@ const S = {
     }
     return stops[stops.length - 1][1];
   }
-  const ARROW_PAL = Array.from({ length: NL }, (_, l) => 'rgb(' + lerpStops(HEAT_STOPS, l / (NL - 1)).join(',') + ')');
   const PAL = Array.from({ length: NB }, (_, b) => 'rgb(' + lerpStops(FLUID_STOPS, b / (NB - 1)).join(',') + ')');
   const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
   const smooth = (x) => { x = clamp(x, 0, 1); return x * x * (3 - 2 * x); };
@@ -436,14 +463,14 @@ const S = {
     for (let k = 0; k < NA; k++) {
       const s = (k + 0.5) * L / NA, p = pointAt(geo, s);
       arrows.push({ x: p[0], y: p[1], nx: -p[3], ny: p[2], i: Math.min(N - 1, Math.floor(s / ds)),
-        f: 0, lvl: -1, sgn: 1, hold: 0 });   // f: ΔT filtrata; lvl: livello di colore mostrato (−1 = nascosta)
+        f: 0, lvl: -1, sgn: 1, hold: 0 });   // f: ΔT filtrata; lvl: livello di dimensione mostrato (−1 = nascosta)
     }
 
     // ---------- Stato ----------
     const TA = new Float64Array(N), TB = new Float64Array(N);
     let Tmax = +inTmax.value, Tmin = +inTmin.value, Teq = (Tmax + Tmin) / 2;
     let vSet = +inV.value / 100, vS = vSet, vNow = 0;
-    let counter = true, running = false, started = false;
+    let counter = false, running = false, started = false;   // all'avvio: equicorrente
     let t = 0, cellAcc = 0, phA = 0, phB = 0;
     let tinA = Teq, tinB = Teq;      // temperature d'ingresso imposte in questo istante
     let dirty = true, scale = 1, gscale = 1, lastInfo = 0;
@@ -618,20 +645,40 @@ const S = {
       }
     }
 
-    function drawArrow(x, y, dx, dy, col) {
-      const a = GAP / 2 + LW * 0.62, hl = 10, hw = 7;
-      const x1 = x - dx * a, y1 = y - dy * a, x2 = x + dx * a, y2 = y + dy * a;
-      const bx = x2 - dx * hl, by = y2 - dy * hl, px = -dy, py = dx;
-      const head = new Path2D();
-      head.moveTo(x2, y2); head.lineTo(bx + px * hw, by + py * hw); head.lineTo(bx - px * hw, by - py * hw); head.closePath();
-      ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-      ctx.strokeStyle = 'rgba(20,12,4,0.85)';
-      ctx.lineWidth = 6.5;
-      ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(bx, by); ctx.stroke();
-      ctx.lineWidth = 3; ctx.stroke(head);
-      ctx.strokeStyle = col; ctx.lineWidth = 3.5;
-      ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(bx, by); ctx.stroke();
-      ctx.fillStyle = col; ctx.fill(head);
+    // Dimensioni della freccia per un valore s ∈ [0, 1] (vedi le costanti S_W e W_MAX)
+    const L_MAX = 2 * (GAP / 2 + LW * 0.62);   // lunghezza massima: attraversa la parete
+    function arrowShape(s) {
+      const wMin = Math.max(1.4, 1.1 / scale);  // almeno circa un pixel sullo schermo
+      const w = s >= S_W ? wMin + (W_MAX - wMin) * (s - S_W) / (1 - S_W) : wMin;
+      const hw = 1.1 * w + 2.2;                 // semilarghezza della punta
+      const hl0 = 0.95 * hw + 3.5;              // lunghezza della punta
+      const lMin = hl0 + 4;
+      const len = s >= S_W ? L_MAX : lMin + (L_MAX - lMin) * s / S_W;
+      return { w, hw, hl: Math.min(hl0, 0.7 * len), len };
+    }
+
+    // Freccia centrata sulla parete in (x, y), diretta lungo il versore (dx, dy)
+    function drawArrow(x, y, dx, dy, s) {
+      const { w, hw, hl, len } = arrowShape(s);
+      const px = -dy, py = dx;
+      const tx = x - dx * len / 2, ty = y - dy * len / 2;   // coda
+      const hx = x + dx * len / 2, hy = y + dy * len / 2;   // punta
+      const bx = hx - dx * hl, by = hy - dy * hl;           // base della punta
+      const p = new Path2D();
+      p.moveTo(tx + px * w / 2, ty + py * w / 2);
+      p.lineTo(bx + px * w / 2, by + py * w / 2);
+      p.lineTo(bx + px * hw, by + py * hw);
+      p.lineTo(hx, hy);
+      p.lineTo(bx - px * hw, by - py * hw);
+      p.lineTo(bx - px * w / 2, by - py * w / 2);
+      p.lineTo(tx - px * w / 2, ty - py * w / 2);
+      p.closePath();
+      // bordo scuro sottile per staccare il giallo dal fluido chiaro: si traccia prima il bordo
+      // e poi il riempimento, così il bordo resta solo all'esterno e non copre il filo giallo
+      ctx.lineJoin = 'round';
+      ctx.strokeStyle = ARROW_EDGE; ctx.lineWidth = Math.max(2.4, 1.6 / scale);
+      ctx.stroke(p);
+      ctx.fillStyle = ARROW_COL; ctx.fill(p);
     }
 
     function drawEndLabels() {
@@ -669,7 +716,7 @@ const S = {
       drawTracers(phB, -1);
       for (const ar of arrows) {
         if (ar.lvl < 0) continue;
-        drawArrow(ar.x, ar.y, ar.nx * ar.sgn, ar.ny * ar.sgn, ARROW_PAL[ar.lvl]);
+        drawArrow(ar.x, ar.y, ar.nx * ar.sgn, ar.ny * ar.sgn, ar.lvl / (NL - 1));
       }
       drawEndLabels();
     }

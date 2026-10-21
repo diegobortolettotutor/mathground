@@ -1,6 +1,6 @@
 ---
 title: Heat exchanger
-description: Interactive simulator of a two-channel heat exchanger with counterflow or parallel flow, temperatures along the path, effectiveness and entropy produced.
+description: Two closed boxes with surprising outlets and the interactive simulator of the heat exchanger they contain, with counterflow or parallel flow, temperatures along the path, effectiveness and entropy produced.
 sidebar:
   hidden: false
   label: Heat exchanger
@@ -9,13 +9,34 @@ tableOfContents: false
 ---
 
 import Scambiatorecalore from '@components/Scambiatorecalore.astro';
+import ScatolaNera from '@components/ScatolaNera.astro';
 
-Two identical fluids, one hot and one cold, flow through two adjacent channels that follow
-the same coil. The channels are separated by a thin wall that lets heat through but not
-the fluid: this is the principle behind every heat exchanger, from the plate exchangers in
-boilers to the heat recovery units of home ventilation. At start-up the fluids are at rest
-and at the same temperature; then the pumps set them in motion, and within about
-3 seconds the inlet temperatures reach the chosen values.
+Each of the two closed boxes below is crossed by two streams of water that do not mix:
+one hot and one cold, with the same flow rate. The boxes exchange no heat with their
+surroundings and look identical from the outside: you can only read the temperatures of
+the four pipes, with the inlets on the left and the outlets on the right. At start-up the
+water is at rest and at the same temperature; then the pumps set it in motion, and within
+about 3 seconds the inlet temperatures reach the chosen values.
+
+:::tip[Before you start]
+Which temperatures do you expect at the outlets? Write down your prediction, then start
+both boxes and wait for the readings to settle.
+:::
+
+<ScatolaNera lettera="A" verso="co" />
+
+<ScatolaNera lettera="B" verso="counter" />
+
+The inlets are the same, the outlets are not. What could be inside the boxes? Does one of
+them break the second law of thermodynamics?
+
+## Inside the boxes
+
+Both boxes contain a heat exchanger. Two identical fluids, one hot and one cold, flow
+through two adjacent channels that follow the same coil. The channels are separated by a
+thin wall that lets heat through but not the fluid: this is the principle behind every
+heat exchanger, from the plate exchangers in boilers to the heat recovery units of home
+ventilation.
 
 <Scambiatorecalore />
 
@@ -24,9 +45,10 @@ and at the same temperature; then the pumps set them in motion, and within about
 - The **fluid colour** shows its temperature, from blue (cold) to red (hot). The white
   dots move with the fluid and show its direction and speed.
 - The **arrows** cross the wall and show the direction of heat flow, always from the
-  hotter channel to the colder one. Their colour measures the temperature difference
-  between the two channels: yellow where it is large, orange and then brown where it is
-  small. Where the difference vanishes, the arrow disappears.
+  hotter channel to the colder one. Their shape measures the temperature difference
+  between the two channels: wide where it is large, thinner and thinner as it decreases.
+  Once they are down to a thin line they get shorter, and where the difference vanishes
+  they disappear.
 - The **plot** shows the temperature of both fluids as a function of position along the
   coil, measured from the hot fluid inlet.
 - The **panel** at the bottom shows the time a parcel of fluid takes to travel through
@@ -65,12 +87,12 @@ and it is this time, together with $k$, that decides how much heat can get throu
 The direction buttons let you compare the two possible configurations.
 
 - In **parallel flow** both fluids enter from the same side. At the inlet the temperature
-  difference is at its largest and the arrows are yellow; further along, the two
+  difference is at its largest and the arrows are wide; further along, the two
   temperatures approach each other and both tend to the average. The hot fluid cannot
   drop below the average, because at that point the exchange stops.
 - In **counterflow** the fluids enter from opposite sides. As the hot fluid cools down, it
   meets colder and colder fluid: the temperature difference stays moderate and nearly
-  uniform along the whole coil, and all the arrows have the same colour. At steady state
+  uniform along the whole coil, and all the arrows have the same shape. At steady state
   the two profiles in the plot become parallel straight lines.
 
 To compare them we use the **effectiveness** $\varepsilon$: the fraction of the largest
@@ -96,10 +118,22 @@ effectiveness never exceeds 50%, however long the coil; in counterflow it can ap
 fluids with the same flow rate, counterflow gives $\varepsilon = \dfrac{k\tau}{1 + k\tau}$.
 
 :::tip[Try this]
-Start the simulation in counterflow and wait for steady state, then switch to parallel
-flow without stopping it: the yellow arrows gather at the inlet and the effectiveness
-drops. Then try halving and doubling the speed and watch how the transit time and the
-outlet temperature of the hot fluid change.
+Start the simulation in parallel flow and wait for steady state, then switch to
+counterflow without stopping it: the wide arrows, gathered at the inlet at first, give
+way to identical arrows along the whole coil, and the effectiveness rises. Then try
+halving and doubling the speed and watch how the transit time and the outlet
+temperature of the hot fluid change.
+:::
+
+:::note[The boxes revealed]
+Box A contains a parallel-flow exchanger, box B a counterflow one, both with a speed of
+10 cm/s. The simulator starts with the same inlets and the same speed as the boxes:
+compare the outlets in the two configurations. At every point of the coil heat flows
+from the hotter fluid to the colder
+one. In box B the cold fluid leaves at about 70 °C from the end where it meets the hot
+fluid that has just entered at 90 °C; the hot fluid leaves at about 30 °C from the
+opposite end, where it meets the cold fluid at 10 °C. The two outgoing streams never
+touch.
 :::
 
 ## An application: heat recovery at home
@@ -142,9 +176,9 @@ entropy. **The waste lies in the temperature difference, not in the heat exchang
 
 The simulator applies this formula to every pair of facing elements, adds up over the
 whole coil and divides by the total heat exchanged, showing the entropy produced per kJ.
-With the initial settings, at steady state, it gives about 0.17 J/K in counterflow and
-0.35 J/K in parallel flow: counterflow exchanges more heat and, per joule, produces about
-half the entropy. The arrows show it at a glance, because their colour measures exactly
+With the initial settings, at steady state, it gives about 0.19 J/K in counterflow and
+0.39 J/K in parallel flow: counterflow exchanges more heat and, per joule, produces about
+half the entropy. The arrows show it at a glance, because their shape measures exactly
 the temperature difference.
 
 :::note[The model's idealisations]
