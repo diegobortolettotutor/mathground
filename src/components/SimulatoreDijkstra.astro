@@ -1,0 +1,635 @@
+---
+// ============================================================================
+//  SimulatoreDijkstra.astro
+//  Animazione passo per passo dell'algoritmo di Dijkstra su un grafo orientato
+//  fisso da S a T (pesi in minuti).
+//   - Ogni nodo mostra "costo da S" e "passando da" (predecessore)
+//   - Tre stati: non raggiunto (grigio chiaro), in coda (grigio scuro),
+//     definitivo (blu); bordo arancione sul nodo in lavorazione
+//   - Coda con priorità: i nodi usciti restano in cima, blu, barrati e con X
+//     rossa; gli spostamenti di posto sono animati (tecnica FLIP); il bordo
+//     lampeggia di giallo a ogni aggiornamento di costo o predecessore
+//  Gli elementi SVG e le voci della coda sono creati a runtime con
+//  createElement: per questo lo stile è <style is:global>, con prefisso dj-.
+// ============================================================================
+const lang = Astro.url.pathname.startsWith('/en/') ? 'en' : 'it';
+
+const i18n = {
+  it: {
+    aria: 'Grafo orientato da S a T con costo da S e predecessore di ogni nodo',
+    restart: 'Riavvia',
+    back: 'Indietro',
+    next: 'Avanti',
+    play: 'Avvia',
+    pause: 'Pausa',
+    speed: 'velocità',
+    lgUnreached: 'non ancora raggiunto',
+    lgQueued: 'scoperto, costo provvisorio (in coda)',
+    lgFinal: 'costo definitivo',
+    lgCurrent: 'nodo in lavorazione',
+    queueTitle: 'Coda con priorità',
+    queueHint:
+      'In questa coda dinamica si inseriscono i nodi man mano che vengono scoperti, ordinandoli per costo da S. ' +
+      'Dalla coda dinamica si estrae sempre quello in testa. ' +
+      'Per una migliore comprensione dell\'algoritmo, i nodi già estratti rimangono comunque ordinati e visibili in blu ' +
+      'in cima alla coda dinamica, barrati di rosso. Il loro costo da S è a quel punto definitivo, il più basso possibile. ' +
+      'Il bordo di un nodo lampeggia di giallo quando viene aggiornato.',
+    logTitle: 'Cosa sta succedendo',
+  },
+  en: {
+    aria: 'Directed graph from S to T showing the cost from S and the predecessor of every node',
+    restart: 'Restart',
+    back: 'Back',
+    next: 'Next',
+    play: 'Start',
+    pause: 'Pause',
+    speed: 'speed',
+    lgUnreached: 'not reached yet',
+    lgQueued: 'discovered, tentative cost (in the queue)',
+    lgFinal: 'final cost',
+    lgCurrent: 'node being processed',
+    queueTitle: 'Priority queue',
+    queueHint:
+      'In this dynamic queue, nodes are inserted as they are discovered and sorted by cost from S. ' +
+      'The node at the head of the dynamic queue is always the one extracted. ' +
+      'To make the algorithm easier to follow, nodes already extracted stay sorted and visible in blue ' +
+      'at the top of the dynamic queue, crossed out in red. At that point their cost from S is final, the lowest possible. ' +
+      'A node\'s border flashes yellow when it is updated.',
+    logTitle: 'What is happening',
+  },
+};
+const t = i18n[lang];
+---
+
+<div class="dj not-content" data-lang={lang} data-play={t.play} data-pause={t.pause} tabindex="0">
+  <div class="dj-scene">
+    <svg class="dj-svg" viewBox="0 0 1040 420" role="img" aria-label={t.aria}></svg>
+  </div>
+
+  <p class="dj-legend">
+    <span><span class="dj-sw dj-sw-0"></span>{t.lgUnreached}</span>
+    <span><span class="dj-sw dj-sw-1"></span>{t.lgQueued}</span>
+    <span><span class="dj-sw dj-sw-2"></span>{t.lgFinal}</span>
+    <span><span class="dj-sw dj-sw-cur"></span>{t.lgCurrent}</span>
+  </p>
+
+  <div class="dj-buttons">
+    <button type="button" class="dj-restart">{t.restart}</button>
+    <button type="button" class="dj-back">{t.back}</button>
+    <button type="button" class="dj-next primary">{t.next}</button>
+    <button type="button" class="dj-play">{t.play}</button>
+    <span class="dj-speedcell">
+      <label>{t.speed}<input type="range" class="dj-speed" min="0.5" max="2" step="0.25" value="1" /></label>
+      <span class="dj-speed-val">1.00×</span>
+    </span>
+    <span class="dj-counter" aria-live="polite"></span>
+  </div>
+
+  <div class="dj-grid">
+    <div class="dj-panel">
+      <div class="dj-title">{t.queueTitle}</div>
+      <p class="dj-hint">{t.queueHint}</p>
+      <ul class="dj-queue"></ul>
+    </div>
+    <div class="dj-panel">
+      <div class="dj-title">{t.logTitle}</div>
+      <div class="dj-msg" role="status"></div>
+      <ol class="dj-hist"></ol>
+      <div class="dj-result"></div>
+    </div>
+  </div>
+</div>
+
+<style is:global>
+  .dj {
+    --dj-ink: var(--sl-color-text, #26252a);
+    --dj-muted: var(--sl-color-gray-3, #6c6b66);
+    --dj-line: var(--sl-color-hairline, #d9d7cf);
+    --dj-track: var(--sl-color-gray-5, #c8c6be);
+    --dj-btn-bg: var(--sl-color-gray-6, #f0eeea);
+    --dj-accent: #ffcc44;
+    --dj-plot-bg: #fafaf8;
+    --dj-n0: #e5e7eb;
+    --dj-n0-ink: #374151;
+    --dj-n1: #6b7280;
+    --dj-n2: #1f5f8b;
+    --dj-node-stroke: #374151;
+    --dj-edge: #8aa3b5;
+    --dj-hot: #f59e0b;
+    --dj-flash: #facc15;
+    --dj-q-bg: #f3f4f6;
+    --dj-top-bg: #fde7b0;
+    --dj-top-ink: #3a2f00;
+    --dj-msg-bg: #f1f5f9;
+    color: var(--dj-ink);
+    max-width: 1040px;
+    min-width: 330px;
+    margin-inline: auto;
+    line-height: 1.5;
+    outline: none;
+  }
+  :root[data-theme='dark'] .dj {
+    --dj-plot-bg: #1a1a1a;
+    --dj-n0: #383838;
+    --dj-n0-ink: #d4d4d4;
+    --dj-n2: #2b78b0;
+    --dj-node-stroke: #9ca3af;
+    --dj-edge: #6f8a9e;
+    --dj-q-bg: #262626;
+    --dj-top-bg: #ffcc44;
+    --dj-msg-bg: #262626;
+  }
+
+  .dj button,
+  .dj p,
+  .dj ul,
+  .dj ol,
+  .dj li,
+  .dj label { margin: 0; }
+
+  /* pulsanti di controllo, stesso stile di SimulatoreUrti */
+  .dj-buttons { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 14px; }
+  .dj-buttons button {
+    font: inherit; font-size: 13px; padding: 6px 12px; border-radius: 6px;
+    border: 1px solid var(--dj-line); background: var(--dj-btn-bg); color: var(--dj-ink);
+    cursor: pointer;
+  }
+  .dj-buttons button:hover { border-color: var(--dj-muted); }
+  .dj-buttons button.primary { font-weight: 600; }
+  .dj-buttons button:disabled { opacity: .45; cursor: not-allowed; }
+  .dj-buttons button.is-on { background: var(--dj-accent); border-color: var(--dj-accent); color: #3a2f00; }
+  .dj-speedcell { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--dj-muted); }
+  .dj-speedcell label { display: inline-flex; align-items: center; gap: 8px; }
+  .dj-speed-val { font-weight: 600; font-variant-numeric: tabular-nums; color: var(--dj-ink); min-width: 44px; }
+  .dj-counter { font-size: 13px; color: var(--dj-muted); margin-left: auto; font-variant-numeric: tabular-nums; }
+
+  .dj input[type="range"] {
+    -webkit-appearance: none; appearance: none;
+    width: 110px; height: 4px; margin: 0;
+    background: var(--dj-track); border-radius: 2px; outline: none; cursor: pointer;
+  }
+  .dj input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none; width: 16px; height: 16px; border-radius: 50%;
+    background: var(--dj-accent); border: 2px solid var(--sl-color-bg, #fff); cursor: pointer;
+  }
+  .dj input[type="range"]::-moz-range-thumb {
+    width: 16px; height: 16px; border-radius: 50%;
+    background: var(--dj-accent); border: 2px solid var(--sl-color-bg, #fff); cursor: pointer;
+  }
+
+  /* grafo: su schermi stretti si scorre in orizzontale invece di rimpicciolire il testo */
+  .dj-scene {
+    overflow-x: auto;
+    border-radius: 10px;
+    border: 1px solid var(--dj-line);
+    background: var(--dj-plot-bg);
+  }
+  .dj-svg { display: block; width: 100%; min-width: 760px; height: auto; }
+  .dj-edge { fill: none; stroke: var(--dj-edge); stroke-width: 2.2; }
+  .dj-edge.is-hot { stroke: var(--dj-hot); stroke-width: 4; }
+  .dj-arrow { fill: var(--dj-edge); }
+  .dj-arrow-hot { fill: var(--dj-hot); }
+  .dj-weight {
+    font-size: 15px; font-weight: 700; fill: var(--dj-ink);
+    stroke: var(--dj-plot-bg); stroke-width: 4; paint-order: stroke;
+  }
+  .dj-node circle { stroke: var(--dj-node-stroke); stroke-width: 1.5; }
+  .dj-node text { fill: #fff; }
+  .dj-node.s0 circle { fill: var(--dj-n0); }
+  .dj-node.s0 text { fill: var(--dj-n0-ink); }
+  .dj-node.s1 circle { fill: var(--dj-n1); }
+  .dj-node.s2 circle { fill: var(--dj-n2); }
+  .dj-node.is-cur circle { stroke: var(--dj-hot); stroke-width: 6; }
+  .dj-node .dj-name { font-size: 20px; font-weight: 700; }
+  .dj-node .dj-line { font-size: 11.5px; }
+
+  .dj-legend { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; font-size: 13px; color: var(--dj-muted); margin: 10px 0 10px; }
+  .dj-legend > span { display: inline-flex; align-items: center; gap: 6px; }
+  .dj-sw { display: inline-block; width: 13px; height: 13px; border-radius: 50%; border: 1px solid var(--dj-node-stroke); }
+  .dj-sw-0 { background: var(--dj-n0); }
+  .dj-sw-1 { background: var(--dj-n1); }
+  .dj-sw-2 { background: var(--dj-n2); }
+  .dj-sw-cur { background: transparent; border: 3px solid var(--dj-hot); }
+
+  .dj-grid { display: grid; grid-template-columns: 1fr 1.3fr; gap: 14px; align-items: stretch; }
+  @media (max-width: 760px) { .dj-grid { grid-template-columns: 1fr; } }
+  .dj-panel { border: 1px solid var(--dj-line); border-radius: 10px; padding: 12px 14px; min-width: 0; }
+  .dj-title { font-size: 15px; font-weight: 600; margin-bottom: 4px; }
+  .dj-hint { font-size: 13px; color: var(--dj-muted); margin-bottom: 8px; line-height: 1.4; }
+
+  .dj-queue { list-style: none; padding: 0; font-size: 14px; position: relative; }
+  .dj-queue li {
+    position: relative; white-space: pre-line;
+    padding: 6px 40px 6px 10px; margin-bottom: 5px;
+    border-radius: 6px; border: 3px solid transparent;
+    background: var(--dj-q-bg); color: var(--dj-ink);
+  }
+  .dj-queue li.is-top { background: var(--dj-top-bg); color: var(--dj-top-ink); font-weight: 600; }
+  .dj-queue li.is-out {
+    background: var(--dj-n2); color: #fff;
+    text-decoration: line-through; text-decoration-color: #fca5a5;
+  }
+  .dj-queue li.is-out::after {
+    content: "\2715"; position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
+    color: #ff3b3b; font-size: 22px; font-weight: 900; line-height: 1;
+    text-shadow: 0 0 2px #fff, 0 0 2px #fff; pointer-events: none;
+  }
+  .dj-queue li.is-moving { z-index: 2; box-shadow: 0 4px 12px rgba(0, 0, 0, .18); }
+  .dj-queue li.is-flash { animation: dj-flash 1s ease-in-out; }
+  .dj-queue li.is-enter { animation: dj-enter .5s ease-out, dj-flash 1s ease-in-out; }
+  @keyframes dj-flash {
+    0% { border-color: transparent; }
+    25% { border-color: var(--dj-flash); }
+    70% { border-color: var(--dj-flash); }
+    100% { border-color: transparent; }
+  }
+  @keyframes dj-enter { from { opacity: 0; transform: translateX(-14px); } to { opacity: 1; transform: none; } }
+
+  .dj-msg { font-size: 15px; line-height: 1.45; background: var(--dj-msg-bg); border-radius: 8px; padding: 10px 12px; min-height: 56px; }
+  .dj-hist { font-size: 13px; color: var(--dj-muted); max-height: 190px; overflow: auto; margin-top: 8px; padding-left: 30px; }
+  .dj-result { font-size: 15px; margin-top: 8px; color: var(--dj-n2); font-weight: 600; min-height: 20px; }
+  :root[data-theme='dark'] .dj-result { color: #7cb8e6; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .dj-queue li.is-flash, .dj-queue li.is-enter { animation-duration: .01s; }
+  }
+</style>
+
+<script>
+  // Umami è caricato globalmente da Head.astro: si usa window.umami con un guard.
+  function trackEvent(name: string, data: Record<string, unknown>): void {
+    const w = window as unknown as { umami?: { track: (n: string, d: Record<string, unknown>) => void } };
+    if (w.umami) w.umami.track(name, data);
+  }
+
+  type Lang = 'it' | 'en';
+  type Pt = [number, number];
+
+  // --------------------------------------------------------------------------
+  //  Grafo (fisso)
+  // --------------------------------------------------------------------------
+  const NODES: Record<string, Pt> = {
+    S: [70, 200], A: [240, 70], B: [430, 70], C: [630, 70], D: [240, 200],
+    E: [430, 200], F: [630, 200], G: [430, 350], H: [810, 200], T: [965, 200],
+  };
+  const EDGES: Array<[string, string, number]> = [
+    ['S', 'A', 4], ['S', 'D', 6], ['S', 'G', 10], ['A', 'B', 4], ['B', 'C', 8],
+    ['B', 'E', 1], ['D', 'E', 6], ['D', 'F', 9], ['E', 'F', 3], ['G', 'F', 8],
+    ['C', 'H', 5], ['F', 'H', 2], ['H', 'T', 3],
+  ];
+  const NAMES = Object.keys(NODES);
+  const R = 48;
+  const SVGNS = 'http://www.w3.org/2000/svg';
+  const BASE_MS = 1700;
+
+  // Angolo, visto dal nodo "to", della direzione verso il nodo "from"
+  function angleFrom(from: string, to: string): number {
+    return Math.atan2(NODES[from][1] - NODES[to][1], NODES[from][0] - NODES[to][0]);
+  }
+  // D→F arriva sul bordo di F a metà fra le frecce E→F e G→F, con una curva
+  // ampia che passa lontano da E; l'etichetta sta sotto l'arco.
+  const END_ANGLE: Record<string, number> = { 'D>F': (angleFrom('E', 'F') + angleFrom('G', 'F')) / 2 };
+  const BEND: Record<string, number> = { 'D>F': 120 };
+
+  // --------------------------------------------------------------------------
+  //  Testi
+  // --------------------------------------------------------------------------
+  const fmt = (d: number): string => (d === Infinity ? '∞' : String(d));
+  const TXT = {
+    it: {
+      start: "Inizio. S ha costo da S uguale a 0. Tutti gli altri nodi valgono infinito, cioè non sono ancora stati raggiunti. In coda c'è solo S.",
+      extract: (x: string, c: number, hasNext: boolean) =>
+        `Estraggo ${x}: è il nodo con il costo da S più basso in coda (${c}). Il suo costo diventa definitivo.` +
+        (hasNext ? ' Analizzo i suoi nodi successivi.' : ''),
+      already: (x: string, v: string) => `${x}→${v}: ${v} è già definitivo, non si tocca.`,
+      first: (x: string, v: string, dx: number, w: number, c: number) =>
+        `${x}→${v}: costo da S ${dx} + ${w} = ${c}, primo arrivo a ${v}. Ora ${v} ha costo da S ${c}, passando da ${x}.`,
+      better: (x: string, v: string, dx: number, w: number, c: number, old: number) =>
+        `${x}→${v}: costo da S ${dx} + ${w} = ${c}, meglio di ${old}, quindi si sovrascrive. Ora ${v} ha costo da S ${c}, passando da ${x}.`,
+      worse: (x: string, v: string, dx: number, w: number, c: number, dv: number) =>
+        `${x}→${v}: costo da S ${dx} + ${w} = ${c}, ma ${v} ha già ${dv}. Non cambia nulla.`,
+      end: 'Coda esaurita: tutti i nodi raggiungibili hanno costo da S definitivo. Il percorso si ricostruisce a partire da T andando a ritroso, seguendo le informazioni "passando da" fino al nodo S.',
+      path: (p: string, c: number) => `Percorso: ${p}, ${c} minuti.`,
+      counter: (i: number, n: number) => `Passo ${i} di ${n}`,
+      cost: (d: number) => `costo da S: ${fmt(d)}`,
+      via: (p: string | null) => `passando da ${p ?? '—'}`,
+      item: (n: string, d: number, p: string | null) => `${n}: costo ${d} da S, ${p ? 'predecessore ' + p : 'punto di partenza'}`,
+      out: '(estratto, definitivo)',
+      top: '  ← il primo della coda dinamica viene estratto',
+    },
+    en: {
+      start: 'Start. S has cost from S equal to 0. Every other node is worth infinity, i.e. it has not been reached yet. Only S is in the queue.',
+      extract: (x: string, c: number, hasNext: boolean) =>
+        `I extract ${x}: it is the node with the lowest cost from S in the queue (${c}). Its cost becomes final.` +
+        (hasNext ? ' I analyse its successor nodes.' : ''),
+      already: (x: string, v: string) => `${x}→${v}: ${v} is already final, it is left untouched.`,
+      first: (x: string, v: string, dx: number, w: number, c: number) =>
+        `${x}→${v}: cost from S ${dx} + ${w} = ${c}, first arrival at ${v}. Now ${v} has cost from S ${c}, via ${x}.`,
+      better: (x: string, v: string, dx: number, w: number, c: number, old: number) =>
+        `${x}→${v}: cost from S ${dx} + ${w} = ${c}, better than ${old}, so it is overwritten. Now ${v} has cost from S ${c}, via ${x}.`,
+      worse: (x: string, v: string, dx: number, w: number, c: number, dv: number) =>
+        `${x}→${v}: cost from S ${dx} + ${w} = ${c}, but ${v} already has ${dv}. Nothing changes.`,
+      end: 'Queue exhausted: every reachable node has a final cost from S. The path is rebuilt starting from T and going backwards, following the "via" information back to node S.',
+      path: (p: string, c: number) => `Path: ${p}, ${c} minutes.`,
+      counter: (i: number, n: number) => `Step ${i} of ${n}`,
+      cost: (d: number) => `cost from S: ${fmt(d)}`,
+      via: (p: string | null) => `via ${p ?? '—'}`,
+      item: (n: string, d: number, p: string | null) => `${n}: cost ${d} from S, ${p ? 'predecessor ' + p : 'starting point'}`,
+      out: '(extracted, final)',
+      top: '  ← the head of the dynamic queue is extracted',
+    },
+  };
+
+  // --------------------------------------------------------------------------
+  //  Passi dell'algoritmo (calcolati una volta)
+  // --------------------------------------------------------------------------
+  interface Step {
+    msg: string;
+    dist: Record<string, number>;
+    pred: Record<string, string | null>;
+    state: Record<string, 0 | 1 | 2>; // 0 non raggiunto, 1 in coda, 2 definitivo
+    queue: string[]; // in coda, ordinati per costo da S
+    done: string[]; // usciti, nell'ordine di uscita
+    cur: string | null;
+    edge: [string, string] | null;
+    end: boolean;
+  }
+
+  function buildSteps(L: (typeof TXT)[Lang]): Step[] {
+    const out: Record<string, Array<[string, number]>> = {};
+    NAMES.forEach((n) => (out[n] = []));
+    EDGES.forEach(([a, b, w]) => out[a].push([b, w]));
+
+    const dist: Record<string, number> = {};
+    const pred: Record<string, string | null> = {};
+    const state: Record<string, 0 | 1 | 2> = {};
+    let queue: string[] = ['S'];
+    const done: string[] = [];
+    NAMES.forEach((n) => { dist[n] = Infinity; pred[n] = null; state[n] = 0; });
+    dist.S = 0; state.S = 1;
+
+    const sorted = (q: string[]) => [...q].sort((a, b) => dist[a] - dist[b] || (a < b ? -1 : 1));
+    const steps: Step[] = [];
+    const snap = (msg: string, cur: string | null = null, edge: [string, string] | null = null, end = false) => {
+      steps.push({ msg, dist: { ...dist }, pred: { ...pred }, state: { ...state }, queue: sorted(queue), done: [...done], cur, edge, end });
+    };
+
+    snap(L.start);
+    while (queue.length) {
+      queue = sorted(queue);
+      const x = queue.shift() as string;
+      state[x] = 2;
+      done.push(x);
+      snap(L.extract(x, dist[x], out[x].length > 0), x);
+      for (const [v, w] of out[x]) {
+        if (state[v] === 2) { snap(L.already(x, v), x, [x, v]); continue; }
+        const c = dist[x] + w;
+        if (c < dist[v]) {
+          const old = dist[v];
+          dist[v] = c;
+          pred[v] = x;
+          if (state[v] === 0) { state[v] = 1; queue.push(v); }
+          snap(old === Infinity ? L.first(x, v, dist[x], w, c) : L.better(x, v, dist[x], w, c, old), x, [x, v]);
+        } else {
+          snap(L.worse(x, v, dist[x], w, c, dist[v]), x, [x, v]);
+        }
+      }
+    }
+    snap(L.end, null, null, true);
+    return steps;
+  }
+
+  function pathOf(pred: Record<string, string | null>): string[] {
+    const p = ['T'];
+    let c = 'T';
+    while (pred[c]) { c = pred[c] as string; p.unshift(c); }
+    return p;
+  }
+
+  // --------------------------------------------------------------------------
+  //  Disegno del grafo
+  // --------------------------------------------------------------------------
+  function svgEl<K extends keyof SVGElementTagNameMap>(tag: K, attrs: Record<string, string | number>, parent: Element): SVGElementTagNameMap[K] {
+    const e = document.createElementNS(SVGNS, tag);
+    for (const k in attrs) e.setAttribute(k, String(attrs[k]));
+    parent.appendChild(e);
+    return e;
+  }
+
+  interface NodeEls { g: SVGGElement; cost: SVGTextElement; via: SVGTextElement; }
+  interface EdgeEls { a: string; b: string; path: SVGPathElement; }
+
+  function drawGraph(svg: SVGSVGElement, uid: string): { nodes: Record<string, NodeEls>; edges: EdgeEls[] } {
+    const defs = svgEl('defs', {}, svg);
+    [['arr', 'dj-arrow'], ['arrHot', 'dj-arrow-hot']].forEach(([id, cls]) => {
+      const m = svgEl('marker', { id: uid + id, viewBox: '0 0 10 10', refX: 9, refY: 5, markerWidth: 7, markerHeight: 7, orient: 'auto-start-reverse' }, defs);
+      svgEl('path', { d: 'M0,0 L10,5 L0,10 z', class: cls }, m);
+    });
+
+    const edges: EdgeEls[] = EDGES.map(([a, b, w]) => {
+      const key = a + '>' + b;
+      const [x1, y1] = NODES[a];
+      const [x2, y2] = NODES[b];
+      const L = Math.hypot(x2 - x1, y2 - y1);
+      const ux = (x2 - x1) / L, uy = (y2 - y1) / L;
+      const sx = x1 + ux * R, sy = y1 + uy * R;
+      let ex = x2 - ux * (R + 4), ey = y2 - uy * (R + 4);
+      if (key in END_ANGLE) {
+        ex = x2 + (R + 4) * Math.cos(END_ANGLE[key]);
+        ey = y2 + (R + 4) * Math.sin(END_ANGLE[key]);
+      }
+      // normale alla corda: con l'asse y verso il basso punta "sotto" per archi verso destra
+      const cL = Math.hypot(ex - sx, ey - sy);
+      const nx = -(ey - sy) / cL, ny = (ex - sx) / cL;
+      const bend = BEND[key] ?? 0;
+      const mx = (sx + ex) / 2, my = (sy + ey) / 2;
+      const path = svgEl('path', {
+        d: `M${sx},${sy} Q${mx + nx * bend},${my + ny * bend} ${ex},${ey}`,
+        class: 'dj-edge', 'marker-end': `url(#${uid}arr)`,
+      }, svg);
+      const off = bend / 2 + 16;
+      const label = svgEl('text', { x: mx + nx * off, y: my + ny * off, 'text-anchor': 'middle', 'dominant-baseline': 'middle', class: 'dj-weight' }, svg);
+      label.textContent = String(w);
+      return { a, b, path };
+    });
+
+    const nodes: Record<string, NodeEls> = {};
+    NAMES.forEach((n) => {
+      const [x, y] = NODES[n];
+      const g = svgEl('g', { class: 'dj-node s0' }, svg);
+      svgEl('circle', { cx: x, cy: y, r: R }, g);
+      const name = svgEl('text', { x, y: y - 18, 'text-anchor': 'middle', class: 'dj-name' }, g);
+      name.textContent = n;
+      const cost = svgEl('text', { x, y: y + 1, 'text-anchor': 'middle', class: 'dj-line' }, g);
+      const via = svgEl('text', { x, y: y + 17, 'text-anchor': 'middle', class: 'dj-line' }, g);
+      nodes[n] = { g, cost, via };
+    });
+    return { nodes, edges };
+  }
+
+  // --------------------------------------------------------------------------
+  //  Istanza del componente
+  // --------------------------------------------------------------------------
+  function init(root: HTMLElement, k: number): void {
+    const lang: Lang = root.dataset.lang === 'en' ? 'en' : 'it';
+    const L = TXT[lang];
+    const q = <T extends Element>(sel: string) => root.querySelector(sel) as T;
+    const svg = q<SVGSVGElement>('.dj-svg');
+    const btnRestart = q<HTMLButtonElement>('.dj-restart');
+    const btnBack = q<HTMLButtonElement>('.dj-back');
+    const btnNext = q<HTMLButtonElement>('.dj-next');
+    const btnPlay = q<HTMLButtonElement>('.dj-play');
+    const speed = q<HTMLInputElement>('.dj-speed');
+    const speedVal = q<HTMLElement>('.dj-speed-val');
+    const counter = q<HTMLElement>('.dj-counter');
+    const msg = q<HTMLElement>('.dj-msg');
+    const hist = q<HTMLOListElement>('.dj-hist');
+    const result = q<HTMLElement>('.dj-result');
+    const ul = q<HTMLUListElement>('.dj-queue');
+
+    const steps = buildSteps(L);
+    const { nodes, edges } = drawGraph(svg, `dj${k}-`);
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    let idx = 0;
+    let timer: number | null = null;
+    let lastShown: Step | null = null;
+    const items: Record<string, HTMLLIElement> = {};
+    const tracked = new Set<string>();
+
+    const track = (azione: string) => {
+      if (tracked.has(azione)) return;
+      tracked.add(azione);
+      trackEvent('simulatore-dijkstra', { azione, lingua: lang });
+    };
+
+    const retrigger = (li: HTMLElement, cls: string) => {
+      li.classList.remove('is-flash', 'is-enter');
+      void li.offsetWidth; // riavvia l'animazione CSS
+      li.classList.add(cls);
+    };
+
+    function renderQueue(s: Step, prev: Step | null): void {
+      const before: Record<string, number> = {};
+      for (const n in items) before[n] = items[n].getBoundingClientRect().top;
+
+      const order = [...s.done, ...s.queue];
+      for (const n in items) {
+        if (!order.includes(n)) { items[n].remove(); delete items[n]; }
+      }
+
+      const firstActive = s.queue[0];
+      order.forEach((n, pos) => {
+        let li = items[n];
+        const isNew = !li;
+        if (!li) {
+          li = document.createElement('li');
+          li.addEventListener('animationend', (ev) => {
+            if (ev.animationName === 'dj-flash') li.classList.remove('is-flash', 'is-enter');
+          });
+          items[n] = li;
+        }
+        // si sposta l'elemento solo se non è già al suo posto: reinserire un nodo
+        // nel DOM riavvierebbe le animazioni CSS in corso (lampeggi spuri)
+        const at = ul.children[pos];
+        if (at !== li) ul.insertBefore(li, at ?? null);
+        const isOut = s.state[n] === 2;
+        const isTop = !isOut && n === firstActive;
+        li.classList.toggle('is-out', isOut);
+        li.classList.toggle('is-top', isTop);
+        li.textContent = L.item(n, s.dist[n], s.pred[n]) + (isOut ? '\n' + L.out : '') + (isTop ? L.top : '');
+        const changed = prev !== null && (prev.dist[n] !== s.dist[n] || prev.pred[n] !== s.pred[n]);
+        if (isNew && prev) retrigger(li, 'is-enter');
+        else if (changed) retrigger(li, 'is-flash');
+        else if (isNew) li.classList.remove('is-flash', 'is-enter');
+      });
+
+      if (reduceMotion) return;
+      // FLIP: ogni voce che ha cambiato posto scivola dalla vecchia alla nuova posizione
+      order.forEach((n) => {
+        if (!(n in before)) return;
+        const li = items[n];
+        const dy = before[n] - li.getBoundingClientRect().top;
+        if (Math.abs(dy) < 1) return;
+        li.classList.add('is-moving');
+        li.style.transition = 'none';
+        li.style.transform = `translateY(${dy}px)`;
+        void li.getBoundingClientRect();
+        li.style.transition = 'transform .8s ease-in-out';
+        li.style.transform = '';
+        const anyLi = li as HTMLLIElement & { _djT?: number };
+        window.clearTimeout(anyLi._djT);
+        anyLi._djT = window.setTimeout(() => { li.classList.remove('is-moving'); li.style.transition = ''; }, 850);
+      });
+    }
+
+    function render(i: number): void {
+      const s = steps[i];
+      NAMES.forEach((n) => {
+        const e = nodes[n];
+        e.g.setAttribute('class', `dj-node s${s.state[n]}` + (s.cur === n ? ' is-cur' : ''));
+        e.cost.textContent = L.cost(s.dist[n]);
+        e.via.textContent = L.via(s.pred[n]);
+      });
+      edges.forEach((ed) => {
+        const hot = s.edge !== null && s.edge[0] === ed.a && s.edge[1] === ed.b;
+        ed.path.classList.toggle('is-hot', hot);
+        ed.path.setAttribute('marker-end', `url(#dj${k}-${hot ? 'arrHot' : 'arr'})`);
+      });
+
+      counter.textContent = L.counter(i + 1, steps.length);
+      msg.textContent = s.msg;
+      renderQueue(s, lastShown);
+      lastShown = s;
+
+      hist.replaceChildren(...steps.slice(0, i).map((x) => {
+        const li = document.createElement('li');
+        li.textContent = x.msg;
+        return li;
+      }));
+      hist.scrollTop = hist.scrollHeight;
+
+      result.textContent = s.end ? L.path(pathOf(s.pred).join(' → '), s.dist.T) : '';
+      btnBack.disabled = i === 0;
+      btnNext.disabled = i === steps.length - 1;
+      if (s.end) track('completato');
+    }
+
+    const go = (i: number) => { idx = Math.max(0, Math.min(steps.length - 1, i)); render(idx); };
+    const interval = () => BASE_MS / Number(speed.value);
+
+    function stop(): void {
+      if (timer !== null) window.clearTimeout(timer);
+      timer = null;
+      btnPlay.textContent = root.dataset.play ?? '';
+      btnPlay.classList.remove('is-on');
+    }
+    function tick(): void {
+      if (idx >= steps.length - 1) { stop(); return; }
+      go(idx + 1);
+      timer = window.setTimeout(tick, interval());
+    }
+    function play(): void {
+      if (idx >= steps.length - 1) go(0);
+      btnPlay.textContent = root.dataset.pause ?? '';
+      btnPlay.classList.add('is-on');
+      track('avvia');
+      timer = window.setTimeout(tick, interval());
+    }
+
+    btnRestart.addEventListener('click', () => { stop(); go(0); });
+    btnBack.addEventListener('click', () => { stop(); go(idx - 1); });
+    btnNext.addEventListener('click', () => { stop(); track('passo'); go(idx + 1); });
+    btnPlay.addEventListener('click', () => { if (timer !== null) stop(); else play(); });
+    speed.addEventListener('input', () => { speedVal.textContent = Number(speed.value).toFixed(2) + '×'; });
+    // frecce della tastiera solo quando il componente ha il focus
+    root.addEventListener('keydown', (ev) => {
+      if (ev.key === 'ArrowRight') { ev.preventDefault(); stop(); go(idx + 1); }
+      else if (ev.key === 'ArrowLeft') { ev.preventDefault(); stop(); go(idx - 1); }
+    });
+
+    go(0);
+  }
+
+  document.querySelectorAll<HTMLElement>('.dj').forEach((root, k) => init(root, k));
+</script>

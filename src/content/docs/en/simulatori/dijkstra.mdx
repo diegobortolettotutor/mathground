@@ -1,0 +1,185 @@
+---
+title: Dijkstra's Algorithm
+description: Step-by-step simulator of Dijkstra's shortest path algorithm, with cost from S, predecessors and an animated priority queue.
+sidebar:
+  hidden: false
+  label: Dijkstra's Algorithm
+  order: 9
+tableOfContents: false
+---
+
+import SimulatoreDijkstra from '@components/SimulatoreDijkstra.astro';
+
+On a directed graph the numbers on the edges are travel times in minutes. The problem is to
+find the path from S to T that takes the least time. The algorithm does not know the shape
+of the network in advance: at the start it only sees S and its outgoing edges, and it
+discovers the other nodes as it reaches them. There is no need, however, to try every
+possible path: each edge is examined exactly once, and at the end the shortest path is
+certain.
+
+<SimulatoreDijkstra />
+
+## What each node stores
+
+A graph drawn with nodes and edges alone is not enough to follow the algorithm. Each node
+carries a **label** with three fields, like the fields of an object:
+
+- **cost from S**: the lowest cost known so far to reach the node starting from S. At the
+  start it is $0$ for S and $\infty$ for every other node;
+- **via**: the previous node along the path that achieves that cost, i.e. the
+  **predecessor**;
+- **state**: not reached yet, tentative (the node is in the queue) or final.
+
+Cost and predecessor are overwritten every time a cheaper path is found. Once the node
+becomes final, the two values no longer change.
+
+## The priority queue
+
+The **priority queue** is a single list holding the nodes that have been discovered but are
+not final yet, sorted by increasing cost from S. Each node appears only once. The value used
+for sorting is the **total** cost from S, not the weight of a single edge: a node reached
+from A through an edge of weight 4 enters the queue with cost $4 + 4 = 8$, because A itself
+costs 4.
+
+At every step the first element is removed, i.e. the node with the lowest cost from S. No
+path is followed to its end: after removing A and discovering B at cost 8, the next node is
+D, which costs 6. The other neighbours of S are not "pending branches" to be exhausted in a
+fixed order, but plain elements of the list, which leave when their cost is the lowest.
+
+## The procedure
+
+1. S is inserted into the queue with cost from S equal to $0$.
+2. While the queue is not empty, the node $x$ with the lowest cost from S is removed and
+   marked as final.
+3. For every edge $x \to v$ of weight $w$, the value $c = d(x) + w$ is computed, where
+   $d(x)$ is the cost from S of $x$:
+    - if $v$ is already final, nothing is done;
+    - if $v$ is not in the queue yet, it is inserted with cost $c$ and predecessor $x$;
+    - if $v$ is in the queue with a cost greater than $c$, cost and predecessor are updated
+      and $v$ is moved to its new position in the queue;
+    - otherwise nothing is done.
+4. The procedure goes back to step 2.
+
+Step 3 is called edge **relaxation** and boils down to a single rule:
+
+$$
+d(v) \leftarrow \min\big(d(v),\; d(x) + w(x, v)\big)
+$$
+
+In the simulator it can be seen at the step where the edge B→E is examined: the cost of E
+drops from 12 to 9 and the entry of E moves up the queue, overtaking G.
+
+## Why a final cost never changes
+
+Suppose node $x$ leaves the queue with cost from S equal to $d(x)$, and consider any other
+path $P$ from S to $x$. Since S is final and $x$ is not yet, $P$ must leave the set of final
+nodes at some point: let $y$ be the first non-final node along $P$.
+
+- The node preceding $y$ along $P$ is final, so its edge to $y$ has already been relaxed:
+  $d(y)$ does not exceed the cost of the part of $P$ from S to $y$.
+- $x$ left the queue first, so $d(y) \ge d(x)$.
+- The part of $P$ from $y$ to $x$ has a cost greater than or equal to zero, because no edge
+  has a negative weight.
+
+Putting the three inequalities together:
+
+$$
+\text{cost}(P) \;\ge\; d(y) + \text{cost}(P_{y \to x}) \;\ge\; d(x)
+$$
+
+No path can therefore cost less than $d(x)$, and the value found is final.
+
+:::caution[Negative weights]
+The proof relies on the third point. With edges S→A of weight 2, S→B of weight 3 and B→A of
+weight $-2$, A leaves first with cost 2 and becomes final; the path S→B→A, however, would
+cost $3 - 2 = 1$. For graphs with negative weights the Bellman-Ford algorithm is used, which
+does not make any node final before the end.
+:::
+
+## Rebuilding the path
+
+At the end every node has a final label:
+
+| Node | S | A | D | B | E | G | F | H | C | T |
+|---|---|---|---|---|---|---|---|---|---|---|
+| Cost from S | 0 | 4 | 6 | 8 | 9 | 10 | 12 | 14 | 16 | 17 |
+| Via | — | S | S | A | B | S | E | F | B | H |
+
+The path is read backwards starting from T, following the predecessors: T comes from H,
+H from F, F from E, E from B, B from A, A from S. Read in the right direction, the path is
+S → A → B → E → F → H → T, for a total of 17 minutes.
+
+:::tip[Worth noticing]
+The three "lane" paths cost 24 minutes (S-A-B-C-H-T), 20 minutes (S-D-E-F-H-T) and
+23 minutes (S-G-F-H-T). The shortest one is a mixed path: it follows the upper lane as far
+as B and switches to the middle lane through the 1-minute edge B→E. It is easy to miss at
+a glance, while the algorithm finds it without any overall view of the network.
+:::
+
+## Adjacency matrix and adjacency list
+
+For a program the graph is a data structure. In the **adjacency matrix** the row is the
+starting node, the column is the arrival node, and the cell holds the weight of the edge, or
+a dash if the edge does not exist:
+
+| | S | A | B | C | D | E | F | G | H | T |
+|---|---|---|---|---|---|---|---|---|---|---|
+| **S** | – | 4 | – | – | 6 | – | – | 10 | – | – |
+| **A** | – | – | 4 | – | – | – | – | – | – | – |
+| **B** | – | – | – | 8 | – | 1 | – | – | – | – |
+| **C** | – | – | – | – | – | – | – | – | 5 | – |
+| **D** | – | – | – | – | – | 6 | 9 | – | – | – |
+| **E** | – | – | – | – | – | – | 3 | – | – | – |
+| **F** | – | – | – | – | – | – | – | – | 2 | – |
+| **G** | – | – | – | – | – | – | 8 | – | – | – |
+| **H** | – | – | – | – | – | – | – | – | – | 3 |
+| **T** | – | – | – | – | – | – | – | – | – | – |
+
+When a node becomes final, its outgoing edges are read on its row. The matrix, however, takes
+up $n^2$ cells even when there are few edges: here 13 cells out of 100 are filled. This is
+why the **adjacency list** is often preferred: for each node it keeps only the neighbours
+with their weights, and it takes up memory proportional to the number of edges:
+
+| Node | Neighbours (weight) |
+|---|---|
+| S | A (4), D (6), G (10) |
+| A | B (4) |
+| B | C (8), E (1) |
+| C | H (5) |
+| D | E (6), F (9) |
+| E | F (3) |
+| F | H (2) |
+| G | F (8) |
+| H | T (3) |
+| T | none |
+
+Matrix and list describe the graph; the priority queue, instead, holds the tentative costs
+that change while the algorithm runs.
+
+## Computational cost
+
+With $n$ nodes and $m$ edges, the original version of the algorithm uses no queue: at every
+step it scans all non-final nodes to find the one with the lowest cost, and it takes time
+proportional to $n^2$. With a priority queue implemented as a **binary heap** (a binary tree
+that always keeps the smallest element at the top) the time drops to
+$O\big((m + n)\log n\big)$, a large gain on big networks with few edges per node. In 1984
+Fredman and Tarjan proposed the Fibonacci heap, which brings the time down to
+$O(m + n \log n)$.
+
+## A bit of history
+
+The algorithm was devised in 1956 by Edsger W. Dijkstra, then a programmer at the
+Mathematisch Centrum in Amsterdam. He was looking for a problem that people unfamiliar with
+computers could understand, in order to show what the new ARMAC computer could do, and he
+chose the shortest route between two Dutch cities. In a 2001 interview he recalled working
+it out in about twenty minutes, sitting on a café terrace during a morning of shopping with
+his fiancée, without pencil or paper. He published it three years later, in 1959, in the
+paper *A note on two problems in connexion with graphs* in the journal
+*Numerische Mathematik*.
+
+Today the algorithm, or one of its variants, underlies route planning in navigation systems
+and network routing protocols such as OSPF (*Open Shortest Path First*), which decides which
+routers the data travels through.
+
+Sources: [interview with Edsger W. Dijkstra, Communications of the ACM](https://cacm.acm.org/news/an-interview-with-edsger-w-dijkstra);
+[Quanta Magazine, 2024](https://www.quantamagazine.org/computer-scientists-establish-the-best-way-to-traverse-a-graph-20241025/).

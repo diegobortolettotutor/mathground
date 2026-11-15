@@ -1,0 +1,186 @@
+---
+title: Algoritmo di Dijkstra
+description: Simulatore passo per passo dell'algoritmo di Dijkstra per il cammino minimo, con costo da S, predecessori e coda con priorità animata.
+sidebar:
+  hidden: false
+  label: Algoritmo di Dijkstra
+  order: 9
+tableOfContents: false
+---
+
+import SimulatoreDijkstra from '@components/SimulatoreDijkstra.astro';
+
+Su un grafo orientato i numeri sugli archi rappresentano i minuti di percorrenza. Il problema
+è trovare il percorso da S a T che richiede meno tempo. L'algoritmo non conosce in anticipo
+la forma della rete: all'inizio vede solo S e i suoi archi uscenti, e scopre gli altri nodi
+man mano che li raggiunge. Non serve però provare tutti i percorsi possibili: ogni arco viene
+esaminato una sola volta, e alla fine il percorso più breve è certo.
+
+<SimulatoreDijkstra />
+
+## Che cosa memorizza ogni nodo
+
+Un grafo disegnato con soli nodi e archi non basta a seguire l'algoritmo. Ogni nodo porta
+con sé un'**etichetta** con tre campi, come i campi di un oggetto:
+
+- **costo da S**: il costo minimo finora noto per arrivare al nodo partendo da S. All'inizio
+  vale $0$ per S e $\infty$ per tutti gli altri nodi;
+- **passando da**: il nodo precedente lungo il percorso che realizza quel costo, cioè il
+  **predecessore**;
+- **stato**: non ancora raggiunto, provvisorio (il nodo è in coda) oppure definitivo.
+
+Costo e predecessore vengono sovrascritti ogni volta che si trova un percorso più economico.
+Quando il nodo diventa definitivo, i due valori non cambiano più.
+
+## La coda con priorità
+
+La **coda con priorità** è un'unica lista che contiene i nodi già scoperti ma non ancora
+definitivi, ordinati per costo da S crescente. Ogni nodo compare una sola volta. Il valore
+usato per l'ordinamento è il costo **totale** da S, non il peso del singolo arco: un nodo
+raggiunto da A attraverso un arco di peso 4 entra in coda con costo $4 + 4 = 8$, perché A
+costa a sua volta 4.
+
+A ogni passo si estrae il primo elemento, cioè il nodo con il costo da S più basso. Non si
+segue una strada fino in fondo: dopo aver estratto A e scoperto B a costo 8, il nodo
+successivo è D, che costa 6. Gli altri vicini di S non sono "rami in sospeso" da esaurire in
+un ordine prestabilito, ma semplici elementi della lista, che escono quando il loro costo è
+il più basso.
+
+## Il procedimento
+
+1. Si inserisce S in coda con costo da S uguale a $0$.
+2. Finché la coda non è vuota, si estrae il nodo $x$ con il costo da S più basso e lo si
+   segna come definitivo.
+3. Per ogni arco $x \to v$ di peso $w$ si calcola $c = d(x) + w$, dove $d(x)$ è il costo
+   da S di $x$:
+    - se $v$ è già definitivo, non si fa nulla;
+    - se $v$ non è ancora in coda, lo si inserisce con costo $c$ e predecessore $x$;
+    - se $v$ è in coda con un costo maggiore di $c$, si aggiornano costo e predecessore e
+      lo si riposiziona nella coda;
+    - altrimenti non si fa nulla.
+4. Si torna al punto 2.
+
+Il punto 3 si chiama **rilassamento** dell'arco e si riassume in una sola regola:
+
+$$
+d(v) \leftarrow \min\big(d(v),\; d(x) + w(x, v)\big)
+$$
+
+Nel simulatore lo si osserva al passo in cui si esamina l'arco B→E: il costo di E scende
+da 12 a 9 e la voce di E sale nella coda, superando G.
+
+## Perché un costo definitivo non cambia più
+
+Si supponga che il nodo $x$ esca dalla coda con costo da S pari a $d(x)$, e si consideri
+un qualsiasi altro percorso $P$ da S a $x$. Poiché S è definitivo e $x$ non lo è ancora,
+$P$ deve uscire a un certo punto dall'insieme dei nodi definitivi: sia $y$ il primo nodo non
+definitivo lungo $P$.
+
+- Il nodo che precede $y$ lungo $P$ è definitivo, quindi il suo arco verso $y$ è già stato
+  rilassato: $d(y)$ non supera il costo del tratto di $P$ da S a $y$.
+- $x$ è uscito per primo dalla coda, quindi $d(y) \ge d(x)$.
+- Il tratto di $P$ da $y$ a $x$ ha costo maggiore o uguale a zero, perché nessun arco ha
+  peso negativo.
+
+Mettendo insieme le tre disuguaglianze:
+
+$$
+\text{costo}(P) \;\ge\; d(y) + \text{costo}(P_{y \to x}) \;\ge\; d(x)
+$$
+
+Nessun percorso può quindi costare meno di $d(x)$, e il valore trovato è definitivo.
+
+:::caution[Pesi negativi]
+La dimostrazione si regge sul terzo punto. Con archi S→A di peso 2, S→B di peso 3 e B→A di
+peso $-2$, A esce per primo con costo 2 e diventa definitivo; il percorso S→B→A costerebbe
+però $3 - 2 = 1$. Per i grafi con pesi negativi si usa l'algoritmo di Bellman-Ford, che non
+rende definitivo alcun nodo prima della fine.
+:::
+
+## Ricostruire il percorso
+
+Al termine ogni nodo ha un'etichetta definitiva:
+
+| Nodo | S | A | D | B | E | G | F | H | C | T |
+|---|---|---|---|---|---|---|---|---|---|---|
+| Costo da S | 0 | 4 | 6 | 8 | 9 | 10 | 12 | 14 | 16 | 17 |
+| Passando da | — | S | S | A | B | S | E | F | B | H |
+
+Il percorso si legge a ritroso a partire da T, seguendo i predecessori: T viene da H, H da F,
+F da E, E da B, B da A, A da S. Letto nel verso giusto, il percorso è
+S → A → B → E → F → H → T, per un totale di 17 minuti.
+
+:::tip[Da osservare]
+I tre percorsi "di corsia" costano 24 minuti (S-A-B-C-H-T), 20 minuti (S-D-E-F-H-T) e
+23 minuti (S-G-F-H-T). Il più breve è un percorso misto: segue la corsia superiore fino a
+B e passa a quella centrale attraverso l'arco B→E da 1 minuto. A colpo d'occhio è facile
+non notarlo, mentre l'algoritmo lo trova senza alcuna visione d'insieme.
+:::
+
+## Matrice e lista di adiacenza
+
+Per un programma il grafo è una struttura dati. Nella **matrice di adiacenza** la riga
+indica il nodo di partenza, la colonna il nodo di arrivo, e la cella contiene il peso
+dell'arco oppure un trattino se l'arco non esiste:
+
+| | S | A | B | C | D | E | F | G | H | T |
+|---|---|---|---|---|---|---|---|---|---|---|
+| **S** | – | 4 | – | – | 6 | – | – | 10 | – | – |
+| **A** | – | – | 4 | – | – | – | – | – | – | – |
+| **B** | – | – | – | 8 | – | 1 | – | – | – | – |
+| **C** | – | – | – | – | – | – | – | – | 5 | – |
+| **D** | – | – | – | – | – | 6 | 9 | – | – | – |
+| **E** | – | – | – | – | – | – | 3 | – | – | – |
+| **F** | – | – | – | – | – | – | – | – | 2 | – |
+| **G** | – | – | – | – | – | – | 8 | – | – | – |
+| **H** | – | – | – | – | – | – | – | – | – | 3 |
+| **T** | – | – | – | – | – | – | – | – | – | – |
+
+Quando un nodo diventa definitivo, i suoi archi uscenti si leggono sulla sua riga. La matrice
+occupa però $n^2$ celle anche quando gli archi sono pochi: qui 13 celle su 100 sono piene.
+Per questo si usa spesso la **lista di adiacenza**, che per ogni nodo conserva solo i vicini
+con il relativo peso, e occupa memoria proporzionale al numero di archi:
+
+| Nodo | Vicini (peso) |
+|---|---|
+| S | A (4), D (6), G (10) |
+| A | B (4) |
+| B | C (8), E (1) |
+| C | H (5) |
+| D | E (6), F (9) |
+| E | F (3) |
+| F | H (2) |
+| G | F (8) |
+| H | T (3) |
+| T | nessuno |
+
+Matrice e lista descrivono il grafo; la coda con priorità contiene invece i costi provvisori
+che cambiano durante l'esecuzione.
+
+## Costo computazionale
+
+Con $n$ nodi e $m$ archi, la versione originale dell'algoritmo non usa una coda: a ogni passo
+scorre tutti i nodi non definitivi per trovare quello di costo minimo, e richiede un tempo
+proporzionale a $n^2$. Con una coda con priorità realizzata come **heap binario** (un albero
+binario che mantiene sempre in cima l'elemento minimo) il tempo scende a
+$O\big((m + n)\log n\big)$, molto più vantaggioso sulle reti grandi e con pochi archi per
+nodo. Nel 1984 Fredman e Tarjan hanno proposto lo heap di Fibonacci, che porta il tempo a
+$O(m + n \log n)$.
+
+## Un po' di storia
+
+L'algoritmo è stato ideato nel 1956 da Edsger W. Dijkstra, allora programmatore al
+Mathematisch Centrum di Amsterdam. Cercava un problema comprensibile anche a chi non
+conosceva i calcolatori, per mostrare le capacità del nuovo elaboratore ARMAC, e scelse
+il percorso più breve fra due città olandesi. In un'intervista del 2001 ha raccontato di
+averlo concepito in una ventina di minuti, seduto sulla terrazza di un caffè durante una
+mattinata di spese con la fidanzata, senza carta né penna. Lo pubblicò tre anni dopo, nel
+1959, nell'articolo *A note on two problems in connexion with graphs* sulla rivista
+*Numerische Mathematik*.
+
+Oggi l'algoritmo, o una sua variante, è alla base del calcolo dei percorsi nei navigatori e
+dei protocolli di instradamento delle reti come OSPF (*Open Shortest Path First*, "apri per
+primo il cammino più breve"), che decide per quali router far passare i dati.
+
+Fonti: [intervista a Edsger W. Dijkstra, Communications of the ACM](https://cacm.acm.org/news/an-interview-with-edsger-w-dijkstra);
+[Quanta Magazine, 2024](https://www.quantamagazine.org/computer-scientists-establish-the-best-way-to-traverse-a-graph-20241025/).
