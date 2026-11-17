@@ -1,0 +1,99 @@
+---
+title: Bubble Sort
+description: Simulatore passo per passo di Bubble Sort (ordinamento a bolle), con confronti fra elementi vicini, scambi, passate e arresto anticipato.
+sidebar:
+  hidden: false
+  label: Bubble Sort
+  order: 10
+tableOfContents: false
+---
+
+import SimulatoreBubbleSort from '@components/SimulatoreBubbleSort.astro';
+
+Bubble Sort, in italiano *ordinamento a bolle*, ordina un elenco confrontando soltanto elementi
+vicini. Si scorre l'elenco da sinistra a destra e, ogni volta che due vicini sono nell'ordine
+sbagliato, li si scambia. Alla fine di ogni passata il valore più grande fra quelli non ancora
+sistemati è arrivato in fondo, come una bolla che sale in superficie: da qui il nome.
+
+Nel simulatore si possono inserire da 2 a 10 numeri interi fra 0 e 99, separati da virgole o
+spazi, oppure generarne di casuali. Quando il simulatore ha il focus, le frecce della tastiera
+spostano di un passo avanti o indietro.
+
+<SimulatoreBubbleSort />
+
+## Il procedimento
+
+Dato un elenco $a_0, a_1, \dots, a_{n-1}$ di $n$ elementi:
+
+1. si confrontano, da sinistra a destra, tutte le coppie di vicini $a_j, a_{j+1}$ della parte
+   da ordinare; se $a_j > a_{j+1}$, i due elementi si scambiano;
+2. alla fine della passata l'ultimo elemento della parte da ordinare è al suo posto, e la parte
+   da ordinare si accorcia di un elemento;
+3. se la passata non ha fatto scambi, l'elenco è già ordinato e l'algoritmo si ferma;
+   altrimenti si torna al punto 1.
+
+Bastano al più $n - 1$ passate: quando gli ultimi $n - 1$ elementi sono al loro posto, anche il
+primo lo è.
+
+## Perché il massimo arriva in fondo
+
+Durante una passata, il valore più grande incontrato fino a quel momento è sempre maggiore del
+vicino di destra, quindi viene scambiato e prosegue verso destra. Una volta raggiunto, il massimo
+della parte da ordinare non si ferma più fino all'ultima posizione. Nell'esempio iniziale lo si
+osserva nella prima passata: 73 viene trasportato verso destra finché non incontra 92, che da quel
+punto prosegue fino in fondo.
+
+## Quanti confronti e quanti scambi
+
+Nella passata $p$ si confrontano $n - p$ coppie. Nel caso peggiore servono tutte le $n - 1$
+passate, e i confronti sono
+
+$$
+(n-1) + (n-2) + \dots + 1 = \frac{n(n-1)}{2}
+$$
+
+cioè 21 con 7 elementi. Nel caso migliore, con l'elenco già ordinato, la prima passata non fa
+scambi e bastano $n - 1$ confronti.
+
+Il numero di scambi ha un significato preciso. Si chiama **inversione** una coppia di elementi,
+non necessariamente vicini, in cui il maggiore precede il minore. Lo scambio di due vicini cambia
+solo l'ordine fra loro due, quindi elimina esattamente un'inversione. Gli scambi sono perciò tanti
+quante le inversioni dell'elenco di partenza: da $0$ per un elenco già ordinato fino a
+$n(n-1)/2$ per un elenco in ordine decrescente.
+
+| Esempio | Inversioni | Passate | Confronti | Scambi |
+|---|---|---|---|---|
+| semplice: 41, 73, 17, 56, 8, 92, 29 | 11 | 5 | 20 | 11 |
+| avanzato: 96, 74, 81, 53, 38, 45, 19 | 19 | 6 | 21 | 19 |
+
+Nell'esempio semplice la quinta passata non fa scambi e l'algoritmo si ferma una passata prima
+del massimo. In ogni caso il numero di confronti cresce come $n^2$: raddoppiando la lunghezza
+dell'elenco, il lavoro nel caso peggiore circa quadruplica.
+
+:::tip[Da osservare]
+I valori grandi salgono in fretta, quelli piccoli scendono lentamente: un elemento piccolo si
+sposta verso sinistra di una sola posizione per passata. Nell'esempio avanzato 19 parte
+dall'ultima casella e raggiunge la prima solo nella sesta passata, e per questo servono tutte le
+passate possibili.
+:::
+
+## Proprietà
+
+- L'algoritmo lavora **in loco**: modifica l'elenco stesso e usa solo una variabile di appoggio
+  per lo scambio.
+- L'algoritmo è **stabile**: due elementi uguali mantengono l'ordine reciproco di partenza.
+  Lo scambio avviene solo se $a_j > a_{j+1}$, quindi due valori uguali non vengono mai scambiati.
+  La stabilità conta quando si ordinano dati con più campi: un elenco di studenti già in ordine
+  alfabetico, ordinato poi per voto con un algoritmo stabile, resta in ordine alfabetico fra chi
+  ha lo stesso voto.
+
+## Un po' di storia
+
+La prima descrizione nota dell'algoritmo si trova in un articolo del 1956 di Edward H. Friend sul
+*Journal of the ACM*, dove compare come ordinamento per scambio (*sorting by exchange*). Il nome
+*bubble sort* appare a stampa per la prima volta nel 1962, in un libro di Kenneth E. Iverson.
+Donald Knuth, in *The Art of Computer Programming*, ha concluso che l'algoritmo ha poco da
+raccomandarlo oltre al nome orecchiabile; resta però uno degli esempi più usati nell'insegnamento,
+perché è semplice da descrivere e da dimostrare corretto.
+
+Fonte: [Owen Astrachan, *Bubble Sort: An Archaeological Algorithmic Analysis*, SIGCSE 2003](https://users.cs.duke.edu/~ola/bubble/bubble.html).

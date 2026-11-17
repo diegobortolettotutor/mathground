@@ -1,0 +1,720 @@
+---
+// ============================================================================
+//  SimulatoreInsertionSort.astro
+//  Insertion Sort (ordinamento per inserimento) passo per passo su un elenco di
+//  2-10 interi fra 0 e 99: l'esempio della dispensa, numeri inseriti o casuali.
+//   - La chiave viene sollevata sopra la fila e lascia una casella vuota
+//   - Ogni passo è un confronto, con l'eventuale spostamento a destra di un
+//     elemento, oppure l'inserimento della chiave nella casella vuota
+//   - Verde: parte ordinata; arancione: chiave e spostamenti
+//  Gli elementi SVG sono creati a runtime con createElement: per questo lo
+//  stile è <style is:global>, con prefisso isort-.
+// ============================================================================
+const lang = Astro.url.pathname.startsWith('/en/') ? 'en' : 'it';
+
+const i18n = {
+  it: {
+    input: 'Numeri da ordinare',
+    inputAria: 'Numeri da ordinare: da 2 a 10 interi fra 0 e 99, separati da virgole o spazi',
+    use: 'Usa questi numeri',
+    random: 'Numeri casuali',
+    simple: 'Esempio semplice',
+    advanced: 'Esempio avanzato',
+    restart: 'Riavvia',
+    back: 'Indietro',
+    next: 'Avanti',
+    play: 'Avvia',
+    pause: 'Pausa',
+    speed: 'velocità',
+    counters: 'Contatori',
+    aria: 'Elenco da ordinare con Insertion Sort',
+    lgOrd: 'parte ordinata',
+    lgNorm: 'parte da ordinare',
+    lgKey: 'chiave',
+    lgEmpty: 'casella vuota',
+    cPass: 'Passata',
+    cCmp: 'Confronti',
+    cShift: 'Spostamenti',
+  },
+  en: {
+    input: 'Numbers to sort',
+    inputAria: 'Numbers to sort: from 2 to 10 whole numbers between 0 and 99, separated by commas or spaces',
+    use: 'Use these numbers',
+    random: 'Random numbers',
+    simple: 'Simple example',
+    advanced: 'Advanced example',
+    restart: 'Restart',
+    back: 'Back',
+    next: 'Next',
+    play: 'Start',
+    pause: 'Pause',
+    speed: 'speed',
+    counters: 'Counters',
+    aria: 'List being sorted with Insertion Sort',
+    lgOrd: 'sorted part',
+    lgNorm: 'part still to sort',
+    lgKey: 'key',
+    lgEmpty: 'empty cell',
+    cPass: 'Pass',
+    cCmp: 'Comparisons',
+    cShift: 'Shifts',
+  },
+};
+const t = i18n[lang];
+---
+
+<div class="isort not-content" data-lang={lang} data-play={t.play} data-pause={t.pause} tabindex="0">
+  <div class="isort-input">
+    <span class="isort-inlabel">{t.input}</span>
+    <input type="text" class="isort-field" spellcheck="false" autocomplete="off" aria-label={t.inputAria} />
+    <button type="button" class="isort-use">{t.use}</button>
+    <button type="button" class="isort-random">{t.random}</button>
+    <button type="button" class="isort-simple">{t.simple}</button>
+    <button type="button" class="isort-advanced">{t.advanced}</button>
+  </div>
+  <div class="isort-error" role="alert"></div>
+
+  <div class="isort-buttons">
+    <button type="button" class="isort-restart">{t.restart}</button>
+    <button type="button" class="isort-back">{t.back}</button>
+    <button type="button" class="isort-next primary">{t.next}</button>
+    <button type="button" class="isort-play">{t.play}</button>
+    <span class="isort-speedcell">
+      <label>{t.speed}<input type="range" class="isort-speed" min="0.5" max="2" step="0.25" value="1" /></label>
+      <span class="isort-speed-val">1.00×</span>
+    </span>
+    <span class="isort-counter" aria-live="polite"></span>
+  </div>
+
+  <div class="isort-scene">
+    <svg class="isort-svg" role="img" aria-label={t.aria}></svg>
+  </div>
+
+  <p class="isort-legend">
+    <span><span class="isort-sw c-ord"></span>{t.lgOrd}</span>
+    <span><span class="isort-sw c-norm"></span>{t.lgNorm}</span>
+    <span><span class="isort-sw c-hi thick"></span>{t.lgKey}</span>
+    <span><span class="isort-sw c-empty dashed"></span>{t.lgEmpty}</span>
+  </p>
+
+  <div class="isort-msg" role="status"></div>
+
+  <div class="isort-panel">
+    <div class="isort-group">
+      <span class="isort-title">{t.counters}</span>
+      <div class="isort-counts">
+        <span>{t.cPass}: <b class="isort-c-pass">–</b></span>
+        <span>{t.cCmp}: <b class="isort-c-cmp">0</b></span>
+        <span>{t.cShift}: <b class="isort-c-shift">0</b></span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<style is:global>
+  .isort {
+    --isort-ink: var(--sl-color-text, #26252a);
+    --isort-muted: var(--sl-color-gray-3, #6c6b66);
+    --isort-line: var(--sl-color-hairline, #d9d7cf);
+    --isort-track: var(--sl-color-gray-5, #c8c6be);
+    --isort-btn-bg: var(--sl-color-gray-6, #f0eeea);
+    --isort-field-bg: var(--sl-color-bg, #fff);
+    --isort-accent: #ffcc44;
+    --isort-plot-bg: #fafaf8;
+    --isort-msg-bg: #f1f5f9;
+    --isort-red: #c62828;
+    /* colori della figura */
+    --isort-cell-ink: #1f2937;
+    --isort-idx: #9ca3af;
+    --isort-norm: #eaf3f8;
+    --isort-norm-s: #174a72;
+    --isort-ord: #e9f4ec;
+    --isort-ord-s: #2e7d32;
+    --isort-hi: #fde7b0;
+    --isort-hot: #d97706;
+    --isort-amb: #f59e0b;
+    --isort-amb-ink: #b45309;
+    --isort-new: #fbe5cd;
+    --isort-vis: #1f5f8b;
+    --isort-empty: #ffffff;
+    --isort-empty-s: #9ca3af;
+    --isort-used: #f3f4f6;
+    --isort-used-s: #d1d5db;
+    --isort-used-ink: #9ca3af;
+    --isort-faded: #f9fafb;
+    --isort-faded-s: #e5e7eb;
+    --isort-faded-ink: #c0c4cc;
+    --isort-dry: #c4c9d0;
+    color: var(--isort-ink);
+    max-width: 1040px;
+    min-width: 330px;
+    margin-inline: auto;
+    line-height: 1.5;
+    outline: none;
+  }
+  :root[data-theme='dark'] .isort {
+    --isort-plot-bg: #1a1a1a;
+    --isort-msg-bg: #262626;
+    --isort-red: #f87171;
+    --isort-cell-ink: #e5e7eb;
+    --isort-idx: #8b9098;
+    --isort-norm: #1b3043;
+    --isort-norm-s: #6aa6d6;
+    --isort-ord: #1c3a24;
+    --isort-ord-s: #5cb865;
+    --isort-hi: #5c4410;
+    --isort-hot: #f59e0b;
+    --isort-amb-ink: #fbbf24;
+    --isort-new: #4d3416;
+    --isort-vis: #2b78b0;
+    --isort-empty: #121212;
+    --isort-empty-s: #6b7280;
+    --isort-used: #2a2a2a;
+    --isort-used-s: #4b5563;
+    --isort-used-ink: #8b9098;
+    --isort-faded: #202020;
+    --isort-faded-s: #333333;
+    --isort-faded-ink: #5f636a;
+    --isort-dry: #555b63;
+  }
+
+  .isort button,
+  .isort p,
+  .isort ul,
+  .isort ol,
+  .isort li,
+  .isort input,
+  .isort label { margin: 0; }
+
+  /* riga dei numeri da ordinare */
+  .isort-input { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 10px; }
+  .isort-inlabel { font-size: 14px; font-weight: 600; }
+  .isort-field {
+    flex: 1 1 220px; min-width: 180px;
+    font: inherit; font-size: 14px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    padding: 6px 10px; border-radius: 6px;
+    border: 1px solid var(--isort-line); background: var(--isort-field-bg); color: var(--isort-ink);
+  }
+  .isort-field:focus { outline: none; border-color: var(--sl-color-accent, #3b5fd9); }
+  .isort-error {
+    display: none; margin: 0 0 10px; padding: 0.5rem 0.7rem; font-size: 14px;
+    border-left: 4px solid var(--isort-red); border-radius: 4px;
+    background: color-mix(in srgb, var(--isort-red) 12%, transparent); color: var(--isort-red);
+  }
+  .isort-error.is-on { display: block; }
+
+  /* pulsanti, stesso stile di SimulatoreDijkstra */
+  .isort-buttons { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 12px; }
+  .isort-input button,
+  .isort-buttons button {
+    font: inherit; font-size: 13px; padding: 6px 12px; border-radius: 6px;
+    border: 1px solid var(--isort-line); background: var(--isort-btn-bg); color: var(--isort-ink);
+    cursor: pointer;
+  }
+  .isort-input button:hover,
+  .isort-buttons button:hover { border-color: var(--isort-muted); }
+  .isort-buttons button.primary { font-weight: 600; }
+  .isort-buttons button:disabled { opacity: .45; cursor: not-allowed; }
+  .isort-buttons button.is-on { background: var(--isort-accent); border-color: var(--isort-accent); color: #3a2f00; }
+  .isort-speedcell { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--isort-muted); }
+  .isort-speedcell label { display: inline-flex; align-items: center; gap: 8px; }
+  .isort-speed-val { font-weight: 600; font-variant-numeric: tabular-nums; color: var(--isort-ink); min-width: 44px; }
+  .isort-counter { font-size: 13px; color: var(--isort-muted); margin-left: auto; font-variant-numeric: tabular-nums; text-align: right; }
+
+  .isort input[type="range"] {
+    -webkit-appearance: none; appearance: none;
+    width: 110px; height: 4px; margin: 0;
+    background: var(--isort-track); border-radius: 2px; outline: none; cursor: pointer;
+  }
+  .isort input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none; width: 16px; height: 16px; border-radius: 50%;
+    background: var(--isort-accent); border: 2px solid var(--sl-color-bg, #fff); cursor: pointer;
+  }
+  .isort input[type="range"]::-moz-range-thumb {
+    width: 16px; height: 16px; border-radius: 50%;
+    background: var(--isort-accent); border: 2px solid var(--sl-color-bg, #fff); cursor: pointer;
+  }
+
+  /* figura: su schermi stretti si scorre in orizzontale invece di rimpicciolire troppo il testo */
+  .isort-scene {
+    overflow-x: auto;
+    border-radius: 10px;
+    border: 1px solid var(--isort-line);
+    background: var(--isort-plot-bg);
+    padding: 6px;
+  }
+  .isort-svg { display: block; width: 100%; height: auto; margin-inline: auto; }
+  .isort-svg text { fill: var(--isort-cell-ink); }
+  .isort-svg .f-norm { fill: var(--isort-norm); }
+  .isort-svg .f-ord { fill: var(--isort-ord); }
+  .isort-svg .f-hi { fill: var(--isort-hi); }
+  .isort-svg .f-new { fill: var(--isort-new); }
+  .isort-svg .f-vis { fill: var(--isort-vis); }
+  .isort-svg .f-amb { fill: var(--isort-amb); }
+  .isort-svg .f-empty { fill: var(--isort-empty); }
+  .isort-svg .f-used { fill: var(--isort-used); }
+  .isort-svg .f-faded { fill: var(--isort-faded); }
+  .isort-svg .s-norm { stroke: var(--isort-norm-s); }
+  .isort-svg .s-ord { stroke: var(--isort-ord-s); }
+  .isort-svg .s-hot { stroke: var(--isort-hot); }
+  .isort-svg .s-amb { stroke: var(--isort-amb); }
+  .isort-svg .s-ambink { stroke: var(--isort-amb-ink); }
+  .isort-svg .s-vis { stroke: var(--isort-vis); }
+  .isort-svg .s-empty { stroke: var(--isort-empty-s); }
+  .isort-svg .s-used { stroke: var(--isort-used-s); }
+  .isort-svg .s-faded { stroke: var(--isort-faded-s); }
+  .isort-svg .t-used { fill: var(--isort-used-ink); }
+  .isort-svg .t-faded { fill: var(--isort-faded-ink); }
+  .isort-svg .t-vis,
+  .isort-svg .tx-white { fill: #fff; }
+  .isort-svg .tx-idx { fill: var(--isort-idx); }
+  .isort-svg .tx-amb { fill: var(--isort-amb-ink); }
+  .isort-svg .tx-ord { fill: var(--isort-ord-s); }
+  .isort-svg .tx-lab { fill: var(--isort-norm-s); }
+  .isort-svg .ln-norm { stroke: var(--isort-norm-s); fill: none; }
+  .isort-svg .ln-ord { stroke: var(--isort-ord-s); fill: none; }
+  .isort-svg .ln-hot { stroke: var(--isort-hot); fill: none; }
+  .isort-svg .ln-amb { stroke: var(--isort-amb); fill: none; }
+  .isort-svg .ln-faded { stroke: var(--isort-used-s); fill: none; }
+  .isort-svg .ln-dry { stroke: var(--isort-dry); fill: none; }
+  .isort-svg .m-hot { fill: var(--isort-hot); }
+  .isort-svg .m-ord { fill: var(--isort-ord-s); }
+  .isort-svg .m-amb { fill: var(--isort-amb); }
+
+  .isort-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; font-size: 13px; color: var(--isort-muted); margin: 10px 0; }
+  .isort-legend > span { display: inline-flex; align-items: center; gap: 6px; }
+  .isort-sw { display: inline-block; width: 14px; height: 14px; border-radius: 3px; border: 1.5px solid; }
+  .isort-sw.round { border-radius: 50%; }
+  .isort-sw.dashed { border-style: dashed; }
+  .isort-sw.thick { border-width: 2.5px; }
+  .isort-sw.c-norm { background: var(--isort-norm); border-color: var(--isort-norm-s); }
+  .isort-sw.c-ord { background: var(--isort-ord); border-color: var(--isort-ord-s); }
+  .isort-sw.c-hi { background: var(--isort-hi); border-color: var(--isort-hot); }
+  .isort-sw.c-edge { background: var(--isort-norm); border-color: var(--isort-hot); }
+  .isort-sw.c-empty { background: var(--isort-empty); border-color: var(--isort-empty-s); }
+  .isort-sw.c-fuse { background: var(--isort-empty); border-color: var(--isort-hot); }
+  .isort-sw.c-used { background: var(--isort-used); border-color: var(--isort-used-s); }
+  .isort-sw.c-amb { background: var(--isort-amb); border-color: var(--isort-amb-ink); }
+  .isort-sw.c-path { background: var(--isort-ord); border-color: var(--isort-ord-s); }
+  .isort-sw.c-new { background: var(--isort-new); border-color: var(--isort-amb); }
+  .isort-sw.c-vis { background: var(--isort-vis); border-color: var(--isort-vis); }
+  .isort-sw.c-viscur { background: var(--isort-hi); border-color: var(--isort-amb); }
+
+  .isort-msg { font-size: 15px; line-height: 1.45; background: var(--isort-msg-bg); border-radius: 8px; padding: 10px 12px; min-height: 56px; }
+
+  .isort-panel { display: flex; flex-wrap: wrap; gap: 10px 24px; align-items: flex-start; margin-top: 10px; font-size: 14px; }
+  .isort-group { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+  .isort-title { font-size: 13px; font-weight: 600; color: var(--isort-muted); }
+  .isort-counts { display: flex; flex-wrap: wrap; gap: 4px 16px; }
+  /* larghezza riservata ai valori, che cambiano a ogni passo */
+  .isort-counts b { font-variant-numeric: tabular-nums; font-size: 15px; display: inline-block; min-width: 2ch; }
+
+  /* la passata passa da "–" a "6 di 6": si riserva lo spazio della scritta più lunga */
+  .isort-counts .isort-c-pass { min-width: 3.4em; }
+</style>
+
+<script>
+  // Umami è caricato globalmente da Head.astro: si usa window.umami con un guard.
+  function trackEvent(name: string, data: Record<string, unknown>): void {
+    const w = window as unknown as { umami?: { track: (n: string, d: Record<string, unknown>) => void } };
+    if (w.umami) w.umami.track(name, data);
+  }
+
+  type Lang = 'it' | 'en';
+  const SVGNS = 'http://www.w3.org/2000/svg';
+  const BASE_MS = 1200;
+  // stessi numeri della dispensa del Modulo 2-C
+  const ESEMPIO = [41, 73, 17, 56, 8, 92, 29];
+
+  // --------------------------------------------------------------------------
+  //  Parti comuni ai cinque simulatori di ordinamento
+  // --------------------------------------------------------------------------
+  interface Comuni {
+    errCount: string;
+    errNum: (p: string) => string;
+    initial: (n: number) => string;
+    counter: (k: number, n: number) => string;
+  }
+  const COMUNI: Record<Lang, Comuni> = {
+    it: {
+      errCount: 'Inserisci da 2 a 10 numeri, separati da virgole o spazi.',
+      errNum: (p) => `«${p}» non è un numero intero da 0 a 99.`,
+      initial: (n) => `Situazione iniziale (${n} ${n === 1 ? 'passo' : 'passi'} in tutto)`,
+      counter: (k, n) => `Passo ${k} di ${n}`,
+    },
+    en: {
+      errCount: 'Enter from 2 to 10 numbers, separated by commas or spaces.',
+      errNum: (p) => `“${p}” is not a whole number from 0 to 99.`,
+      initial: (n) => `Initial state (${n} ${n === 1 ? 'step' : 'steps'} in all)`,
+      counter: (k, n) => `Step ${k} of ${n}`,
+    },
+  };
+
+  function el<K extends keyof SVGElementTagNameMap>(
+    tag: K, attrs: Record<string, string | number>, parent: Element | null, text?: string | number,
+  ): SVGElementTagNameMap[K] {
+    const e = document.createElementNS(SVGNS, tag);
+    for (const k in attrs) e.setAttribute(k, String(attrs[k]));
+    if (text !== undefined) e.textContent = String(text);
+    if (parent) parent.appendChild(e);
+    return e;
+  }
+
+  function freccia(defs: Element, id: string, cls: string): void {
+    const m = el('marker', { id, viewBox: '0 0 10 10', refX: 8, refY: 5, markerWidth: 7, markerHeight: 7, orient: 'auto-start-reverse' }, defs);
+    el('path', { d: 'M0,0 L10,5 L0,10 z', class: cls }, m);
+  }
+
+  // Stile di una casella: classe di riempimento (f-), di bordo (s-), spessore e tratteggio.
+  // I colori stanno nel CSS, così valgono sia nel tema chiaro sia in quello scuro.
+  interface Sty { f: string; s: string; sw?: number; dash?: string; }
+
+  function cella(par: Element, x: number, y: number, w: number, h: number, st: Sty, rx: number): SVGRectElement {
+    const r = el('rect', { x, y, width: w, height: h, rx, class: `f-${st.f} s-${st.s}`, 'stroke-width': st.sw ?? 1.6 }, par);
+    if (st.dash) r.setAttribute('stroke-dasharray', st.dash);
+    return r;
+  }
+
+  function leggiNumeri(str: string, C: Comuni): { valori: number[] } | { errore: string } {
+    const parti = str.split(/[\s,;]+/).filter((s) => s.length > 0);
+    if (parti.length < 2 || parti.length > 10) return { errore: C.errCount };
+    const valori: number[] = [];
+    for (const p of parti) {
+      if (!/^\d{1,2}$/.test(p)) return { errore: C.errNum(p) };
+      valori.push(parseInt(p, 10));
+    }
+    return { valori };
+  }
+
+  function numeriCasuali(n: number): number[] {
+    const s = new Set<number>();
+    while (s.size < n) s.add(1 + Math.floor(Math.random() * 99));
+    return [...s];
+  }
+
+  // Lettore dei passi: tutti gli stati sono calcolati in anticipo e poi mostrati uno alla volta.
+  function avviaLettore<P extends { testo: string }>(
+    root: HTMLElement,
+    C: Comuni,
+    costruisci: (v: number[]) => P[],
+    disegna: (p: P) => void,
+    avanzato: number[],
+    track: (azione: string) => void,
+  ): void {
+    const q = <T extends Element>(sel: string) => root.querySelector(sel) as T;
+    const campo = q<HTMLInputElement>('.isort-field');
+    const errore = q<HTMLElement>('.isort-error');
+    const btnRestart = q<HTMLButtonElement>('.isort-restart');
+    const btnBack = q<HTMLButtonElement>('.isort-back');
+    const btnNext = q<HTMLButtonElement>('.isort-next');
+    const btnPlay = q<HTMLButtonElement>('.isort-play');
+    const speed = q<HTMLInputElement>('.isort-speed');
+    const speedVal = q<HTMLElement>('.isort-speed-val');
+    const counter = q<HTMLElement>('.isort-counter');
+    const msg = q<HTMLElement>('.isort-msg');
+
+    let passi: P[] = [];
+    let idx = 0;
+    let timer: number | null = null;
+
+    // la figura non si ingrandisce oltre 1,35 volte le dimensioni naturali e non scende
+    // sotto 0,6 volte: oltre quel limite la scena scorre in orizzontale
+    function adatta(svg: SVGSVGElement): void {
+      const vb = (svg.getAttribute('viewBox') ?? '').split(' ');
+      if (vb.length !== 4) return;
+      const w = parseFloat(vb[2]);
+      svg.style.maxWidth = Math.round(w * 1.35) + 'px';
+      svg.style.minWidth = Math.round(w * 0.6) + 'px';
+    }
+
+    function mostra(): void {
+      const last = passi.length - 1;
+      disegna(passi[idx]);
+      root.querySelectorAll<SVGSVGElement>('.isort-svg').forEach(adatta);
+      counter.textContent = idx === 0 ? C.initial(last) : C.counter(idx, last);
+      btnBack.disabled = idx === 0;
+      btnNext.disabled = idx === last;
+      if (idx === last) track('completato');
+    }
+
+    // Il riquadro della spiegazione ha sempre l'altezza della spiegazione più lunga
+    // dell'elenco caricato: così, passando da un passo all'altro, la pagina non si sposta.
+    // Per lo stesso motivo il contatore dei passi ha sempre la larghezza della sua scritta
+    // più lunga: altrimenti, su schermi stretti, andrebbe a capo solo in alcuni passi.
+    function fissaAltezza(): void {
+      if (passi.length === 0) return;
+      const last = passi.length - 1;
+      counter.style.minWidth = '';
+      let largo = 0;
+      for (const t of [C.initial(last), C.counter(last, last)]) {
+        counter.textContent = t;
+        largo = Math.max(largo, Math.ceil(counter.getBoundingClientRect().width));
+      }
+      counter.style.minWidth = largo + 'px';
+      msg.style.minHeight = '';
+      let max = 0;
+      for (const p of passi) {
+        msg.textContent = p.testo;
+        max = Math.max(max, msg.offsetHeight);
+      }
+      msg.style.minHeight = max + 'px';
+      msg.textContent = passi[idx].testo;
+    }
+    // la larghezza del riquadro cambia con la finestra: si ricalcola l'altezza
+    let attesa = 0;
+    window.addEventListener('resize', () => {
+      window.cancelAnimationFrame(attesa);
+      attesa = window.requestAnimationFrame(fissaAltezza);
+    });
+
+    const go = (i: number) => { idx = Math.max(0, Math.min(passi.length - 1, i)); mostra(); };
+    const interval = () => BASE_MS / Number(speed.value);
+
+    function stop(): void {
+      if (timer !== null) window.clearTimeout(timer);
+      timer = null;
+      btnPlay.textContent = root.dataset.play ?? '';
+      btnPlay.classList.remove('is-on');
+    }
+    function tick(): void {
+      if (idx >= passi.length - 1) { stop(); return; }
+      go(idx + 1);
+      timer = window.setTimeout(tick, interval());
+    }
+    function play(): void {
+      if (idx >= passi.length - 1) go(0);
+      btnPlay.textContent = root.dataset.pause ?? '';
+      btnPlay.classList.add('is-on');
+      track('avvia');
+      timer = window.setTimeout(tick, interval());
+    }
+
+    function carica(v: number[]): void {
+      stop();
+      campo.value = v.join(', ');
+      errore.textContent = '';
+      errore.classList.remove('is-on');
+      passi = costruisci(v);
+      idx = 0;
+      fissaAltezza();
+      go(0);
+    }
+    function usa(): void {
+      const r = leggiNumeri(campo.value, C);
+      if ('errore' in r) {
+        stop();
+        errore.textContent = r.errore;
+        errore.classList.add('is-on');
+        return;
+      }
+      track('numeri-utente');
+      carica(r.valori);
+    }
+
+    q<HTMLButtonElement>('.isort-use').addEventListener('click', usa);
+    campo.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); usa(); } });
+    q<HTMLButtonElement>('.isort-random').addEventListener('click', () => { track('numeri-casuali'); carica(numeriCasuali(7)); });
+    q<HTMLButtonElement>('.isort-simple').addEventListener('click', () => { track('esempio-semplice'); carica(ESEMPIO.slice()); });
+    q<HTMLButtonElement>('.isort-advanced').addEventListener('click', () => { track('esempio-avanzato'); carica(avanzato.slice()); });
+
+    btnRestart.addEventListener('click', () => { stop(); go(0); });
+    btnBack.addEventListener('click', () => { stop(); go(idx - 1); });
+    btnNext.addEventListener('click', () => { stop(); track('passo'); go(idx + 1); });
+    btnPlay.addEventListener('click', () => { if (timer !== null) stop(); else play(); });
+    speed.addEventListener('input', () => { speedVal.textContent = Number(speed.value).toFixed(2) + '×'; });
+    // frecce della tastiera solo quando il componente ha il focus e non si sta scrivendo nel campo
+    root.addEventListener('keydown', (ev) => {
+      if (ev.target === campo) return;
+      if (ev.key === 'ArrowRight') { ev.preventDefault(); stop(); go(idx + 1); }
+      else if (ev.key === 'ArrowLeft') { ev.preventDefault(); stop(); go(idx - 1); }
+    });
+
+    carica(ESEMPIO.slice());
+  }
+
+  // --------------------------------------------------------------------------
+  //  Testi
+  // --------------------------------------------------------------------------
+  const TXT = {
+    it: {
+      inizio: (v: number, n: number) =>
+        `Situazione iniziale. La casella 0 (${v}) è la parte ordinata: un elenco di un solo elemento è già ordinato. ` +
+        (n === 1 ? 'Serve 1 passata.' : `Servono ${n} passate.`),
+      prendo: (i: number, k: number) => `Passata ${i}: prendo la chiave ${k} dalla casella ${i}. `,
+      allInizio: (k: number, i: number) =>
+        `Si è arrivati all'inizio: ${k} entra nella casella 0. La parte ordinata arriva alla casella ${i}.`,
+      sposta: (s: number, k: number) =>
+        `Confronto ${s} con la chiave ${k}: ${s} > ${k}, quindi ${s} si sposta di una casella a destra.`,
+      ferma: (s: number, k: number) =>
+        `Confronto ${s} con la chiave ${k}: ${s} ${s === k ? '=' : '<'} ${k}, quindi lo scorrimento si ferma` +
+        (s === k ? ' (un elemento uguale non si scavalca).' : '.'),
+      inserisci: (k: number, b: number, i: number) =>
+        `${k} entra nella casella vuota, la ${b}. La parte ordinata arriva alla casella ${i}.`,
+      fine: (n: number) =>
+        (n === 1 ? "L'unica passata è finita" : `Tutte le ${n} passate sono finite`) +
+        ": la parte ordinata occupa l'intero elenco, che quindi è ordinato.",
+      chiave: 'chiave',
+      di: 'di',
+    },
+    en: {
+      inizio: (v: number, n: number) =>
+        `Initial state. Cell 0 (${v}) is the sorted part: a list with a single element is already sorted. ` +
+        (n === 1 ? '1 pass is needed.' : `${n} passes are needed.`),
+      prendo: (i: number, k: number) => `Pass ${i}: I take the key ${k} from cell ${i}. `,
+      allInizio: (k: number, i: number) =>
+        `The start has been reached: ${k} goes into cell 0. The sorted part now reaches cell ${i}.`,
+      sposta: (s: number, k: number) =>
+        `I compare ${s} with the key ${k}: ${s} > ${k}, so ${s} moves one cell to the right.`,
+      ferma: (s: number, k: number) =>
+        `I compare ${s} with the key ${k}: ${s} ${s === k ? '=' : '<'} ${k}, so the shifting stops` +
+        (s === k ? ' (an equal element is not overtaken).' : '.'),
+      inserisci: (k: number, b: number, i: number) =>
+        `${k} goes into the empty cell, cell ${b}. The sorted part now reaches cell ${i}.`,
+      fine: (n: number) =>
+        (n === 1 ? 'The only pass is over' : `All ${n} passes are over`) +
+        ': the sorted part takes up the whole list, which is therefore sorted.',
+      chiave: 'key',
+      di: 'of',
+    },
+  };
+  type Testi = (typeof TXT)[Lang];
+
+  // --------------------------------------------------------------------------
+  //  Passi dell'algoritmo
+  // --------------------------------------------------------------------------
+  interface Passo {
+    celle: Array<number | null>; // null: casella vuota lasciata dalla chiave
+    confronti: number;
+    spostamenti: number;
+    tipo: 'inizio' | 'sposta' | 'stop' | 'ins' | 'fine';
+    ordFino: number; // ultima casella della parte ordinata
+    passata: number;
+    buco: number; // casella vuota
+    chiave: number;
+    da: number; // spostamento: dalla casella da alla casella a
+    a: number;
+    cfr: number; // casella confrontata quando lo scorrimento si ferma
+    finito: boolean;
+    testo: string;
+  }
+
+  function costruisci(valori: number[], L: Testi): Passo[] {
+    const passi: Passo[] = [];
+    const n = valori.length;
+    let elenco: Array<number | null> = valori.slice();
+    let confronti = 0, spostamenti = 0;
+    const foto = (o: Pick<Passo, 'celle' | 'tipo' | 'ordFino' | 'passata' | 'testo'> & Partial<Passo>) => {
+      passi.push({ confronti, spostamenti, buco: -1, chiave: 0, da: -1, a: -1, cfr: -1, finito: false, ...o });
+    };
+    foto({ celle: elenco.slice(), ordFino: 0, tipo: 'inizio', passata: 0, testo: L.inizio(valori[0], n - 1) });
+    for (let i = 1; i < n; i++) {
+      const chiave = elenco[i] as number;
+      const celle = elenco.slice();
+      let buco = i;
+      celle[buco] = null;
+      let primo = true;
+      const pre = () => { const t = primo ? L.prendo(i, chiave) : ''; primo = false; return t; };
+      for (;;) {
+        if (buco === 0) {
+          celle[0] = chiave;
+          foto({ celle: celle.slice(), buco: 0, chiave, ordFino: i, tipo: 'ins', passata: i, testo: pre() + L.allInizio(chiave, i) });
+          break;
+        }
+        const sin = celle[buco - 1] as number;
+        confronti++;
+        if (sin > chiave) {
+          celle[buco] = sin;
+          celle[buco - 1] = null;
+          spostamenti++;
+          foto({ celle: celle.slice(), buco: buco - 1, chiave, da: buco - 1, a: buco, ordFino: i, tipo: 'sposta', passata: i, testo: pre() + L.sposta(sin, chiave) });
+          buco--;
+        } else {
+          foto({ celle: celle.slice(), buco, chiave, cfr: buco - 1, ordFino: i, tipo: 'stop', passata: i, testo: pre() + L.ferma(sin, chiave) });
+          celle[buco] = chiave;
+          foto({ celle: celle.slice(), buco, chiave, ordFino: i, tipo: 'ins', passata: i, testo: L.inserisci(chiave, buco, i) });
+          break;
+        }
+      }
+      elenco = celle.slice();
+    }
+    foto({ celle: elenco.slice(), ordFino: n - 1, tipo: 'fine', passata: n - 1, finito: true, testo: L.fine(n - 1) });
+    return passi;
+  }
+
+  // --------------------------------------------------------------------------
+  //  Disegno
+  // --------------------------------------------------------------------------
+  function disegnatore(root: HTMLElement, uid: string, L: Testi): (p: Passo) => void {
+    const q = <T extends Element>(sel: string) => root.querySelector(sel) as T;
+    const svg = q<SVGSVGElement>('.isort-svg');
+    const msg = q<HTMLElement>('.isort-msg');
+    const cP = q<HTMLElement>('.isort-c-pass'), cC = q<HTMLElement>('.isort-c-cmp'), cS = q<HTMLElement>('.isort-c-shift');
+    return (p) => {
+      const n = p.celle.length, cw = 58, ch = 46, mx = 34, yb = 112;
+      const W = mx * 2 + n * cw, H = 200;
+      svg.setAttribute('viewBox', `0 0 ${Math.max(W, 420)} ${H}`);
+      const off = Math.max(0, (420 - W) / 2);
+      const X = (j: number) => off + mx + j * cw + cw / 2;
+      svg.replaceChildren();
+      const defs = el('defs', {}, svg);
+      freccia(defs, uid + 'fr', 'm-hot');
+      freccia(defs, uid + 'giu', 'm-ord');
+      for (let j = 0; j < n; j++) {
+        const v = p.celle[j];
+        const ord = p.finito || j <= p.ordFino;
+        const st: Sty = { f: ord ? 'ord' : 'norm', s: ord ? 'ord' : 'norm', sw: 1.6 };
+        if (v === null) { st.f = 'empty'; st.s = 'empty'; st.dash = '5 4'; }
+        if (p.tipo === 'sposta' && j === p.a) { st.s = 'hot'; st.sw = 3; }
+        if (p.tipo === 'stop' && j === p.cfr) { st.s = 'ord'; st.sw = 3.5; }
+        if (p.tipo === 'ins' && j === p.buco) { st.f = 'hi'; st.s = 'hot'; st.sw = 3; }
+        cella(svg, X(j) - cw / 2 + 4, yb - ch / 2, cw - 8, ch, st, 5);
+        if (v !== null) el('text', { x: X(j), y: yb + 6, 'text-anchor': 'middle', 'font-weight': 700, 'font-size': 18, class: 't-' + st.f }, svg, v);
+        el('text', { x: X(j), y: yb + ch / 2 + 16, 'text-anchor': 'middle', 'font-size': 11, class: 'tx-idx' }, svg, j);
+      }
+      // chiave sollevata sopra la casella vuota
+      if (p.tipo === 'sposta' || p.tipo === 'stop') {
+        const kx = X(p.buco), ky = 38;
+        cella(svg, kx - cw / 2 + 4, ky - ch / 2, cw - 8, ch, { f: 'hi', s: 'hot', sw: 2.5 }, 5);
+        el('text', { x: kx, y: ky + 6, 'text-anchor': 'middle', 'font-weight': 700, 'font-size': 18 }, svg, p.chiave);
+        el('text', { x: kx, y: ky - ch / 2 - 6, 'text-anchor': 'middle', 'font-size': 11, 'font-weight': 700, class: 'tx-amb' }, svg, L.chiave);
+      }
+      if (p.tipo === 'sposta') {
+        const x1 = X(p.da), x2 = X(p.a), y = yb + ch / 2 + 4;
+        el('path', { d: `M${x1},${y} Q${(x1 + x2) / 2},${y + 34} ${x2 - 4},${y + 2}`, class: 'ln-hot', 'stroke-width': 2.5, 'marker-end': `url(#${uid}fr)` }, svg);
+      }
+      // segno del confronto: a sinistra del rettangolo della chiave, staccato dal bordo
+      // e centrato in verticale sul numero della chiave
+      if (p.tipo === 'stop') {
+        el('text', {
+          // linea di base 43,5: il centro dell'inchiostro di < e = cade a 37,5, come quello del numero
+          x: X(p.buco) - cw / 2 + 4 - 6, y: 43.5, 'text-anchor': 'end',
+          'font-weight': 700, 'font-size': 20, class: 'tx-ord',
+        }, svg, p.celle[p.cfr] === p.chiave ? '=' : '<');
+      }
+      if (p.tipo === 'ins') {
+        el('line', { x1: X(p.buco), y1: 24, x2: X(p.buco), y2: yb - ch / 2 - 4, class: 'ln-ord', 'stroke-width': 2.5, 'marker-end': `url(#${uid}giu)` }, svg);
+      }
+      cP.textContent = p.passata === 0 ? '–' : `${p.passata} ${L.di} ${n - 1}`;
+      cC.textContent = String(p.confronti);
+      cS.textContent = String(p.spostamenti);
+      msg.textContent = p.testo;
+    };
+  }
+
+  // --------------------------------------------------------------------------
+  //  Istanza del componente
+  // --------------------------------------------------------------------------
+  function init(root: HTMLElement, k: number): void {
+    const lang: Lang = root.dataset.lang === 'en' ? 'en' : 'it';
+    const L = TXT[lang];
+    const tracked = new Set<string>();
+    const track = (azione: string) => {
+      if (tracked.has(azione)) return;
+      tracked.add(azione);
+      trackEvent('simulatore-insertion-sort', { azione, lingua: lang });
+    };
+    avviaLettore(root, COMUNI[lang], (v) => costruisci(v, L), disegnatore(root, `isort${k}-`, L), [92, 85, 77, 23, 64, 41, 12], track);
+  }
+
+  document.querySelectorAll<HTMLElement>('.isort').forEach((root, k) => init(root, k));
+</script>

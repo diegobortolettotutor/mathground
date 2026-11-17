@@ -1,0 +1,812 @@
+---
+// ============================================================================
+//  SimulatoreTreeSort.astro
+//  Tree Sort (ordinamento tramite albero) passo per passo su un elenco di 2-10
+//  interi fra 0 e 99: l'esempio della dispensa, numeri inseriti o casuali.
+//   - Prima fase: i valori entrano uno alla volta in un albero binario di
+//     ricerca; ogni passo è un confronto o la collocazione di un nuovo nodo
+//   - Seconda fase: la visita simmetrica scrive i nodi in ordine crescente
+//   - Un valore già presente non crea un nodo: aumenta il contatore del nodo
+//  Ogni nodo ha una colonna fissa, data dalla posizione del suo valore fra i
+//  valori distinti: così la visita simmetrica procede da sinistra a destra.
+//  Gli elementi SVG sono creati a runtime con createElement: per questo lo
+//  stile è <style is:global>, con prefisso tsort-.
+// ============================================================================
+const lang = Astro.url.pathname.startsWith('/en/') ? 'en' : 'it';
+
+const i18n = {
+  it: {
+    input: 'Numeri da ordinare',
+    inputAria: 'Numeri da ordinare: da 2 a 10 interi fra 0 e 99, separati da virgole o spazi',
+    use: 'Usa questi numeri',
+    random: 'Numeri casuali',
+    simple: 'Esempio semplice',
+    advanced: 'Esempio avanzato',
+    restart: 'Riavvia',
+    back: 'Indietro',
+    next: 'Avanti',
+    play: 'Avvia',
+    pause: 'Pausa',
+    speed: 'velocità',
+    counters: 'Contatori',
+    aria: 'Albero binario di ricerca costruito da Tree Sort',
+    lgArrive: 'valore da inserire',
+    lgPath: 'cammino percorso',
+    lgNew: 'nodo appena inserito',
+    lgVis: 'nodo già scritto dalla visita',
+    lgVisCur: 'nodo scritto in questo passo',
+    toInsert: 'Elenco da inserire',
+    sorted: 'Elenco ordinato (visita simmetrica)',
+    cCmp: 'Confronti',
+  },
+  en: {
+    input: 'Numbers to sort',
+    inputAria: 'Numbers to sort: from 2 to 10 whole numbers between 0 and 99, separated by commas or spaces',
+    use: 'Use these numbers',
+    random: 'Random numbers',
+    simple: 'Simple example',
+    advanced: 'Advanced example',
+    restart: 'Restart',
+    back: 'Back',
+    next: 'Next',
+    play: 'Start',
+    pause: 'Pause',
+    speed: 'speed',
+    counters: 'Counters',
+    aria: 'Binary search tree built by Tree Sort',
+    lgArrive: 'value to insert',
+    lgPath: 'path followed',
+    lgNew: 'node just inserted',
+    lgVis: 'node already written by the traversal',
+    lgVisCur: 'node written in this step',
+    toInsert: 'List to insert',
+    sorted: 'Sorted list (in-order traversal)',
+    cCmp: 'Comparisons',
+  },
+};
+const t = i18n[lang];
+---
+
+<div class="tsort not-content" data-lang={lang} data-play={t.play} data-pause={t.pause} tabindex="0">
+  <div class="tsort-input">
+    <span class="tsort-inlabel">{t.input}</span>
+    <input type="text" class="tsort-field" spellcheck="false" autocomplete="off" aria-label={t.inputAria} />
+    <button type="button" class="tsort-use">{t.use}</button>
+    <button type="button" class="tsort-random">{t.random}</button>
+    <button type="button" class="tsort-simple">{t.simple}</button>
+    <button type="button" class="tsort-advanced">{t.advanced}</button>
+  </div>
+  <div class="tsort-error" role="alert"></div>
+
+  <div class="tsort-buttons">
+    <button type="button" class="tsort-restart">{t.restart}</button>
+    <button type="button" class="tsort-back">{t.back}</button>
+    <button type="button" class="tsort-next primary">{t.next}</button>
+    <button type="button" class="tsort-play">{t.play}</button>
+    <span class="tsort-speedcell">
+      <label>{t.speed}<input type="range" class="tsort-speed" min="0.5" max="2" step="0.25" value="1" /></label>
+      <span class="tsort-speed-val">1.00×</span>
+    </span>
+    <span class="tsort-counter" aria-live="polite"></span>
+  </div>
+
+  <div class="tsort-scene">
+    <svg class="tsort-svg" role="img" aria-label={t.aria}></svg>
+  </div>
+
+  <p class="tsort-legend">
+    <span><span class="tsort-sw round c-amb"></span>{t.lgArrive}</span>
+    <span><span class="tsort-sw round c-path"></span>{t.lgPath}</span>
+    <span><span class="tsort-sw round c-new"></span>{t.lgNew}</span>
+    <span><span class="tsort-sw round c-vis"></span>{t.lgVis}</span>
+    <span><span class="tsort-sw round c-viscur thick"></span>{t.lgVisCur}</span>
+  </p>
+
+  <div class="tsort-msg" role="status"></div>
+
+  <div class="tsort-panel">
+    <div class="tsort-group">
+      <span class="tsort-title">{t.toInsert}</span>
+      <div class="tsort-chips tsort-in"></div>
+    </div>
+    <div class="tsort-group">
+      <span class="tsort-title">{t.sorted}</span>
+      <div class="tsort-chips tsort-out"></div>
+    </div>
+    <div class="tsort-group">
+      <span class="tsort-title">{t.counters}</span>
+      <div class="tsort-counts">
+        <span>{t.cCmp}: <b class="tsort-c-cmp">0</b></span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<style is:global>
+  .tsort {
+    --tsort-ink: var(--sl-color-text, #26252a);
+    --tsort-muted: var(--sl-color-gray-3, #6c6b66);
+    --tsort-line: var(--sl-color-hairline, #d9d7cf);
+    --tsort-track: var(--sl-color-gray-5, #c8c6be);
+    --tsort-btn-bg: var(--sl-color-gray-6, #f0eeea);
+    --tsort-field-bg: var(--sl-color-bg, #fff);
+    --tsort-accent: #ffcc44;
+    --tsort-plot-bg: #fafaf8;
+    --tsort-msg-bg: #f1f5f9;
+    --tsort-red: #c62828;
+    /* colori della figura */
+    --tsort-cell-ink: #1f2937;
+    --tsort-idx: #9ca3af;
+    --tsort-norm: #eaf3f8;
+    --tsort-norm-s: #174a72;
+    --tsort-ord: #e9f4ec;
+    --tsort-ord-s: #2e7d32;
+    --tsort-hi: #fde7b0;
+    --tsort-hot: #d97706;
+    --tsort-amb: #f59e0b;
+    --tsort-amb-ink: #b45309;
+    --tsort-new: #fbe5cd;
+    --tsort-vis: #1f5f8b;
+    --tsort-empty: #ffffff;
+    --tsort-empty-s: #9ca3af;
+    --tsort-used: #f3f4f6;
+    --tsort-used-s: #d1d5db;
+    --tsort-used-ink: #9ca3af;
+    --tsort-faded: #f9fafb;
+    --tsort-faded-s: #e5e7eb;
+    --tsort-faded-ink: #c0c4cc;
+    --tsort-dry: #c4c9d0;
+    color: var(--tsort-ink);
+    max-width: 1040px;
+    min-width: 330px;
+    margin-inline: auto;
+    line-height: 1.5;
+    outline: none;
+  }
+  :root[data-theme='dark'] .tsort {
+    --tsort-plot-bg: #1a1a1a;
+    --tsort-msg-bg: #262626;
+    --tsort-red: #f87171;
+    --tsort-cell-ink: #e5e7eb;
+    --tsort-idx: #8b9098;
+    --tsort-norm: #1b3043;
+    --tsort-norm-s: #6aa6d6;
+    --tsort-ord: #1c3a24;
+    --tsort-ord-s: #5cb865;
+    --tsort-hi: #5c4410;
+    --tsort-hot: #f59e0b;
+    --tsort-amb-ink: #fbbf24;
+    --tsort-new: #4d3416;
+    --tsort-vis: #2b78b0;
+    --tsort-empty: #121212;
+    --tsort-empty-s: #6b7280;
+    --tsort-used: #2a2a2a;
+    --tsort-used-s: #4b5563;
+    --tsort-used-ink: #8b9098;
+    --tsort-faded: #202020;
+    --tsort-faded-s: #333333;
+    --tsort-faded-ink: #5f636a;
+    --tsort-dry: #555b63;
+  }
+
+  .tsort button,
+  .tsort p,
+  .tsort ul,
+  .tsort ol,
+  .tsort li,
+  .tsort input,
+  .tsort label { margin: 0; }
+
+  /* riga dei numeri da ordinare */
+  .tsort-input { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 10px; }
+  .tsort-inlabel { font-size: 14px; font-weight: 600; }
+  .tsort-field {
+    flex: 1 1 220px; min-width: 180px;
+    font: inherit; font-size: 14px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    padding: 6px 10px; border-radius: 6px;
+    border: 1px solid var(--tsort-line); background: var(--tsort-field-bg); color: var(--tsort-ink);
+  }
+  .tsort-field:focus { outline: none; border-color: var(--sl-color-accent, #3b5fd9); }
+  .tsort-error {
+    display: none; margin: 0 0 10px; padding: 0.5rem 0.7rem; font-size: 14px;
+    border-left: 4px solid var(--tsort-red); border-radius: 4px;
+    background: color-mix(in srgb, var(--tsort-red) 12%, transparent); color: var(--tsort-red);
+  }
+  .tsort-error.is-on { display: block; }
+
+  /* pulsanti, stesso stile di SimulatoreDijkstra */
+  .tsort-buttons { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 12px; }
+  .tsort-input button,
+  .tsort-buttons button {
+    font: inherit; font-size: 13px; padding: 6px 12px; border-radius: 6px;
+    border: 1px solid var(--tsort-line); background: var(--tsort-btn-bg); color: var(--tsort-ink);
+    cursor: pointer;
+  }
+  .tsort-input button:hover,
+  .tsort-buttons button:hover { border-color: var(--tsort-muted); }
+  .tsort-buttons button.primary { font-weight: 600; }
+  .tsort-buttons button:disabled { opacity: .45; cursor: not-allowed; }
+  .tsort-buttons button.is-on { background: var(--tsort-accent); border-color: var(--tsort-accent); color: #3a2f00; }
+  .tsort-speedcell { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--tsort-muted); }
+  .tsort-speedcell label { display: inline-flex; align-items: center; gap: 8px; }
+  .tsort-speed-val { font-weight: 600; font-variant-numeric: tabular-nums; color: var(--tsort-ink); min-width: 44px; }
+  .tsort-counter { font-size: 13px; color: var(--tsort-muted); margin-left: auto; font-variant-numeric: tabular-nums; text-align: right; }
+
+  .tsort input[type="range"] {
+    -webkit-appearance: none; appearance: none;
+    width: 110px; height: 4px; margin: 0;
+    background: var(--tsort-track); border-radius: 2px; outline: none; cursor: pointer;
+  }
+  .tsort input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none; width: 16px; height: 16px; border-radius: 50%;
+    background: var(--tsort-accent); border: 2px solid var(--sl-color-bg, #fff); cursor: pointer;
+  }
+  .tsort input[type="range"]::-moz-range-thumb {
+    width: 16px; height: 16px; border-radius: 50%;
+    background: var(--tsort-accent); border: 2px solid var(--sl-color-bg, #fff); cursor: pointer;
+  }
+
+  /* figura: su schermi stretti si scorre in orizzontale invece di rimpicciolire troppo il testo */
+  .tsort-scene {
+    overflow-x: auto;
+    border-radius: 10px;
+    border: 1px solid var(--tsort-line);
+    background: var(--tsort-plot-bg);
+    padding: 6px;
+  }
+  .tsort-svg { display: block; width: 100%; height: auto; margin-inline: auto; }
+  .tsort-svg text { fill: var(--tsort-cell-ink); }
+  .tsort-svg .f-norm { fill: var(--tsort-norm); }
+  .tsort-svg .f-ord { fill: var(--tsort-ord); }
+  .tsort-svg .f-hi { fill: var(--tsort-hi); }
+  .tsort-svg .f-new { fill: var(--tsort-new); }
+  .tsort-svg .f-vis { fill: var(--tsort-vis); }
+  .tsort-svg .f-amb { fill: var(--tsort-amb); }
+  .tsort-svg .f-empty { fill: var(--tsort-empty); }
+  .tsort-svg .f-used { fill: var(--tsort-used); }
+  .tsort-svg .f-faded { fill: var(--tsort-faded); }
+  .tsort-svg .s-norm { stroke: var(--tsort-norm-s); }
+  .tsort-svg .s-ord { stroke: var(--tsort-ord-s); }
+  .tsort-svg .s-hot { stroke: var(--tsort-hot); }
+  .tsort-svg .s-amb { stroke: var(--tsort-amb); }
+  .tsort-svg .s-ambink { stroke: var(--tsort-amb-ink); }
+  .tsort-svg .s-vis { stroke: var(--tsort-vis); }
+  .tsort-svg .s-empty { stroke: var(--tsort-empty-s); }
+  .tsort-svg .s-used { stroke: var(--tsort-used-s); }
+  .tsort-svg .s-faded { stroke: var(--tsort-faded-s); }
+  .tsort-svg .t-used { fill: var(--tsort-used-ink); }
+  .tsort-svg .t-faded { fill: var(--tsort-faded-ink); }
+  .tsort-svg .t-vis,
+  .tsort-svg .tx-white { fill: #fff; }
+  .tsort-svg .tx-idx { fill: var(--tsort-idx); }
+  .tsort-svg .tx-amb { fill: var(--tsort-amb-ink); }
+  .tsort-svg .tx-ord { fill: var(--tsort-ord-s); }
+  .tsort-svg .tx-lab { fill: var(--tsort-norm-s); }
+  .tsort-svg .ln-norm { stroke: var(--tsort-norm-s); fill: none; }
+  .tsort-svg .ln-ord { stroke: var(--tsort-ord-s); fill: none; }
+  .tsort-svg .ln-hot { stroke: var(--tsort-hot); fill: none; }
+  .tsort-svg .ln-amb { stroke: var(--tsort-amb); fill: none; }
+  .tsort-svg .ln-faded { stroke: var(--tsort-used-s); fill: none; }
+  .tsort-svg .ln-dry { stroke: var(--tsort-dry); fill: none; }
+  .tsort-svg .m-hot { fill: var(--tsort-hot); }
+  .tsort-svg .m-ord { fill: var(--tsort-ord-s); }
+  .tsort-svg .m-amb { fill: var(--tsort-amb); }
+
+  .tsort-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; font-size: 13px; color: var(--tsort-muted); margin: 10px 0; }
+  .tsort-legend > span { display: inline-flex; align-items: center; gap: 6px; }
+  .tsort-sw { display: inline-block; width: 14px; height: 14px; border-radius: 3px; border: 1.5px solid; }
+  .tsort-sw.round { border-radius: 50%; }
+  .tsort-sw.dashed { border-style: dashed; }
+  .tsort-sw.thick { border-width: 2.5px; }
+  .tsort-sw.c-norm { background: var(--tsort-norm); border-color: var(--tsort-norm-s); }
+  .tsort-sw.c-ord { background: var(--tsort-ord); border-color: var(--tsort-ord-s); }
+  .tsort-sw.c-hi { background: var(--tsort-hi); border-color: var(--tsort-hot); }
+  .tsort-sw.c-edge { background: var(--tsort-norm); border-color: var(--tsort-hot); }
+  .tsort-sw.c-empty { background: var(--tsort-empty); border-color: var(--tsort-empty-s); }
+  .tsort-sw.c-fuse { background: var(--tsort-empty); border-color: var(--tsort-hot); }
+  .tsort-sw.c-used { background: var(--tsort-used); border-color: var(--tsort-used-s); }
+  .tsort-sw.c-amb { background: var(--tsort-amb); border-color: var(--tsort-amb-ink); }
+  .tsort-sw.c-path { background: var(--tsort-ord); border-color: var(--tsort-ord-s); }
+  .tsort-sw.c-new { background: var(--tsort-new); border-color: var(--tsort-amb); }
+  .tsort-sw.c-vis { background: var(--tsort-vis); border-color: var(--tsort-vis); }
+  .tsort-sw.c-viscur { background: var(--tsort-hi); border-color: var(--tsort-amb); }
+
+  .tsort-msg { font-size: 15px; line-height: 1.45; background: var(--tsort-msg-bg); border-radius: 8px; padding: 10px 12px; min-height: 56px; }
+
+  .tsort-panel { display: flex; flex-wrap: wrap; gap: 10px 24px; align-items: flex-start; margin-top: 10px; font-size: 14px; }
+  .tsort-group { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+  .tsort-title { font-size: 13px; font-weight: 600; color: var(--tsort-muted); }
+  .tsort-counts { display: flex; flex-wrap: wrap; gap: 4px 16px; }
+  /* larghezza riservata ai valori, che cambiano a ogni passo */
+  .tsort-counts b { font-variant-numeric: tabular-nums; font-size: 15px; display: inline-block; min-width: 2ch; }
+
+  /* i due elenchi hanno la stessa larghezza, indipendente dal contenuto */
+  .tsort-panel .tsort-group:has(.tsort-chips) { flex: 1 1 240px; }
+  .tsort-chips { display: flex; flex-wrap: wrap; gap: 5px; min-height: 30px; }
+  .tsort-chip {
+    min-width: 34px; padding: 2px 6px; text-align: center; border-radius: 6px;
+    font-weight: 700; font-variant-numeric: tabular-nums;
+    border: 1px solid var(--tsort-norm-s); background: var(--tsort-norm); color: var(--tsort-cell-ink);
+  }
+  .tsort-chip.is-done { border-color: var(--tsort-used-s); background: var(--tsort-used); color: var(--tsort-used-ink); }
+  /* bordo più evidente senza cambiare le dimensioni del gettone */
+  .tsort-chip.is-cur { border-color: var(--tsort-amb); box-shadow: inset 0 0 0 1px var(--tsort-amb); background: var(--tsort-hi); }
+  /* posto riservato ai valori non ancora scritti dalla visita */
+  .tsort-chip.is-hidden { visibility: hidden; }
+  .tsort-chip.is-sorted { border-color: var(--tsort-ord-s); background: var(--tsort-ord); }
+</style>
+
+<script>
+  // Umami è caricato globalmente da Head.astro: si usa window.umami con un guard.
+  function trackEvent(name: string, data: Record<string, unknown>): void {
+    const w = window as unknown as { umami?: { track: (n: string, d: Record<string, unknown>) => void } };
+    if (w.umami) w.umami.track(name, data);
+  }
+
+  type Lang = 'it' | 'en';
+  const SVGNS = 'http://www.w3.org/2000/svg';
+  const BASE_MS = 1200;
+  // stessi numeri della dispensa del Modulo 2-C
+  const ESEMPIO = [41, 73, 17, 56, 8, 92, 29];
+
+  // --------------------------------------------------------------------------
+  //  Parti comuni ai cinque simulatori di ordinamento
+  // --------------------------------------------------------------------------
+  interface Comuni {
+    errCount: string;
+    errNum: (p: string) => string;
+    initial: (n: number) => string;
+    counter: (k: number, n: number) => string;
+  }
+  const COMUNI: Record<Lang, Comuni> = {
+    it: {
+      errCount: 'Inserisci da 2 a 10 numeri, separati da virgole o spazi.',
+      errNum: (p) => `«${p}» non è un numero intero da 0 a 99.`,
+      initial: (n) => `Situazione iniziale (${n} ${n === 1 ? 'passo' : 'passi'} in tutto)`,
+      counter: (k, n) => `Passo ${k} di ${n}`,
+    },
+    en: {
+      errCount: 'Enter from 2 to 10 numbers, separated by commas or spaces.',
+      errNum: (p) => `“${p}” is not a whole number from 0 to 99.`,
+      initial: (n) => `Initial state (${n} ${n === 1 ? 'step' : 'steps'} in all)`,
+      counter: (k, n) => `Step ${k} of ${n}`,
+    },
+  };
+
+  function el<K extends keyof SVGElementTagNameMap>(
+    tag: K, attrs: Record<string, string | number>, parent: Element | null, text?: string | number,
+  ): SVGElementTagNameMap[K] {
+    const e = document.createElementNS(SVGNS, tag);
+    for (const k in attrs) e.setAttribute(k, String(attrs[k]));
+    if (text !== undefined) e.textContent = String(text);
+    if (parent) parent.appendChild(e);
+    return e;
+  }
+
+  function freccia(defs: Element, id: string, cls: string): void {
+    const m = el('marker', { id, viewBox: '0 0 10 10', refX: 8, refY: 5, markerWidth: 7, markerHeight: 7, orient: 'auto-start-reverse' }, defs);
+    el('path', { d: 'M0,0 L10,5 L0,10 z', class: cls }, m);
+  }
+
+  // Stile di una casella: classe di riempimento (f-), di bordo (s-), spessore e tratteggio.
+  // I colori stanno nel CSS, così valgono sia nel tema chiaro sia in quello scuro.
+  interface Sty { f: string; s: string; sw?: number; dash?: string; }
+
+  function cella(par: Element, x: number, y: number, w: number, h: number, st: Sty, rx: number): SVGRectElement {
+    const r = el('rect', { x, y, width: w, height: h, rx, class: `f-${st.f} s-${st.s}`, 'stroke-width': st.sw ?? 1.6 }, par);
+    if (st.dash) r.setAttribute('stroke-dasharray', st.dash);
+    return r;
+  }
+
+  function leggiNumeri(str: string, C: Comuni): { valori: number[] } | { errore: string } {
+    const parti = str.split(/[\s,;]+/).filter((s) => s.length > 0);
+    if (parti.length < 2 || parti.length > 10) return { errore: C.errCount };
+    const valori: number[] = [];
+    for (const p of parti) {
+      if (!/^\d{1,2}$/.test(p)) return { errore: C.errNum(p) };
+      valori.push(parseInt(p, 10));
+    }
+    return { valori };
+  }
+
+  function numeriCasuali(n: number): number[] {
+    const s = new Set<number>();
+    while (s.size < n) s.add(1 + Math.floor(Math.random() * 99));
+    return [...s];
+  }
+
+  // Lettore dei passi: tutti gli stati sono calcolati in anticipo e poi mostrati uno alla volta.
+  function avviaLettore<P extends { testo: string }>(
+    root: HTMLElement,
+    C: Comuni,
+    costruisci: (v: number[]) => P[],
+    disegna: (p: P) => void,
+    avanzato: number[],
+    track: (azione: string) => void,
+  ): void {
+    const q = <T extends Element>(sel: string) => root.querySelector(sel) as T;
+    const campo = q<HTMLInputElement>('.tsort-field');
+    const errore = q<HTMLElement>('.tsort-error');
+    const btnRestart = q<HTMLButtonElement>('.tsort-restart');
+    const btnBack = q<HTMLButtonElement>('.tsort-back');
+    const btnNext = q<HTMLButtonElement>('.tsort-next');
+    const btnPlay = q<HTMLButtonElement>('.tsort-play');
+    const speed = q<HTMLInputElement>('.tsort-speed');
+    const speedVal = q<HTMLElement>('.tsort-speed-val');
+    const counter = q<HTMLElement>('.tsort-counter');
+    const msg = q<HTMLElement>('.tsort-msg');
+
+    let passi: P[] = [];
+    let idx = 0;
+    let timer: number | null = null;
+
+    // la figura non si ingrandisce oltre 1,35 volte le dimensioni naturali e non scende
+    // sotto 0,6 volte: oltre quel limite la scena scorre in orizzontale
+    function adatta(svg: SVGSVGElement): void {
+      const vb = (svg.getAttribute('viewBox') ?? '').split(' ');
+      if (vb.length !== 4) return;
+      const w = parseFloat(vb[2]);
+      svg.style.maxWidth = Math.round(w * 1.35) + 'px';
+      svg.style.minWidth = Math.round(w * 0.6) + 'px';
+    }
+
+    function mostra(): void {
+      const last = passi.length - 1;
+      disegna(passi[idx]);
+      root.querySelectorAll<SVGSVGElement>('.tsort-svg').forEach(adatta);
+      counter.textContent = idx === 0 ? C.initial(last) : C.counter(idx, last);
+      btnBack.disabled = idx === 0;
+      btnNext.disabled = idx === last;
+      if (idx === last) track('completato');
+    }
+
+    // Il riquadro della spiegazione ha sempre l'altezza della spiegazione più lunga
+    // dell'elenco caricato: così, passando da un passo all'altro, la pagina non si sposta.
+    // Per lo stesso motivo il contatore dei passi ha sempre la larghezza della sua scritta
+    // più lunga: altrimenti, su schermi stretti, andrebbe a capo solo in alcuni passi.
+    function fissaAltezza(): void {
+      if (passi.length === 0) return;
+      const last = passi.length - 1;
+      counter.style.minWidth = '';
+      let largo = 0;
+      for (const t of [C.initial(last), C.counter(last, last)]) {
+        counter.textContent = t;
+        largo = Math.max(largo, Math.ceil(counter.getBoundingClientRect().width));
+      }
+      counter.style.minWidth = largo + 'px';
+      msg.style.minHeight = '';
+      let max = 0;
+      for (const p of passi) {
+        msg.textContent = p.testo;
+        max = Math.max(max, msg.offsetHeight);
+      }
+      msg.style.minHeight = max + 'px';
+      msg.textContent = passi[idx].testo;
+    }
+    // la larghezza del riquadro cambia con la finestra: si ricalcola l'altezza
+    let attesa = 0;
+    window.addEventListener('resize', () => {
+      window.cancelAnimationFrame(attesa);
+      attesa = window.requestAnimationFrame(fissaAltezza);
+    });
+
+    const go = (i: number) => { idx = Math.max(0, Math.min(passi.length - 1, i)); mostra(); };
+    const interval = () => BASE_MS / Number(speed.value);
+
+    function stop(): void {
+      if (timer !== null) window.clearTimeout(timer);
+      timer = null;
+      btnPlay.textContent = root.dataset.play ?? '';
+      btnPlay.classList.remove('is-on');
+    }
+    function tick(): void {
+      if (idx >= passi.length - 1) { stop(); return; }
+      go(idx + 1);
+      timer = window.setTimeout(tick, interval());
+    }
+    function play(): void {
+      if (idx >= passi.length - 1) go(0);
+      btnPlay.textContent = root.dataset.pause ?? '';
+      btnPlay.classList.add('is-on');
+      track('avvia');
+      timer = window.setTimeout(tick, interval());
+    }
+
+    function carica(v: number[]): void {
+      stop();
+      campo.value = v.join(', ');
+      errore.textContent = '';
+      errore.classList.remove('is-on');
+      passi = costruisci(v);
+      idx = 0;
+      fissaAltezza();
+      go(0);
+    }
+    function usa(): void {
+      const r = leggiNumeri(campo.value, C);
+      if ('errore' in r) {
+        stop();
+        errore.textContent = r.errore;
+        errore.classList.add('is-on');
+        return;
+      }
+      track('numeri-utente');
+      carica(r.valori);
+    }
+
+    q<HTMLButtonElement>('.tsort-use').addEventListener('click', usa);
+    campo.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); usa(); } });
+    q<HTMLButtonElement>('.tsort-random').addEventListener('click', () => { track('numeri-casuali'); carica(numeriCasuali(7)); });
+    q<HTMLButtonElement>('.tsort-simple').addEventListener('click', () => { track('esempio-semplice'); carica(ESEMPIO.slice()); });
+    q<HTMLButtonElement>('.tsort-advanced').addEventListener('click', () => { track('esempio-avanzato'); carica(avanzato.slice()); });
+
+    btnRestart.addEventListener('click', () => { stop(); go(0); });
+    btnBack.addEventListener('click', () => { stop(); go(idx - 1); });
+    btnNext.addEventListener('click', () => { stop(); track('passo'); go(idx + 1); });
+    btnPlay.addEventListener('click', () => { if (timer !== null) stop(); else play(); });
+    speed.addEventListener('input', () => { speedVal.textContent = Number(speed.value).toFixed(2) + '×'; });
+    // frecce della tastiera solo quando il componente ha il focus e non si sta scrivendo nel campo
+    root.addEventListener('keydown', (ev) => {
+      if (ev.target === campo) return;
+      if (ev.key === 'ArrowRight') { ev.preventDefault(); stop(); go(idx + 1); }
+      else if (ev.key === 'ArrowLeft') { ev.preventDefault(); stop(); go(idx - 1); }
+    });
+
+    carica(ESEMPIO.slice());
+  }
+
+  // --------------------------------------------------------------------------
+  //  Testi
+  // --------------------------------------------------------------------------
+  const TXT = {
+    it: {
+      inizio: "Albero vuoto. Con «Avanti» i valori vengono inseriti uno alla volta in un albero binario di ricerca; poi l'albero viene letto con la visita simmetrica.",
+      radice: (v: number) => `Inserisco ${v}: l'albero è vuoto, quindi ${v} diventa la radice.`,
+      uguale: (v: number, c: number) =>
+        `Confronto ${v} con ${v}: sono uguali. Il valore è già presente, quindi non si aggiunge un nodo: il contatore di ${v} passa a ${c}.`,
+      scendo: (v: number, nv: number, minore: boolean) =>
+        `Confronto ${v} con ${nv}: ${v} ${minore ? '<' : '>'} ${nv}, quindi scendo a ${minore ? 'sinistra' : 'destra'}.`,
+      colloco: (v: number, nv: number, minore: boolean) =>
+        `A ${minore ? 'sinistra' : 'destra'} di ${nv} la posizione è vuota: ${v} diventa figlio ${minore ? 'sinistro' : 'destro'} di ${nv}.`,
+      scrivo: (v: number, c: number) =>
+        `Visita simmetrica: scrivo ${v}` + (c > 1 ? `, ripetuto ${c} volte come indica il suo contatore.` : '.'),
+      primaVisita: 'Inizia la visita simmetrica (sottoalbero sinistro, nodo, sottoalbero destro): si scende sempre a sinistra fino al valore minore. ',
+      sinistroScritto: ' Il suo sottoalbero sinistro è già stato scritto tutto.',
+      fine: "La visita simmetrica è finita: tutti i nodi sono stati scritti e l'elenco è ordinato.",
+      vuoto: 'vuoto',
+    },
+    en: {
+      inizio: 'Empty tree. With “Next” the values are inserted one at a time into a binary search tree; then the tree is read with the in-order traversal.',
+      radice: (v: number) => `I insert ${v}: the tree is empty, so ${v} becomes the root.`,
+      uguale: (v: number, c: number) =>
+        `I compare ${v} with ${v}: they are equal. The value is already present, so no node is added: the counter of ${v} goes up to ${c}.`,
+      scendo: (v: number, nv: number, minore: boolean) =>
+        `I compare ${v} with ${nv}: ${v} ${minore ? '<' : '>'} ${nv}, so I go down to the ${minore ? 'left' : 'right'}.`,
+      colloco: (v: number, nv: number, minore: boolean) =>
+        `To the ${minore ? 'left' : 'right'} of ${nv} the place is empty: ${v} becomes the ${minore ? 'left' : 'right'} child of ${nv}.`,
+      scrivo: (v: number, c: number) =>
+        `In-order traversal: I write ${v}` + (c > 1 ? `, repeated ${c} times as its counter says.` : '.'),
+      primaVisita: 'The in-order traversal begins (left subtree, node, right subtree): it always goes down to the left until the smallest value. ',
+      sinistroScritto: ' Its left subtree has already been written in full.',
+      fine: 'The in-order traversal is over: every node has been written and the list is sorted.',
+      vuoto: 'empty',
+    },
+  };
+  type Testi = (typeof TXT)[Lang];
+
+  // --------------------------------------------------------------------------
+  //  Passi dell'algoritmo
+  // --------------------------------------------------------------------------
+  interface NodoT {
+    id: number; val: number; cont: number; padre: number | null; lato: 'sx' | 'dx' | null;
+    liv: number; sx: number | null; dx: number | null;
+  }
+  interface Passo {
+    nodi: NodoT[];
+    confronti: number;
+    fase: 'inizio' | 'ins' | 'visita' | 'fine';
+    inIdx: number; // indice del valore che si sta inserendo
+    percorso: number[]; // nodi attraversati dal valore da inserire
+    cfr: number; // nodo confrontato (-1: nessuno)
+    arriva: number | null; // valore da inserire, disegnato accanto al nodo confrontato
+    rel: '<' | '>' | '=' | null;
+    nuovo: number; // nodo appena inserito
+    aumenta: number; // nodo il cui contatore è appena aumentato
+    visCur: number; // nodo scritto in questo passo della visita
+    visitati: number[];
+    uscita: number[];
+    testo: string;
+    // comuni a tutti i passi: servono a disporre l'albero finale
+    valori: number[];
+    distinti: number[];
+    maxLiv: number;
+  }
+
+  function costruisci(valori: number[], L: Testi): Passo[] {
+    const passi: Passo[] = [], nodi: NodoT[] = [];
+    let radice: number | null = null, confronti = 0;
+    const foto = (o: Pick<Passo, 'testo'> & Partial<Passo>) => {
+      passi.push({
+        nodi: nodi.map((n) => ({ ...n })), confronti, fase: 'ins', inIdx: -1, percorso: [], cfr: -1, arriva: null, rel: null,
+        nuovo: -1, aumenta: -1, visCur: -1, visitati: [], uscita: [], valori, distinti: [], maxLiv: 0, ...o,
+      });
+    };
+    foto({ fase: 'inizio', testo: L.inizio });
+    valori.forEach((v, i) => {
+      if (radice === null) {
+        nodi.push({ id: 0, val: v, cont: 1, padre: null, lato: null, liv: 0, sx: null, dx: null });
+        radice = 0;
+        foto({ inIdx: i, nuovo: 0, testo: L.radice(v) });
+        return;
+      }
+      let cur: number = radice;
+      const percorso: number[] = [];
+      for (;;) {
+        const n = nodi[cur];
+        confronti++;
+        percorso.push(cur);
+        if (v === n.val) {
+          n.cont++;
+          foto({ inIdx: i, cfr: cur, arriva: v, rel: '=', percorso: percorso.slice(), aumenta: cur, testo: L.uguale(v, n.cont) });
+          break;
+        }
+        const minore = v < n.val, lato = minore ? 'sx' : 'dx';
+        foto({ inIdx: i, cfr: cur, arriva: v, rel: minore ? '<' : '>', percorso: percorso.slice(), testo: L.scendo(v, n.val, minore) });
+        const figlio = n[lato];
+        if (figlio === null) {
+          const id = nodi.length;
+          nodi.push({ id, val: v, cont: 1, padre: cur, lato, liv: n.liv + 1, sx: null, dx: null });
+          n[lato] = id;
+          foto({ inIdx: i, nuovo: id, percorso: percorso.slice(), testo: L.colloco(v, n.val, minore) });
+          break;
+        }
+        cur = figlio;
+      }
+    });
+
+    // visita simmetrica: sottoalbero sinistro, nodo, sottoalbero destro
+    const ordine: number[] = [];
+    const vis = (id: number | null): void => {
+      if (id === null) return;
+      vis(nodi[id].sx);
+      ordine.push(id);
+      vis(nodi[id].dx);
+    };
+    vis(radice);
+    const uscita: number[] = [], visitati: number[] = [];
+    ordine.forEach((id, j) => {
+      const n = nodi[id];
+      for (let c = 0; c < n.cont; c++) uscita.push(n.val);
+      visitati.push(id);
+      let t = L.scrivo(n.val, n.cont);
+      if (j === 0) t = L.primaVisita + t;
+      else if (n.sx !== null) t += L.sinistroScritto;
+      foto({ fase: 'visita', inIdx: valori.length, visCur: id, visitati: visitati.slice(), uscita: uscita.slice(), testo: t });
+    });
+    foto({ fase: 'fine', inIdx: valori.length, visitati: visitati.slice(), uscita: uscita.slice(), testo: L.fine });
+
+    const distinti = [...new Set(valori)].sort((a, b) => a - b);
+    const maxLiv = Math.max(0, ...nodi.map((n) => n.liv));
+    passi.forEach((p) => { p.distinti = distinti; p.maxLiv = maxLiv; });
+    return passi;
+  }
+
+  // --------------------------------------------------------------------------
+  //  Disegno
+  // --------------------------------------------------------------------------
+  function disegnatore(root: HTMLElement, uid: string, L: Testi): (p: Passo) => void {
+    const q = <T extends Element>(sel: string) => root.querySelector(sel) as T;
+    const svg = q<SVGSVGElement>('.tsort-svg');
+    const chipsIn = q<HTMLElement>('.tsort-in'), chipsOut = q<HTMLElement>('.tsort-out');
+    const cC = q<HTMLElement>('.tsort-c-cmp'), msg = q<HTMLElement>('.tsort-msg');
+    const chip = (v: number, cls: string): HTMLSpanElement => {
+      const g = document.createElement('span');
+      g.className = 'tsort-chip' + (cls ? ' ' + cls : '');
+      g.textContent = String(v);
+      return g;
+    };
+
+    return (p) => {
+      const DX = 64, DY = 80, mx = 46, my = 100;
+      const W = mx * 2 + Math.max(1, p.distinti.length - 1) * DX, H = my + p.maxLiv * DY + 42;
+      svg.setAttribute('viewBox', `0 0 ${Math.max(W, 420)} ${Math.max(H, 140)}`);
+      const off = Math.max(0, (420 - W) / 2);
+      const colonna = (v: number) => off + mx + p.distinti.indexOf(v) * DX;
+      const X = (n: NodoT) => colonna(n.val), Y = (n: NodoT) => my + n.liv * DY;
+      svg.replaceChildren();
+      const defs = el('defs', {}, svg);
+      freccia(defs, uid + 'fr', 'm-amb');
+      const nodi = p.nodi, inPerc = new Set(p.percorso);
+
+      for (const n of nodi) {
+        if (n.padre === null) continue;
+        const P = nodi[n.padre];
+        const verde = (inPerc.has(n.id) && inPerc.has(P.id)) || p.nuovo === n.id;
+        el('line', { x1: X(P), y1: Y(P), x2: X(n), y2: Y(n), class: verde ? 'ln-ord' : 'ln-norm', 'stroke-width': verde ? 4 : 2 }, svg);
+      }
+      // ramo secco: un nodo con un solo figlio mostra un accenno del ramo mancante
+      for (const n of nodi) {
+        const haSx = n.sx !== null, haDx = n.dx !== null;
+        if (haSx === haDx) continue;
+        const lato = haSx ? 1 : -1; // il lato del figlio che manca
+        if (p.cfr === n.id && p.rel !== '=' && ((p.rel === '<') === (lato < 0))) continue; // lì c'è già la freccia arancione
+        const Ln = Math.hypot(40, 62), ux = (lato * 40) / Ln, uy = 62 / Ln;
+        const x0 = X(n), y0 = Y(n);
+        for (const [a, b] of [[21, 31], [36, 41], [46, 51]]) {
+          el('line', { x1: x0 + ux * a, y1: y0 + uy * a, x2: x0 + ux * b, y2: y0 + uy * b, class: 'ln-dry', 'stroke-width': 2, 'stroke-linecap': 'round' }, svg);
+        }
+      }
+
+      const visit = new Set(p.visitati);
+      for (const n of nodi) {
+        let f = 'norm', s = 'norm', sw = 2, tc = '';
+        if (inPerc.has(n.id)) { f = 'ord'; s = 'ord'; sw = 3; }
+        if (p.cfr === n.id) { s = 'amb'; sw = 4; }
+        if (p.nuovo === n.id) { f = 'new'; s = 'amb'; sw = 3; }
+        if (visit.has(n.id)) { f = 'vis'; s = 'vis'; tc = 't-vis'; }
+        if (p.visCur === n.id) { f = 'hi'; s = 'amb'; sw = 4; tc = ''; }
+        el('circle', { cx: X(n), cy: Y(n), r: 21, class: `f-${f} s-${s}`, 'stroke-width': sw }, svg);
+        el('text', { x: X(n), y: Y(n) + 6, 'text-anchor': 'middle', 'font-weight': 700, 'font-size': 17, class: tc }, svg, n.val);
+        if (n.cont > 1) {
+          const bx = n.lato === 'sx' ? X(n) - 40 : X(n) + 14, by = Y(n) - 30, evid = p.aumenta === n.id;
+          el('rect', { x: bx, y: by, width: 26, height: 17, rx: 4, class: evid ? 'f-hi s-amb' : 'f-empty s-empty', 'stroke-width': evid ? 2 : 1 }, svg);
+          el('text', { x: bx + 13, y: by + 13, 'text-anchor': 'middle', 'font-size': 12, 'font-weight': 700 }, svg, '×' + n.cont);
+        }
+      }
+
+      if (p.cfr >= 0 && p.arriva !== null) {
+        const n = nodi[p.cfr];
+        // minore: un po' sopra a sinistra; maggiore: un po' sopra a destra; uguale: sopra
+        const verso = p.rel === '<' ? -1 : p.rel === '>' ? 1 : 0;
+        const bx = X(n) + verso * 34, by = Y(n) - 48;
+        el('circle', { cx: bx, cy: by, r: 17, class: 'f-amb s-ambink', 'stroke-width': 1.5 }, svg);
+        el('text', { x: bx, y: by + 5, 'text-anchor': 'middle', 'font-weight': 700, 'font-size': 15, class: 'tx-white' }, svg, p.arriva);
+        // il segno sta sulla verticale del centro del valore da inserire
+        el('text', { x: bx, y: by - 24, 'text-anchor': 'middle', 'font-weight': 700, 'font-size': 22, class: 'tx-amb' }, svg, p.rel ?? '');
+        if (p.rel !== '=') {
+          const figlio = p.rel === '<' ? n.sx : n.dx;
+          let tx: number, ty: number;
+          if (figlio !== null) { tx = X(nodi[figlio]); ty = Y(nodi[figlio]); }
+          else {
+            tx = colonna(p.arriva); ty = Y(n) + DY;
+            el('circle', { cx: tx, cy: ty, r: 21, class: 'f-empty s-amb', 'stroke-width': 2, 'stroke-dasharray': '5 4' }, svg);
+            el('text', { x: tx, y: ty + 4, 'text-anchor': 'middle', 'font-size': 11, class: 'tx-amb' }, svg, L.vuoto);
+          }
+          const Ln = Math.hypot(tx - X(n), ty - Y(n)), ux = (tx - X(n)) / Ln, uy = (ty - Y(n)) / Ln;
+          el('line', {
+            x1: X(n) + ux * 23, y1: Y(n) + uy * 23, x2: tx - ux * 25, y2: ty - uy * 25,
+            class: 'ln-amb', 'stroke-width': 4, 'stroke-dasharray': '7 5', 'marker-end': `url(#${uid}fr)`,
+          }, svg);
+        }
+      }
+
+      // pannello
+      const finita = p.fase === 'visita' || p.fase === 'fine';
+      chipsIn.replaceChildren(...p.valori.map((v, i) =>
+        chip(v, finita || i < p.inIdx ? 'is-done' : (i === p.inIdx && p.fase === 'ins' ? 'is-cur' : ''))));
+      // l'elenco ordinato occupa fin dall'inizio il posto di tutti gli n valori: i gettoni
+      // non ancora scritti sono invisibili, così il pannello non cambia altezza
+      const ordinati = [...p.valori].sort((a, b) => a - b);
+      chipsOut.replaceChildren(...ordinati.map((v, i) => chip(v, i < p.uscita.length ? 'is-sorted' : 'is-hidden')));
+      cC.textContent = String(p.confronti);
+      msg.textContent = p.testo;
+    };
+  }
+
+  // --------------------------------------------------------------------------
+  //  Istanza del componente
+  // --------------------------------------------------------------------------
+  function init(root: HTMLElement, k: number): void {
+    const lang: Lang = root.dataset.lang === 'en' ? 'en' : 'it';
+    const L = TXT[lang];
+    const tracked = new Set<string>();
+    const track = (azione: string) => {
+      if (tracked.has(azione)) return;
+      tracked.add(azione);
+      trackEvent('simulatore-tree-sort', { azione, lingua: lang });
+    };
+    avviaLettore(root, COMUNI[lang], (v) => costruisci(v, L), disegnatore(root, `tsort${k}-`, L), [52, 18, 86, 44, 61, 25, 44, 37, 33, 34], track);
+  }
+
+  document.querySelectorAll<HTMLElement>('.tsort').forEach((root, k) => init(root, k));
+</script>

@@ -1,0 +1,99 @@
+---
+title: Merge Sort
+description: Step-by-step Merge Sort simulator, with the tree of the splits and the merges element by element.
+sidebar:
+  hidden: false
+  label: Merge Sort
+  order: 13
+tableOfContents: false
+---
+
+import SimulatoreMergeSort from '@components/SimulatoreMergeSort.astro';
+
+Merge Sort applies the **divide and conquer** strategy: a large problem is broken into smaller
+problems of the same kind, these are solved and the results are combined. The list is split in
+half, each half is sorted with the same method, and the two sorted halves are **merged** into a
+single sorted list. The splitting stops at lists of a single element, which are already sorted.
+
+The upper part of the simulator shows the tree of the splits: each level is a level of recursion.
+The lower part, during a merge, shows the two lists being merged and the result under construction.
+The simulator accepts from 2 to 10 whole numbers between 0 and 99, separated by commas or spaces,
+or it can generate random ones; when the simulator has the focus, the arrow keys move one step
+forwards or backwards.
+
+<SimulatoreMergeSort />
+
+## The procedure
+
+To sort a list of $n$ elements:
+
+1. if $n = 1$ the list is already sorted and there is nothing to do;
+2. otherwise it is split into two halves; with $n$ odd the first half has one more element;
+3. the first half is sorted with the same procedure;
+4. the second half is sorted with the same procedure;
+5. the two sorted halves are merged.
+
+The procedure is **recursive**: steps 3 and 4 call the whole procedure on a shorter list. This is
+why in the simulator the left half is completed, up to its last merge, before the right half is
+started.
+
+## The merge
+
+To merge two lists $L$ and $R$ that are already sorted, it is enough to compare their first
+elements not yet copied: the smaller one is copied into the result and its list moves forward.
+On a tie the left one is copied. When one of the two lists is finished, the elements left in the
+other are copied with no further comparisons: they are already in order and are greater than or
+equal to all those copied.
+
+Every comparison produces a copy, and the last element is always copied with no comparison: a merge
+with a result of $m$ elements therefore takes at most $m - 1$ comparisons. In the simple example the
+last merge joins 17, 41, 56, 73 and 8, 29, 92 with 6 comparisons; once 73 has been copied the left
+list is finished and 92 is copied with no comparison.
+
+## How many comparisons
+
+Every level of the tree contains all $n$ elements, so the merges of one level copy $n$ elements
+with fewer than $n$ comparisons. Since the parts are halved at every level, there are
+$\lceil \log_2 n \rceil$ merge levels, and the total work is proportional to $n \log_2 n$, whatever
+the starting order. More precisely, with $k = \lceil \log_2 n \rceil$ the maximum number of
+comparisons is
+
+$$
+n k - 2^{k} + 1
+$$
+
+Both examples of the simulator reach this maximum: 14 comparisons with 7 elements and 25 with 10.
+The difference from the elementary algorithms becomes huge on long lists: with 1000 elements
+$n(n-1)/2$ is 499,500, while $n \log_2 n$ is about 10,000.
+
+| Example | Splits | Copies | Comparisons |
+|---|---|---|---|
+| simple: 41, 73, 17, 56, 8, 92, 29 | 6 | 20 | 14 |
+| advanced: 27, 90, 49, 83, 35, 58, 64, 71, 12, 96 | 9 | 34 | 25 |
+
+The splits are always $n - 1$: each split increases the number of parts by one, from 1 to $n$. The
+copies depend only on $n$: each element is copied once for every merge level it goes through.
+
+:::tip[Worth noticing]
+The comparisons of a merge depend on how the two lists interleave. If all the elements of one list
+are smaller than all those of the other, the comparisons needed are as many as the elements of the
+list that runs out first. With the list 7, 6, 5, 4, 3, 2, 1 the comparisons drop to 9, the minimum
+possible with 7 elements.
+:::
+
+## Properties
+
+- The algorithm does **not work in place**: the merge writes the result into an auxiliary list, so
+  extra memory proportional to $n$ is needed.
+- The algorithm is **stable**: two equal elements keep their original relative order, because on a
+  tie the left one, which came first in the starting list, is copied first.
+
+## A bit of history
+
+Donald Knuth credits Merge Sort to John von Neumann, who in 1945 wrote it as a program for EDVAC,
+the stored-program computer then being designed. It was one of the first programs in history,
+written without being able to test it on a real machine. In 1970 Knuth analysed the original
+manuscript in the paper *Von Neumann's First Computer Program*.
+
+Sources: [MathWorld, *Merge Sort*](https://mathworld.wolfram.com/MergeSort.html);
+D. E. Knuth, *Von Neumann's First Computer Program*, ACM Computing Surveys, 1970.

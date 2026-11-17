@@ -1,0 +1,706 @@
+---
+// ============================================================================
+//  SimulatoreSelectionSort.astro
+//  Selection Sort (ordinamento per selezione) passo per passo su un elenco di
+//  2-10 interi fra 0 e 99: l'esempio della dispensa, numeri inseriti o casuali.
+//   - Ogni passo è un confronto con il minimo provvisorio, oppure lo scambio
+//     che chiude la passata
+//   - Verde: elementi al loro posto; arancione: minimo provvisorio
+//  Gli elementi SVG sono creati a runtime con createElement: per questo lo
+//  stile è <style is:global>, con prefisso ssort-.
+// ============================================================================
+const lang = Astro.url.pathname.startsWith('/en/') ? 'en' : 'it';
+
+const i18n = {
+  it: {
+    input: 'Numeri da ordinare',
+    inputAria: 'Numeri da ordinare: da 2 a 10 interi fra 0 e 99, separati da virgole o spazi',
+    use: 'Usa questi numeri',
+    random: 'Numeri casuali',
+    simple: 'Esempio semplice',
+    advanced: 'Esempio avanzato',
+    restart: 'Riavvia',
+    back: 'Indietro',
+    next: 'Avanti',
+    play: 'Avvia',
+    pause: 'Pausa',
+    speed: 'velocità',
+    counters: 'Contatori',
+    aria: 'Elenco da ordinare con Selection Sort',
+    lgOrd: 'al suo posto',
+    lgNorm: 'da ordinare',
+    lgMin: 'minimo provvisorio o elementi scambiati',
+    lgCmp: 'elemento confrontato',
+    cPass: 'Passata',
+    cCmp: 'Confronti',
+    cSwap: 'Scambi',
+  },
+  en: {
+    input: 'Numbers to sort',
+    inputAria: 'Numbers to sort: from 2 to 10 whole numbers between 0 and 99, separated by commas or spaces',
+    use: 'Use these numbers',
+    random: 'Random numbers',
+    simple: 'Simple example',
+    advanced: 'Advanced example',
+    restart: 'Restart',
+    back: 'Back',
+    next: 'Next',
+    play: 'Start',
+    pause: 'Pause',
+    speed: 'speed',
+    counters: 'Counters',
+    aria: 'List being sorted with Selection Sort',
+    lgOrd: 'in its final place',
+    lgNorm: 'still to sort',
+    lgMin: 'current minimum or swapped elements',
+    lgCmp: 'element being compared',
+    cPass: 'Pass',
+    cCmp: 'Comparisons',
+    cSwap: 'Swaps',
+  },
+};
+const t = i18n[lang];
+---
+
+<div class="ssort not-content" data-lang={lang} data-play={t.play} data-pause={t.pause} tabindex="0">
+  <div class="ssort-input">
+    <span class="ssort-inlabel">{t.input}</span>
+    <input type="text" class="ssort-field" spellcheck="false" autocomplete="off" aria-label={t.inputAria} />
+    <button type="button" class="ssort-use">{t.use}</button>
+    <button type="button" class="ssort-random">{t.random}</button>
+    <button type="button" class="ssort-simple">{t.simple}</button>
+    <button type="button" class="ssort-advanced">{t.advanced}</button>
+  </div>
+  <div class="ssort-error" role="alert"></div>
+
+  <div class="ssort-buttons">
+    <button type="button" class="ssort-restart">{t.restart}</button>
+    <button type="button" class="ssort-back">{t.back}</button>
+    <button type="button" class="ssort-next primary">{t.next}</button>
+    <button type="button" class="ssort-play">{t.play}</button>
+    <span class="ssort-speedcell">
+      <label>{t.speed}<input type="range" class="ssort-speed" min="0.5" max="2" step="0.25" value="1" /></label>
+      <span class="ssort-speed-val">1.00×</span>
+    </span>
+    <span class="ssort-counter" aria-live="polite"></span>
+  </div>
+
+  <div class="ssort-scene">
+    <svg class="ssort-svg" role="img" aria-label={t.aria}></svg>
+  </div>
+
+  <p class="ssort-legend">
+    <span><span class="ssort-sw c-ord"></span>{t.lgOrd}</span>
+    <span><span class="ssort-sw c-norm"></span>{t.lgNorm}</span>
+    <span><span class="ssort-sw c-hi thick"></span>{t.lgMin}</span>
+    <span><span class="ssort-sw c-edge thick"></span>{t.lgCmp}</span>
+  </p>
+
+  <div class="ssort-msg" role="status"></div>
+
+  <div class="ssort-panel">
+    <div class="ssort-group">
+      <span class="ssort-title">{t.counters}</span>
+      <div class="ssort-counts">
+        <span>{t.cPass}: <b class="ssort-c-pass">–</b></span>
+        <span>{t.cCmp}: <b class="ssort-c-cmp">0</b></span>
+        <span>{t.cSwap}: <b class="ssort-c-swap">0</b></span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<style is:global>
+  .ssort {
+    --ssort-ink: var(--sl-color-text, #26252a);
+    --ssort-muted: var(--sl-color-gray-3, #6c6b66);
+    --ssort-line: var(--sl-color-hairline, #d9d7cf);
+    --ssort-track: var(--sl-color-gray-5, #c8c6be);
+    --ssort-btn-bg: var(--sl-color-gray-6, #f0eeea);
+    --ssort-field-bg: var(--sl-color-bg, #fff);
+    --ssort-accent: #ffcc44;
+    --ssort-plot-bg: #fafaf8;
+    --ssort-msg-bg: #f1f5f9;
+    --ssort-red: #c62828;
+    /* colori della figura */
+    --ssort-cell-ink: #1f2937;
+    --ssort-idx: #9ca3af;
+    --ssort-norm: #eaf3f8;
+    --ssort-norm-s: #174a72;
+    --ssort-ord: #e9f4ec;
+    --ssort-ord-s: #2e7d32;
+    --ssort-hi: #fde7b0;
+    --ssort-hot: #d97706;
+    --ssort-amb: #f59e0b;
+    --ssort-amb-ink: #b45309;
+    --ssort-new: #fbe5cd;
+    --ssort-vis: #1f5f8b;
+    --ssort-empty: #ffffff;
+    --ssort-empty-s: #9ca3af;
+    --ssort-used: #f3f4f6;
+    --ssort-used-s: #d1d5db;
+    --ssort-used-ink: #9ca3af;
+    --ssort-faded: #f9fafb;
+    --ssort-faded-s: #e5e7eb;
+    --ssort-faded-ink: #c0c4cc;
+    --ssort-dry: #c4c9d0;
+    color: var(--ssort-ink);
+    max-width: 1040px;
+    min-width: 330px;
+    margin-inline: auto;
+    line-height: 1.5;
+    outline: none;
+  }
+  :root[data-theme='dark'] .ssort {
+    --ssort-plot-bg: #1a1a1a;
+    --ssort-msg-bg: #262626;
+    --ssort-red: #f87171;
+    --ssort-cell-ink: #e5e7eb;
+    --ssort-idx: #8b9098;
+    --ssort-norm: #1b3043;
+    --ssort-norm-s: #6aa6d6;
+    --ssort-ord: #1c3a24;
+    --ssort-ord-s: #5cb865;
+    --ssort-hi: #5c4410;
+    --ssort-hot: #f59e0b;
+    --ssort-amb-ink: #fbbf24;
+    --ssort-new: #4d3416;
+    --ssort-vis: #2b78b0;
+    --ssort-empty: #121212;
+    --ssort-empty-s: #6b7280;
+    --ssort-used: #2a2a2a;
+    --ssort-used-s: #4b5563;
+    --ssort-used-ink: #8b9098;
+    --ssort-faded: #202020;
+    --ssort-faded-s: #333333;
+    --ssort-faded-ink: #5f636a;
+    --ssort-dry: #555b63;
+  }
+
+  .ssort button,
+  .ssort p,
+  .ssort ul,
+  .ssort ol,
+  .ssort li,
+  .ssort input,
+  .ssort label { margin: 0; }
+
+  /* riga dei numeri da ordinare */
+  .ssort-input { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 10px; }
+  .ssort-inlabel { font-size: 14px; font-weight: 600; }
+  .ssort-field {
+    flex: 1 1 220px; min-width: 180px;
+    font: inherit; font-size: 14px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    padding: 6px 10px; border-radius: 6px;
+    border: 1px solid var(--ssort-line); background: var(--ssort-field-bg); color: var(--ssort-ink);
+  }
+  .ssort-field:focus { outline: none; border-color: var(--sl-color-accent, #3b5fd9); }
+  .ssort-error {
+    display: none; margin: 0 0 10px; padding: 0.5rem 0.7rem; font-size: 14px;
+    border-left: 4px solid var(--ssort-red); border-radius: 4px;
+    background: color-mix(in srgb, var(--ssort-red) 12%, transparent); color: var(--ssort-red);
+  }
+  .ssort-error.is-on { display: block; }
+
+  /* pulsanti, stesso stile di SimulatoreDijkstra */
+  .ssort-buttons { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 12px; }
+  .ssort-input button,
+  .ssort-buttons button {
+    font: inherit; font-size: 13px; padding: 6px 12px; border-radius: 6px;
+    border: 1px solid var(--ssort-line); background: var(--ssort-btn-bg); color: var(--ssort-ink);
+    cursor: pointer;
+  }
+  .ssort-input button:hover,
+  .ssort-buttons button:hover { border-color: var(--ssort-muted); }
+  .ssort-buttons button.primary { font-weight: 600; }
+  .ssort-buttons button:disabled { opacity: .45; cursor: not-allowed; }
+  .ssort-buttons button.is-on { background: var(--ssort-accent); border-color: var(--ssort-accent); color: #3a2f00; }
+  .ssort-speedcell { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ssort-muted); }
+  .ssort-speedcell label { display: inline-flex; align-items: center; gap: 8px; }
+  .ssort-speed-val { font-weight: 600; font-variant-numeric: tabular-nums; color: var(--ssort-ink); min-width: 44px; }
+  .ssort-counter { font-size: 13px; color: var(--ssort-muted); margin-left: auto; font-variant-numeric: tabular-nums; text-align: right; }
+
+  .ssort input[type="range"] {
+    -webkit-appearance: none; appearance: none;
+    width: 110px; height: 4px; margin: 0;
+    background: var(--ssort-track); border-radius: 2px; outline: none; cursor: pointer;
+  }
+  .ssort input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none; width: 16px; height: 16px; border-radius: 50%;
+    background: var(--ssort-accent); border: 2px solid var(--sl-color-bg, #fff); cursor: pointer;
+  }
+  .ssort input[type="range"]::-moz-range-thumb {
+    width: 16px; height: 16px; border-radius: 50%;
+    background: var(--ssort-accent); border: 2px solid var(--sl-color-bg, #fff); cursor: pointer;
+  }
+
+  /* figura: su schermi stretti si scorre in orizzontale invece di rimpicciolire troppo il testo */
+  .ssort-scene {
+    overflow-x: auto;
+    border-radius: 10px;
+    border: 1px solid var(--ssort-line);
+    background: var(--ssort-plot-bg);
+    padding: 6px;
+  }
+  .ssort-svg { display: block; width: 100%; height: auto; margin-inline: auto; }
+  .ssort-svg text { fill: var(--ssort-cell-ink); }
+  .ssort-svg .f-norm { fill: var(--ssort-norm); }
+  .ssort-svg .f-ord { fill: var(--ssort-ord); }
+  .ssort-svg .f-hi { fill: var(--ssort-hi); }
+  .ssort-svg .f-new { fill: var(--ssort-new); }
+  .ssort-svg .f-vis { fill: var(--ssort-vis); }
+  .ssort-svg .f-amb { fill: var(--ssort-amb); }
+  .ssort-svg .f-empty { fill: var(--ssort-empty); }
+  .ssort-svg .f-used { fill: var(--ssort-used); }
+  .ssort-svg .f-faded { fill: var(--ssort-faded); }
+  .ssort-svg .s-norm { stroke: var(--ssort-norm-s); }
+  .ssort-svg .s-ord { stroke: var(--ssort-ord-s); }
+  .ssort-svg .s-hot { stroke: var(--ssort-hot); }
+  .ssort-svg .s-amb { stroke: var(--ssort-amb); }
+  .ssort-svg .s-ambink { stroke: var(--ssort-amb-ink); }
+  .ssort-svg .s-vis { stroke: var(--ssort-vis); }
+  .ssort-svg .s-empty { stroke: var(--ssort-empty-s); }
+  .ssort-svg .s-used { stroke: var(--ssort-used-s); }
+  .ssort-svg .s-faded { stroke: var(--ssort-faded-s); }
+  .ssort-svg .t-used { fill: var(--ssort-used-ink); }
+  .ssort-svg .t-faded { fill: var(--ssort-faded-ink); }
+  .ssort-svg .t-vis,
+  .ssort-svg .tx-white { fill: #fff; }
+  .ssort-svg .tx-idx { fill: var(--ssort-idx); }
+  .ssort-svg .tx-amb { fill: var(--ssort-amb-ink); }
+  .ssort-svg .tx-ord { fill: var(--ssort-ord-s); }
+  .ssort-svg .tx-lab { fill: var(--ssort-norm-s); }
+  .ssort-svg .ln-norm { stroke: var(--ssort-norm-s); fill: none; }
+  .ssort-svg .ln-ord { stroke: var(--ssort-ord-s); fill: none; }
+  .ssort-svg .ln-hot { stroke: var(--ssort-hot); fill: none; }
+  .ssort-svg .ln-amb { stroke: var(--ssort-amb); fill: none; }
+  .ssort-svg .ln-faded { stroke: var(--ssort-used-s); fill: none; }
+  .ssort-svg .ln-dry { stroke: var(--ssort-dry); fill: none; }
+  .ssort-svg .m-hot { fill: var(--ssort-hot); }
+  .ssort-svg .m-ord { fill: var(--ssort-ord-s); }
+  .ssort-svg .m-amb { fill: var(--ssort-amb); }
+
+  .ssort-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; font-size: 13px; color: var(--ssort-muted); margin: 10px 0; }
+  .ssort-legend > span { display: inline-flex; align-items: center; gap: 6px; }
+  .ssort-sw { display: inline-block; width: 14px; height: 14px; border-radius: 3px; border: 1.5px solid; }
+  .ssort-sw.round { border-radius: 50%; }
+  .ssort-sw.dashed { border-style: dashed; }
+  .ssort-sw.thick { border-width: 2.5px; }
+  .ssort-sw.c-norm { background: var(--ssort-norm); border-color: var(--ssort-norm-s); }
+  .ssort-sw.c-ord { background: var(--ssort-ord); border-color: var(--ssort-ord-s); }
+  .ssort-sw.c-hi { background: var(--ssort-hi); border-color: var(--ssort-hot); }
+  .ssort-sw.c-edge { background: var(--ssort-norm); border-color: var(--ssort-hot); }
+  .ssort-sw.c-empty { background: var(--ssort-empty); border-color: var(--ssort-empty-s); }
+  .ssort-sw.c-fuse { background: var(--ssort-empty); border-color: var(--ssort-hot); }
+  .ssort-sw.c-used { background: var(--ssort-used); border-color: var(--ssort-used-s); }
+  .ssort-sw.c-amb { background: var(--ssort-amb); border-color: var(--ssort-amb-ink); }
+  .ssort-sw.c-path { background: var(--ssort-ord); border-color: var(--ssort-ord-s); }
+  .ssort-sw.c-new { background: var(--ssort-new); border-color: var(--ssort-amb); }
+  .ssort-sw.c-vis { background: var(--ssort-vis); border-color: var(--ssort-vis); }
+  .ssort-sw.c-viscur { background: var(--ssort-hi); border-color: var(--ssort-amb); }
+
+  .ssort-msg { font-size: 15px; line-height: 1.45; background: var(--ssort-msg-bg); border-radius: 8px; padding: 10px 12px; min-height: 56px; }
+
+  .ssort-panel { display: flex; flex-wrap: wrap; gap: 10px 24px; align-items: flex-start; margin-top: 10px; font-size: 14px; }
+  .ssort-group { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+  .ssort-title { font-size: 13px; font-weight: 600; color: var(--ssort-muted); }
+  .ssort-counts { display: flex; flex-wrap: wrap; gap: 4px 16px; }
+  /* larghezza riservata ai valori, che cambiano a ogni passo */
+  .ssort-counts b { font-variant-numeric: tabular-nums; font-size: 15px; display: inline-block; min-width: 2ch; }
+
+  /* la passata passa da "–" a "6 di 6": si riserva lo spazio della scritta più lunga */
+  .ssort-counts .ssort-c-pass { min-width: 3.4em; }
+</style>
+
+<script>
+  // Umami è caricato globalmente da Head.astro: si usa window.umami con un guard.
+  function trackEvent(name: string, data: Record<string, unknown>): void {
+    const w = window as unknown as { umami?: { track: (n: string, d: Record<string, unknown>) => void } };
+    if (w.umami) w.umami.track(name, data);
+  }
+
+  type Lang = 'it' | 'en';
+  const SVGNS = 'http://www.w3.org/2000/svg';
+  const BASE_MS = 1200;
+  // stessi numeri della dispensa del Modulo 2-C
+  const ESEMPIO = [41, 73, 17, 56, 8, 92, 29];
+
+  // --------------------------------------------------------------------------
+  //  Parti comuni ai cinque simulatori di ordinamento
+  // --------------------------------------------------------------------------
+  interface Comuni {
+    errCount: string;
+    errNum: (p: string) => string;
+    initial: (n: number) => string;
+    counter: (k: number, n: number) => string;
+  }
+  const COMUNI: Record<Lang, Comuni> = {
+    it: {
+      errCount: 'Inserisci da 2 a 10 numeri, separati da virgole o spazi.',
+      errNum: (p) => `«${p}» non è un numero intero da 0 a 99.`,
+      initial: (n) => `Situazione iniziale (${n} ${n === 1 ? 'passo' : 'passi'} in tutto)`,
+      counter: (k, n) => `Passo ${k} di ${n}`,
+    },
+    en: {
+      errCount: 'Enter from 2 to 10 numbers, separated by commas or spaces.',
+      errNum: (p) => `“${p}” is not a whole number from 0 to 99.`,
+      initial: (n) => `Initial state (${n} ${n === 1 ? 'step' : 'steps'} in all)`,
+      counter: (k, n) => `Step ${k} of ${n}`,
+    },
+  };
+
+  function el<K extends keyof SVGElementTagNameMap>(
+    tag: K, attrs: Record<string, string | number>, parent: Element | null, text?: string | number,
+  ): SVGElementTagNameMap[K] {
+    const e = document.createElementNS(SVGNS, tag);
+    for (const k in attrs) e.setAttribute(k, String(attrs[k]));
+    if (text !== undefined) e.textContent = String(text);
+    if (parent) parent.appendChild(e);
+    return e;
+  }
+
+  function freccia(defs: Element, id: string, cls: string): void {
+    const m = el('marker', { id, viewBox: '0 0 10 10', refX: 8, refY: 5, markerWidth: 7, markerHeight: 7, orient: 'auto-start-reverse' }, defs);
+    el('path', { d: 'M0,0 L10,5 L0,10 z', class: cls }, m);
+  }
+
+  // Stile di una casella: classe di riempimento (f-), di bordo (s-), spessore e tratteggio.
+  // I colori stanno nel CSS, così valgono sia nel tema chiaro sia in quello scuro.
+  interface Sty { f: string; s: string; sw?: number; dash?: string; }
+
+  function cella(par: Element, x: number, y: number, w: number, h: number, st: Sty, rx: number): SVGRectElement {
+    const r = el('rect', { x, y, width: w, height: h, rx, class: `f-${st.f} s-${st.s}`, 'stroke-width': st.sw ?? 1.6 }, par);
+    if (st.dash) r.setAttribute('stroke-dasharray', st.dash);
+    return r;
+  }
+
+  function leggiNumeri(str: string, C: Comuni): { valori: number[] } | { errore: string } {
+    const parti = str.split(/[\s,;]+/).filter((s) => s.length > 0);
+    if (parti.length < 2 || parti.length > 10) return { errore: C.errCount };
+    const valori: number[] = [];
+    for (const p of parti) {
+      if (!/^\d{1,2}$/.test(p)) return { errore: C.errNum(p) };
+      valori.push(parseInt(p, 10));
+    }
+    return { valori };
+  }
+
+  function numeriCasuali(n: number): number[] {
+    const s = new Set<number>();
+    while (s.size < n) s.add(1 + Math.floor(Math.random() * 99));
+    return [...s];
+  }
+
+  // Lettore dei passi: tutti gli stati sono calcolati in anticipo e poi mostrati uno alla volta.
+  function avviaLettore<P extends { testo: string }>(
+    root: HTMLElement,
+    C: Comuni,
+    costruisci: (v: number[]) => P[],
+    disegna: (p: P) => void,
+    avanzato: number[],
+    track: (azione: string) => void,
+  ): void {
+    const q = <T extends Element>(sel: string) => root.querySelector(sel) as T;
+    const campo = q<HTMLInputElement>('.ssort-field');
+    const errore = q<HTMLElement>('.ssort-error');
+    const btnRestart = q<HTMLButtonElement>('.ssort-restart');
+    const btnBack = q<HTMLButtonElement>('.ssort-back');
+    const btnNext = q<HTMLButtonElement>('.ssort-next');
+    const btnPlay = q<HTMLButtonElement>('.ssort-play');
+    const speed = q<HTMLInputElement>('.ssort-speed');
+    const speedVal = q<HTMLElement>('.ssort-speed-val');
+    const counter = q<HTMLElement>('.ssort-counter');
+    const msg = q<HTMLElement>('.ssort-msg');
+
+    let passi: P[] = [];
+    let idx = 0;
+    let timer: number | null = null;
+
+    // la figura non si ingrandisce oltre 1,35 volte le dimensioni naturali e non scende
+    // sotto 0,6 volte: oltre quel limite la scena scorre in orizzontale
+    function adatta(svg: SVGSVGElement): void {
+      const vb = (svg.getAttribute('viewBox') ?? '').split(' ');
+      if (vb.length !== 4) return;
+      const w = parseFloat(vb[2]);
+      svg.style.maxWidth = Math.round(w * 1.35) + 'px';
+      svg.style.minWidth = Math.round(w * 0.6) + 'px';
+    }
+
+    function mostra(): void {
+      const last = passi.length - 1;
+      disegna(passi[idx]);
+      root.querySelectorAll<SVGSVGElement>('.ssort-svg').forEach(adatta);
+      counter.textContent = idx === 0 ? C.initial(last) : C.counter(idx, last);
+      btnBack.disabled = idx === 0;
+      btnNext.disabled = idx === last;
+      if (idx === last) track('completato');
+    }
+
+    // Il riquadro della spiegazione ha sempre l'altezza della spiegazione più lunga
+    // dell'elenco caricato: così, passando da un passo all'altro, la pagina non si sposta.
+    // Per lo stesso motivo il contatore dei passi ha sempre la larghezza della sua scritta
+    // più lunga: altrimenti, su schermi stretti, andrebbe a capo solo in alcuni passi.
+    function fissaAltezza(): void {
+      if (passi.length === 0) return;
+      const last = passi.length - 1;
+      counter.style.minWidth = '';
+      let largo = 0;
+      for (const t of [C.initial(last), C.counter(last, last)]) {
+        counter.textContent = t;
+        largo = Math.max(largo, Math.ceil(counter.getBoundingClientRect().width));
+      }
+      counter.style.minWidth = largo + 'px';
+      msg.style.minHeight = '';
+      let max = 0;
+      for (const p of passi) {
+        msg.textContent = p.testo;
+        max = Math.max(max, msg.offsetHeight);
+      }
+      msg.style.minHeight = max + 'px';
+      msg.textContent = passi[idx].testo;
+    }
+    // la larghezza del riquadro cambia con la finestra: si ricalcola l'altezza
+    let attesa = 0;
+    window.addEventListener('resize', () => {
+      window.cancelAnimationFrame(attesa);
+      attesa = window.requestAnimationFrame(fissaAltezza);
+    });
+
+    const go = (i: number) => { idx = Math.max(0, Math.min(passi.length - 1, i)); mostra(); };
+    const interval = () => BASE_MS / Number(speed.value);
+
+    function stop(): void {
+      if (timer !== null) window.clearTimeout(timer);
+      timer = null;
+      btnPlay.textContent = root.dataset.play ?? '';
+      btnPlay.classList.remove('is-on');
+    }
+    function tick(): void {
+      if (idx >= passi.length - 1) { stop(); return; }
+      go(idx + 1);
+      timer = window.setTimeout(tick, interval());
+    }
+    function play(): void {
+      if (idx >= passi.length - 1) go(0);
+      btnPlay.textContent = root.dataset.pause ?? '';
+      btnPlay.classList.add('is-on');
+      track('avvia');
+      timer = window.setTimeout(tick, interval());
+    }
+
+    function carica(v: number[]): void {
+      stop();
+      campo.value = v.join(', ');
+      errore.textContent = '';
+      errore.classList.remove('is-on');
+      passi = costruisci(v);
+      idx = 0;
+      fissaAltezza();
+      go(0);
+    }
+    function usa(): void {
+      const r = leggiNumeri(campo.value, C);
+      if ('errore' in r) {
+        stop();
+        errore.textContent = r.errore;
+        errore.classList.add('is-on');
+        return;
+      }
+      track('numeri-utente');
+      carica(r.valori);
+    }
+
+    q<HTMLButtonElement>('.ssort-use').addEventListener('click', usa);
+    campo.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); usa(); } });
+    q<HTMLButtonElement>('.ssort-random').addEventListener('click', () => { track('numeri-casuali'); carica(numeriCasuali(7)); });
+    q<HTMLButtonElement>('.ssort-simple').addEventListener('click', () => { track('esempio-semplice'); carica(ESEMPIO.slice()); });
+    q<HTMLButtonElement>('.ssort-advanced').addEventListener('click', () => { track('esempio-avanzato'); carica(avanzato.slice()); });
+
+    btnRestart.addEventListener('click', () => { stop(); go(0); });
+    btnBack.addEventListener('click', () => { stop(); go(idx - 1); });
+    btnNext.addEventListener('click', () => { stop(); track('passo'); go(idx + 1); });
+    btnPlay.addEventListener('click', () => { if (timer !== null) stop(); else play(); });
+    speed.addEventListener('input', () => { speedVal.textContent = Number(speed.value).toFixed(2) + '×'; });
+    // frecce della tastiera solo quando il componente ha il focus e non si sta scrivendo nel campo
+    root.addEventListener('keydown', (ev) => {
+      if (ev.target === campo) return;
+      if (ev.key === 'ArrowRight') { ev.preventDefault(); stop(); go(idx + 1); }
+      else if (ev.key === 'ArrowLeft') { ev.preventDefault(); stop(); go(idx - 1); }
+    });
+
+    carica(ESEMPIO.slice());
+  }
+
+  // --------------------------------------------------------------------------
+  //  Disegno di un elenco come fila di caselle numerate
+  // --------------------------------------------------------------------------
+  interface Geo { X: (j: number) => number; yb: number; ch: number; }
+
+  function disegnaFila(svg: SVGSVGElement, uid: string, celle: Array<number | null>, stileDi: (j: number) => Sty, extra?: (g: Geo) => void): void {
+    const n = celle.length, cw = 58, ch = 46, mx = 34, yb = 112;
+    const W = mx * 2 + n * cw, H = 200;
+    svg.setAttribute('viewBox', `0 0 ${Math.max(W, 420)} ${H}`);
+    const off = Math.max(0, (420 - W) / 2);
+    const X = (j: number) => off + mx + j * cw + cw / 2;
+    svg.replaceChildren();
+    const defs = el('defs', {}, svg);
+    freccia(defs, uid + 'fr', 'm-hot');
+    for (let j = 0; j < n; j++) {
+      const s = stileDi(j);
+      cella(svg, X(j) - cw / 2 + 4, yb - ch / 2, cw - 8, ch, s, 5);
+      const v = celle[j];
+      if (v !== null) el('text', { x: X(j), y: yb + 6, 'text-anchor': 'middle', 'font-weight': 700, 'font-size': 18, class: 't-' + s.f }, svg, v);
+      el('text', { x: X(j), y: yb + ch / 2 + 16, 'text-anchor': 'middle', 'font-size': 11, class: 'tx-idx' }, svg, j);
+    }
+    if (extra) extra({ X, yb, ch });
+  }
+
+  const STILE: Record<'normale' | 'ordinato' | 'evidenza' | 'bordo' | 'bordoOrd', Sty> = {
+    normale: { f: 'norm', s: 'norm' },
+    ordinato: { f: 'ord', s: 'ord' },
+    evidenza: { f: 'hi', s: 'hot', sw: 2.6 },
+    bordo: { f: 'norm', s: 'hot', sw: 3 },
+    bordoOrd: { f: 'ord', s: 'hot', sw: 3 },
+  };
+
+  // arco a doppia freccia fra due caselle (scambio)
+  function arco(svg: SVGSVGElement, uid: string, g: Geo, a: number, b: number): void {
+    const x1 = g.X(a), x2 = g.X(b), y = g.yb - g.ch / 2 - 4;
+    el('path', {
+      d: `M${x1},${y} Q${(x1 + x2) / 2},${y - 40} ${x2},${y}`,
+      class: 'ln-hot', 'stroke-width': 2.5, 'marker-start': `url(#${uid}fr)`, 'marker-end': `url(#${uid}fr)`,
+    }, svg);
+  }
+
+  // --------------------------------------------------------------------------
+  //  Testi
+  // --------------------------------------------------------------------------
+  const TXT = {
+    it: {
+      inizio: (n: number) =>
+        'Situazione iniziale. A ogni passata si cerca il minimo della parte da ordinare e lo si porta al primo posto libero a sinistra. ' +
+        (n === 1 ? 'Serve 1 passata.' : `Servono ${n} passate.`),
+      passata: (p: number, v: number, i: number) => `Passata ${p}: il minimo provvisorio è ${v}, in posizione ${i}. `,
+      nuovoMin: (x: number, m: number) => `Confronto ${x} con il minimo provvisorio ${m}: ${x} < ${m}, il nuovo minimo provvisorio è ${x}.`,
+      restaMin: (x: number, m: number) =>
+        `Confronto ${x} con il minimo provvisorio ${m}: ${x} ${x === m ? '=' : '>'} ${m}, il minimo provvisorio resta ${m}.`,
+      scambio: (m: number, v: number, i: number) => `Scambio il minimo ${m} con ${v}, in posizione ${i}: ora ${m} è al suo posto.`,
+      fermo: (v: number, i: number) => `Il minimo ${v} è già in posizione ${i}: nessuno scambio.`,
+      fine: (n: number, v: number) =>
+        `Dopo ${n} ${n === 1 ? 'passata' : 'passate'} anche l'ultimo elemento, ${v}, è al suo posto, senza bisogno di altri confronti: l'elenco è ordinato.`,
+      minimo: 'minimo',
+      di: 'di',
+    },
+    en: {
+      inizio: (n: number) =>
+        'Initial state. In each pass the minimum of the part still to sort is found and moved to the first free place on the left. ' +
+        (n === 1 ? '1 pass is needed.' : `${n} passes are needed.`),
+      passata: (p: number, v: number, i: number) => `Pass ${p}: the current minimum is ${v}, at position ${i}. `,
+      nuovoMin: (x: number, m: number) => `I compare ${x} with the current minimum ${m}: ${x} < ${m}, the new current minimum is ${x}.`,
+      restaMin: (x: number, m: number) =>
+        `I compare ${x} with the current minimum ${m}: ${x} ${x === m ? '=' : '>'} ${m}, the current minimum stays ${m}.`,
+      scambio: (m: number, v: number, i: number) => `I swap the minimum ${m} with ${v}, at position ${i}: now ${m} is in its final place.`,
+      fermo: (v: number, i: number) => `The minimum ${v} is already at position ${i}: no swap.`,
+      fine: (n: number, v: number) =>
+        `After ${n} ${n === 1 ? 'pass' : 'passes'} the last element, ${v}, is in its final place too, with no further comparisons: the list is sorted.`,
+      minimo: 'minimum',
+      di: 'of',
+    },
+  };
+  type Testi = (typeof TXT)[Lang];
+
+  // --------------------------------------------------------------------------
+  //  Passi dell'algoritmo
+  // --------------------------------------------------------------------------
+  interface Passo {
+    celle: number[];
+    confronti: number;
+    scambi: number;
+    tipo: 'inizio' | 'cfr' | 'scambio' | 'fermo' | 'fine';
+    i: number; // primo posto della parte da ordinare
+    j: number; // elemento confrontato
+    m: number; // posizione del minimo provvisorio
+    passata: number;
+    finito: boolean;
+    testo: string;
+  }
+
+  function costruisci(valori: number[], L: Testi): Passo[] {
+    const a = valori.slice(), n = a.length, passi: Passo[] = [];
+    let confronti = 0, scambi = 0;
+    const foto = (o: Pick<Passo, 'tipo' | 'i' | 'passata' | 'testo'> & Partial<Passo>) => {
+      passi.push({ celle: a.slice(), confronti, scambi, j: -1, m: -1, finito: false, ...o });
+    };
+    foto({ tipo: 'inizio', i: 0, passata: 0, testo: L.inizio(n - 1) });
+    for (let i = 0; i < n - 1; i++) {
+      let m = i;
+      for (let j = i + 1; j < n; j++) {
+        confronti++;
+        let t = j === i + 1 ? L.passata(i + 1, a[i], i) : '';
+        if (a[j] < a[m]) { t += L.nuovoMin(a[j], a[m]); m = j; }
+        else t += L.restaMin(a[j], a[m]);
+        foto({ tipo: 'cfr', i, j, m, passata: i + 1, testo: t });
+      }
+      if (m !== i) {
+        const t = L.scambio(a[m], a[i], i);
+        [a[i], a[m]] = [a[m], a[i]];
+        scambi++;
+        foto({ tipo: 'scambio', i, m, passata: i + 1, testo: t });
+      } else {
+        foto({ tipo: 'fermo', i, m, passata: i + 1, testo: L.fermo(a[i], i) });
+      }
+    }
+    foto({ tipo: 'fine', i: n - 1, passata: n - 1, finito: true, testo: L.fine(n - 1, a[n - 1]) });
+    return passi;
+  }
+
+  // --------------------------------------------------------------------------
+  //  Disegno
+  // --------------------------------------------------------------------------
+  function disegnatore(root: HTMLElement, uid: string, L: Testi): (p: Passo) => void {
+    const q = <T extends Element>(sel: string) => root.querySelector(sel) as T;
+    const svg = q<SVGSVGElement>('.ssort-svg');
+    const msg = q<HTMLElement>('.ssort-msg');
+    const cP = q<HTMLElement>('.ssort-c-pass'), cC = q<HTMLElement>('.ssort-c-cmp'), cS = q<HTMLElement>('.ssort-c-swap');
+    return (p) => {
+      const n = p.celle.length;
+      disegnaFila(svg, uid, p.celle, (j) => {
+        if (p.finito) return STILE.ordinato;
+        if (p.tipo === 'scambio' || p.tipo === 'fermo') {
+          if (j === p.i || j === p.m) return STILE.evidenza;
+          return j < p.i ? STILE.ordinato : STILE.normale;
+        }
+        if (j < p.i) return STILE.ordinato;
+        if (p.tipo === 'cfr') {
+          if (j === p.m) return STILE.evidenza;
+          if (j === p.j) return STILE.bordo;
+        }
+        return STILE.normale;
+      }, (g) => {
+        if (p.tipo === 'cfr') el('text', { x: g.X(p.m), y: g.yb - g.ch / 2 - 10, 'text-anchor': 'middle', 'font-size': 12, 'font-weight': 700, class: 'tx-amb' }, svg, L.minimo);
+        if (p.tipo === 'scambio') arco(svg, uid, g, p.i, p.m);
+      });
+      cP.textContent = p.passata === 0 ? '–' : `${p.passata} ${L.di} ${n - 1}`;
+      cC.textContent = String(p.confronti);
+      cS.textContent = String(p.scambi);
+      msg.textContent = p.testo;
+    };
+  }
+
+  // --------------------------------------------------------------------------
+  //  Istanza del componente
+  // --------------------------------------------------------------------------
+  function init(root: HTMLElement, k: number): void {
+    const lang: Lang = root.dataset.lang === 'en' ? 'en' : 'it';
+    const L = TXT[lang];
+    const tracked = new Set<string>();
+    const track = (azione: string) => {
+      if (tracked.has(azione)) return;
+      tracked.add(azione);
+      trackEvent('simulatore-selection-sort', { azione, lingua: lang });
+    };
+    avviaLettore(root, COMUNI[lang], (v) => costruisci(v, L), disegnatore(root, `ssort${k}-`, L), [34, 47, 58, 66, 79, 92, 12], track);
+  }
+
+  document.querySelectorAll<HTMLElement>('.ssort').forEach((root, k) => init(root, k));
+</script>

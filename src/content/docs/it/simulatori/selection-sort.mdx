@@ -1,0 +1,76 @@
+---
+title: Selection Sort
+description: Simulatore passo per passo di Selection Sort (ordinamento per selezione), con minimo provvisorio, confronti, scambi e passate.
+sidebar:
+  hidden: false
+  label: Selection Sort
+  order: 11
+tableOfContents: false
+---
+
+import SimulatoreSelectionSort from '@components/SimulatoreSelectionSort.astro';
+
+Selection Sort, in italiano *ordinamento per selezione*, a ogni passata seleziona il minimo della
+parte ancora da ordinare e lo scambia con il primo elemento di quella parte. A sinistra cresce così
+una parte ordinata che non viene più toccata: dopo la prima passata contiene il minimo dell'intero
+elenco, dopo la seconda i due valori più piccoli, e così via.
+
+Nel simulatore si possono inserire da 2 a 10 numeri interi fra 0 e 99, separati da virgole o
+spazi, oppure generarne di casuali. Quando il simulatore ha il focus, le frecce della tastiera
+spostano di un passo avanti o indietro.
+
+<SimulatoreSelectionSort />
+
+## Il procedimento
+
+Dato un elenco $a_0, a_1, \dots, a_{n-1}$ di $n$ elementi, per $i$ da $0$ a $n - 2$:
+
+1. si prende $a_i$ come **minimo provvisorio**;
+2. si confronta il minimo provvisorio con ciascuno degli elementi $a_{i+1}, \dots, a_{n-1}$, e lo
+   si aggiorna ogni volta che se ne trova uno minore;
+3. si scambia il minimo trovato con $a_i$, se non si trova già in quella posizione.
+
+L'ultimo elemento non richiede una passata: quando i primi $n - 1$ elementi sono al loro posto,
+quello rimasto è necessariamente il maggiore.
+
+## Quanti confronti e quanti scambi
+
+Per trovare il minimo fra $n - i$ elementi servono $n - i - 1$ confronti, qualunque sia il loro
+ordine. Il totale è quindi sempre
+
+$$
+(n-1) + (n-2) + \dots + 1 = \frac{n(n-1)}{2}
+$$
+
+anche quando l'elenco è già ordinato: Selection Sort non sfrutta l'ordine eventualmente presente.
+Con 7 elementi i confronti sono 21 in entrambi gli esempi del simulatore.
+
+Gli scambi, invece, sono al più $n - 1$, uno per passata. È il numero più basso fra gli algoritmi
+di ordinamento elementari, e rende Selection Sort conveniente quando spostare un elemento costa
+molto più che confrontarlo.
+
+| Esempio | Confronti | Scambi |
+|---|---|---|
+| semplice: 41, 73, 17, 56, 8, 92, 29 | 21 | 5 |
+| avanzato: 34, 47, 58, 66, 79, 92, 12 | 21 | 6 |
+
+Nell'esempio semplice, nella quinta passata il minimo 56 si trova già in posizione 4 e non viene
+scambiato.
+
+:::tip[Da osservare]
+L'esempio avanzato è quasi ordinato: basterebbe spostare 12 all'inizio. Selection Sort esegue
+comunque tutti i 21 confronti, e in più fa uno scambio in ogni passata, perché ogni scambio porta
+in fondo l'elemento che occupava il primo posto libero. [Insertion Sort](/it/simulatori/insertion-sort/),
+sullo stesso elenco, si ferma a 11 confronti.
+:::
+
+## Proprietà
+
+- L'algoritmo lavora **in loco**: modifica l'elenco stesso e usa solo poche variabili di appoggio.
+- L'algoritmo **non è stabile**: due elementi uguali possono non mantenere l'ordine reciproco di
+  partenza. Lo scambio avviene a distanza e può scavalcare un elemento uguale. Indicando con
+  $5_a$ e $5_b$ due copie del valore 5, l'elenco $5_a, 5_b, 3$ diventa dopo la prima passata
+  $3, 5_b, 5_a$: le due copie si sono invertite.
+
+In ogni caso il numero di confronti cresce come $n^2$: raddoppiando la lunghezza dell'elenco, il
+lavoro circa quadruplica.

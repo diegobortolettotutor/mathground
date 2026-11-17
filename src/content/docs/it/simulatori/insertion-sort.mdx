@@ -1,0 +1,86 @@
+---
+title: Insertion Sort
+description: Simulatore passo per passo di Insertion Sort (ordinamento per inserimento), con chiave, casella vuota, spostamenti e confronti.
+sidebar:
+  hidden: false
+  label: Insertion Sort
+  order: 12
+tableOfContents: false
+---
+
+import SimulatoreInsertionSort from '@components/SimulatoreInsertionSort.astro';
+
+Insertion Sort, in italiano *ordinamento per inserimento*, è il metodo con cui spesso si riordinano
+le carte da gioco in mano: si prende una carta alla volta e la si inserisce al posto giusto fra
+quelle già ordinate. L'elenco è diviso in due parti: a sinistra la parte ordinata, che all'inizio
+contiene solo il primo elemento, a destra la parte da ordinare. A ogni passata il primo elemento
+della parte da ordinare, detto **chiave**, viene inserito nella parte ordinata.
+
+Nel simulatore si possono inserire da 2 a 10 numeri interi fra 0 e 99, separati da virgole o
+spazi, oppure generarne di casuali. Quando il simulatore ha il focus, le frecce della tastiera
+spostano di un passo avanti o indietro.
+
+<SimulatoreInsertionSort />
+
+## Il procedimento
+
+Dato un elenco $a_0, a_1, \dots, a_{n-1}$ di $n$ elementi, per $i$ da $1$ a $n - 1$:
+
+1. si toglie dall'elenco la chiave $k = a_i$, che lascia una casella vuota in posizione $i$;
+2. finché a sinistra della casella vuota c'è un elemento maggiore di $k$, lo si sposta di una
+   casella a destra, e la casella vuota si sposta di una casella a sinistra;
+3. ci si ferma quando l'elemento a sinistra è minore o uguale a $k$, oppure quando la casella
+   vuota è arrivata in posizione 0, e si scrive $k$ nella casella vuota.
+
+Uno spostamento non è uno scambio: ogni elemento maggiore della chiave viene scritto una sola
+volta, nella casella accanto, e la chiave viene scritta una sola volta, alla fine della passata.
+
+## Quanti confronti e quanti spostamenti
+
+Si chiama **inversione** una coppia di elementi, non necessariamente vicini, in cui il maggiore
+precede il minore. Ogni spostamento elimina esattamente un'inversione, perché l'elemento spostato
+è maggiore della chiave e la precedeva. Gli spostamenti sono quindi tanti quante le inversioni
+dell'elenco di partenza: gli stessi scambi di [Bubble Sort](/it/simulatori/bubble-sort/), ma
+ognuno costa una sola scrittura invece delle tre di uno scambio.
+
+In ogni passata i confronti sono uno in più degli spostamenti, tranne quando la chiave arriva fino
+alla casella 0: lì manca il confronto che ferma lo scorrimento.
+
+- Caso migliore, elenco già ordinato: ogni chiave si ferma al primo confronto, quindi bastano
+  $n - 1$ confronti e nessuno spostamento.
+- Caso peggiore, elenco in ordine decrescente: ogni chiave arriva fino alla casella 0, e servono
+  $\dfrac{n(n-1)}{2}$ confronti e altrettanti spostamenti.
+
+| Esempio | Inversioni | Confronti | Spostamenti |
+|---|---|---|---|
+| semplice: 41, 73, 17, 56, 8, 92, 29 | 11 | 15 | 11 |
+| avanzato: 92, 85, 77, 23, 64, 41, 12 | 19 | 21 | 19 |
+
+Insertion Sort è **adattivo**: più l'elenco è vicino all'ordine, meno lavora. Per questo, nella
+pratica, è spesso preferito sugli elenchi brevi o quasi ordinati, anche se nel caso peggiore il
+numero di confronti cresce come $n^2$.
+
+:::tip[Da osservare]
+Quando la chiave è maggiore di tutta la parte ordinata basta un solo confronto: nell'esempio
+semplice capita con 73 nella passata 1 e con 92 nella passata 5. Con l'elenco 1, 2, 3, 4, 5, 6, 7
+capita in ogni passata, e i confronti scendono a 6.
+:::
+
+## Proprietà
+
+- L'algoritmo lavora **in loco**: modifica l'elenco stesso e usa solo una variabile di appoggio
+  per la chiave.
+- L'algoritmo è **stabile**: due elementi uguali mantengono l'ordine reciproco di partenza.
+  Lo scorrimento si ferma davanti a un elemento uguale alla chiave, che quindi non viene
+  scavalcato; il simulatore lo segnala quando succede, per esempio con 5, 5, 3, 5, 1.
+
+## Un po' di storia
+
+Donald Knuth, in *The Art of Computer Programming*, riporta che l'ordinamento per inserimento fu
+citato da John Mauchly già nel 1946, nella prima discussione pubblicata sull'ordinamento con i
+calcolatori. Mauchly, uno dei progettisti dell'ENIAC, ne parlò nella lezione *Sorting and
+Collating* del corso estivo tenuto quell'anno alla Moore School dell'Università della
+Pennsylvania, a Filadelfia.
+
+Fonti: D. E. Knuth, *The Art of Computer Programming*, vol. 3, *Sorting and Searching*, p. 82;
+[programma delle lezioni della Moore School, 1946](https://curation.cs.manchester.ac.uk/digital60/www.digital60.org/birth/themooreschool/list.html).

@@ -1,0 +1,77 @@
+---
+title: Selection Sort
+description: Step-by-step Selection Sort simulator, with the current minimum, comparisons, swaps and passes.
+sidebar:
+  hidden: false
+  label: Selection Sort
+  order: 11
+tableOfContents: false
+---
+
+import SimulatoreSelectionSort from '@components/SimulatoreSelectionSort.astro';
+
+Selection Sort, in each pass, selects the minimum of the part still to sort and swaps it with the
+first element of that part. A sorted part thus grows on the left and is never touched again: after
+the first pass it contains the minimum of the whole list, after the second pass the two smallest
+values, and so on.
+
+The simulator accepts from 2 to 10 whole numbers between 0 and 99, separated by commas or spaces,
+or it can generate random ones. When the simulator has the focus, the arrow keys move one step
+forwards or backwards.
+
+<SimulatoreSelectionSort />
+
+## The procedure
+
+Given a list $a_0, a_1, \dots, a_{n-1}$ of $n$ elements, for $i$ from $0$ to $n - 2$:
+
+1. $a_i$ is taken as the **current minimum**;
+2. the current minimum is compared with each of the elements $a_{i+1}, \dots, a_{n-1}$, and it is
+   updated whenever a smaller one is found;
+3. the minimum found is swapped with $a_i$, unless it is already in that position.
+
+The last element needs no pass: once the first $n - 1$ elements are in place, the remaining one is
+necessarily the largest.
+
+## How many comparisons and how many swaps
+
+Finding the minimum among $n - i$ elements takes $n - i - 1$ comparisons, whatever their order.
+The total is therefore always
+
+$$
+(n-1) + (n-2) + \dots + 1 = \frac{n(n-1)}{2}
+$$
+
+even when the list is already sorted: Selection Sort does not take advantage of any existing
+order. With 7 elements there are 21 comparisons in both examples of the simulator.
+
+The swaps, on the other hand, are at most $n - 1$, one per pass. This is the lowest number among
+the elementary sorting algorithms, and it makes Selection Sort convenient when moving an element
+costs much more than comparing it.
+
+| Example | Comparisons | Swaps |
+|---|---|---|
+| simple: 41, 73, 17, 56, 8, 92, 29 | 21 | 5 |
+| advanced: 34, 47, 58, 66, 79, 92, 12 | 21 | 6 |
+
+In the simple example, in the fifth pass the minimum 56 is already at position 4 and is not
+swapped.
+
+:::tip[Worth noticing]
+The advanced example is almost sorted: moving 12 to the front would be enough. Selection Sort
+still performs all 21 comparisons, and it also makes a swap in every pass, because each swap sends
+to the end the element that occupied the first free place. [Insertion Sort](/en/simulatori/insertion-sort/),
+on the same list, stops at 11 comparisons.
+:::
+
+## Properties
+
+- The algorithm works **in place**: it modifies the list itself and uses only a few auxiliary
+  variables.
+- The algorithm is **not stable**: two equal elements may not keep their original relative order.
+  The swap happens at a distance and can jump over an equal element. Writing $5_a$ and $5_b$ for
+  two copies of the value 5, the list $5_a, 5_b, 3$ becomes $3, 5_b, 5_a$ after the first pass: the
+  two copies have been reversed.
+
+In any case the number of comparisons grows like $n^2$: doubling the length of the list roughly
+quadruples the work.

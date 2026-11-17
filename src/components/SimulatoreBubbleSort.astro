@@ -1,0 +1,689 @@
+---
+// ============================================================================
+//  SimulatoreBubbleSort.astro
+//  Bubble Sort (ordinamento a bolle) passo per passo su un elenco di 2-10
+//  interi fra 0 e 99: l'esempio della dispensa, numeri inseriti o casuali.
+//   - Ogni passo è il confronto di una coppia di vicini, con l'eventuale scambio
+//   - Verde: elementi al loro posto; arancione: coppia confrontata
+//   - Se una passata non fa scambi l'algoritmo si ferma in anticipo
+//  Gli elementi SVG sono creati a runtime con createElement: per questo lo
+//  stile è <style is:global>, con prefisso bsort-.
+// ============================================================================
+const lang = Astro.url.pathname.startsWith('/en/') ? 'en' : 'it';
+
+const i18n = {
+  it: {
+    input: 'Numeri da ordinare',
+    inputAria: 'Numeri da ordinare: da 2 a 10 interi fra 0 e 99, separati da virgole o spazi',
+    use: 'Usa questi numeri',
+    random: 'Numeri casuali',
+    simple: 'Esempio semplice',
+    advanced: 'Esempio avanzato',
+    restart: 'Riavvia',
+    back: 'Indietro',
+    next: 'Avanti',
+    play: 'Avvia',
+    pause: 'Pausa',
+    speed: 'velocità',
+    counters: 'Contatori',
+    aria: 'Elenco da ordinare con Bubble Sort',
+    lgOrd: 'al suo posto',
+    lgNorm: 'da ordinare',
+    lgEdge: 'vicini confrontati, restano fermi',
+    lgSwap: 'vicini scambiati',
+    cPass: 'Passata',
+    cCmp: 'Confronti',
+    cSwap: 'Scambi',
+  },
+  en: {
+    input: 'Numbers to sort',
+    inputAria: 'Numbers to sort: from 2 to 10 whole numbers between 0 and 99, separated by commas or spaces',
+    use: 'Use these numbers',
+    random: 'Random numbers',
+    simple: 'Simple example',
+    advanced: 'Advanced example',
+    restart: 'Restart',
+    back: 'Back',
+    next: 'Next',
+    play: 'Start',
+    pause: 'Pause',
+    speed: 'speed',
+    counters: 'Counters',
+    aria: 'List being sorted with Bubble Sort',
+    lgOrd: 'in its final place',
+    lgNorm: 'still to sort',
+    lgEdge: 'neighbours compared, not moved',
+    lgSwap: 'neighbours swapped',
+    cPass: 'Pass',
+    cCmp: 'Comparisons',
+    cSwap: 'Swaps',
+  },
+};
+const t = i18n[lang];
+---
+
+<div class="bsort not-content" data-lang={lang} data-play={t.play} data-pause={t.pause} tabindex="0">
+  <div class="bsort-input">
+    <span class="bsort-inlabel">{t.input}</span>
+    <input type="text" class="bsort-field" spellcheck="false" autocomplete="off" aria-label={t.inputAria} />
+    <button type="button" class="bsort-use">{t.use}</button>
+    <button type="button" class="bsort-random">{t.random}</button>
+    <button type="button" class="bsort-simple">{t.simple}</button>
+    <button type="button" class="bsort-advanced">{t.advanced}</button>
+  </div>
+  <div class="bsort-error" role="alert"></div>
+
+  <div class="bsort-buttons">
+    <button type="button" class="bsort-restart">{t.restart}</button>
+    <button type="button" class="bsort-back">{t.back}</button>
+    <button type="button" class="bsort-next primary">{t.next}</button>
+    <button type="button" class="bsort-play">{t.play}</button>
+    <span class="bsort-speedcell">
+      <label>{t.speed}<input type="range" class="bsort-speed" min="0.5" max="2" step="0.25" value="1" /></label>
+      <span class="bsort-speed-val">1.00×</span>
+    </span>
+    <span class="bsort-counter" aria-live="polite"></span>
+  </div>
+
+  <div class="bsort-scene">
+    <svg class="bsort-svg" role="img" aria-label={t.aria}></svg>
+  </div>
+
+  <p class="bsort-legend">
+    <span><span class="bsort-sw c-ord"></span>{t.lgOrd}</span>
+    <span><span class="bsort-sw c-norm"></span>{t.lgNorm}</span>
+    <span><span class="bsort-sw c-edge thick"></span>{t.lgEdge}</span>
+    <span><span class="bsort-sw c-hi thick"></span>{t.lgSwap}</span>
+  </p>
+
+  <div class="bsort-msg" role="status"></div>
+
+  <div class="bsort-panel">
+    <div class="bsort-group">
+      <span class="bsort-title">{t.counters}</span>
+      <div class="bsort-counts">
+        <span>{t.cPass}: <b class="bsort-c-pass">–</b></span>
+        <span>{t.cCmp}: <b class="bsort-c-cmp">0</b></span>
+        <span>{t.cSwap}: <b class="bsort-c-swap">0</b></span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<style is:global>
+  .bsort {
+    --bsort-ink: var(--sl-color-text, #26252a);
+    --bsort-muted: var(--sl-color-gray-3, #6c6b66);
+    --bsort-line: var(--sl-color-hairline, #d9d7cf);
+    --bsort-track: var(--sl-color-gray-5, #c8c6be);
+    --bsort-btn-bg: var(--sl-color-gray-6, #f0eeea);
+    --bsort-field-bg: var(--sl-color-bg, #fff);
+    --bsort-accent: #ffcc44;
+    --bsort-plot-bg: #fafaf8;
+    --bsort-msg-bg: #f1f5f9;
+    --bsort-red: #c62828;
+    /* colori della figura */
+    --bsort-cell-ink: #1f2937;
+    --bsort-idx: #9ca3af;
+    --bsort-norm: #eaf3f8;
+    --bsort-norm-s: #174a72;
+    --bsort-ord: #e9f4ec;
+    --bsort-ord-s: #2e7d32;
+    --bsort-hi: #fde7b0;
+    --bsort-hot: #d97706;
+    --bsort-amb: #f59e0b;
+    --bsort-amb-ink: #b45309;
+    --bsort-new: #fbe5cd;
+    --bsort-vis: #1f5f8b;
+    --bsort-empty: #ffffff;
+    --bsort-empty-s: #9ca3af;
+    --bsort-used: #f3f4f6;
+    --bsort-used-s: #d1d5db;
+    --bsort-used-ink: #9ca3af;
+    --bsort-faded: #f9fafb;
+    --bsort-faded-s: #e5e7eb;
+    --bsort-faded-ink: #c0c4cc;
+    --bsort-dry: #c4c9d0;
+    color: var(--bsort-ink);
+    max-width: 1040px;
+    min-width: 330px;
+    margin-inline: auto;
+    line-height: 1.5;
+    outline: none;
+  }
+  :root[data-theme='dark'] .bsort {
+    --bsort-plot-bg: #1a1a1a;
+    --bsort-msg-bg: #262626;
+    --bsort-red: #f87171;
+    --bsort-cell-ink: #e5e7eb;
+    --bsort-idx: #8b9098;
+    --bsort-norm: #1b3043;
+    --bsort-norm-s: #6aa6d6;
+    --bsort-ord: #1c3a24;
+    --bsort-ord-s: #5cb865;
+    --bsort-hi: #5c4410;
+    --bsort-hot: #f59e0b;
+    --bsort-amb-ink: #fbbf24;
+    --bsort-new: #4d3416;
+    --bsort-vis: #2b78b0;
+    --bsort-empty: #121212;
+    --bsort-empty-s: #6b7280;
+    --bsort-used: #2a2a2a;
+    --bsort-used-s: #4b5563;
+    --bsort-used-ink: #8b9098;
+    --bsort-faded: #202020;
+    --bsort-faded-s: #333333;
+    --bsort-faded-ink: #5f636a;
+    --bsort-dry: #555b63;
+  }
+
+  .bsort button,
+  .bsort p,
+  .bsort ul,
+  .bsort ol,
+  .bsort li,
+  .bsort input,
+  .bsort label { margin: 0; }
+
+  /* riga dei numeri da ordinare */
+  .bsort-input { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 10px; }
+  .bsort-inlabel { font-size: 14px; font-weight: 600; }
+  .bsort-field {
+    flex: 1 1 220px; min-width: 180px;
+    font: inherit; font-size: 14px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    padding: 6px 10px; border-radius: 6px;
+    border: 1px solid var(--bsort-line); background: var(--bsort-field-bg); color: var(--bsort-ink);
+  }
+  .bsort-field:focus { outline: none; border-color: var(--sl-color-accent, #3b5fd9); }
+  .bsort-error {
+    display: none; margin: 0 0 10px; padding: 0.5rem 0.7rem; font-size: 14px;
+    border-left: 4px solid var(--bsort-red); border-radius: 4px;
+    background: color-mix(in srgb, var(--bsort-red) 12%, transparent); color: var(--bsort-red);
+  }
+  .bsort-error.is-on { display: block; }
+
+  /* pulsanti, stesso stile di SimulatoreDijkstra */
+  .bsort-buttons { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 12px; }
+  .bsort-input button,
+  .bsort-buttons button {
+    font: inherit; font-size: 13px; padding: 6px 12px; border-radius: 6px;
+    border: 1px solid var(--bsort-line); background: var(--bsort-btn-bg); color: var(--bsort-ink);
+    cursor: pointer;
+  }
+  .bsort-input button:hover,
+  .bsort-buttons button:hover { border-color: var(--bsort-muted); }
+  .bsort-buttons button.primary { font-weight: 600; }
+  .bsort-buttons button:disabled { opacity: .45; cursor: not-allowed; }
+  .bsort-buttons button.is-on { background: var(--bsort-accent); border-color: var(--bsort-accent); color: #3a2f00; }
+  .bsort-speedcell { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--bsort-muted); }
+  .bsort-speedcell label { display: inline-flex; align-items: center; gap: 8px; }
+  .bsort-speed-val { font-weight: 600; font-variant-numeric: tabular-nums; color: var(--bsort-ink); min-width: 44px; }
+  .bsort-counter { font-size: 13px; color: var(--bsort-muted); margin-left: auto; font-variant-numeric: tabular-nums; text-align: right; }
+
+  .bsort input[type="range"] {
+    -webkit-appearance: none; appearance: none;
+    width: 110px; height: 4px; margin: 0;
+    background: var(--bsort-track); border-radius: 2px; outline: none; cursor: pointer;
+  }
+  .bsort input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none; width: 16px; height: 16px; border-radius: 50%;
+    background: var(--bsort-accent); border: 2px solid var(--sl-color-bg, #fff); cursor: pointer;
+  }
+  .bsort input[type="range"]::-moz-range-thumb {
+    width: 16px; height: 16px; border-radius: 50%;
+    background: var(--bsort-accent); border: 2px solid var(--sl-color-bg, #fff); cursor: pointer;
+  }
+
+  /* figura: su schermi stretti si scorre in orizzontale invece di rimpicciolire troppo il testo */
+  .bsort-scene {
+    overflow-x: auto;
+    border-radius: 10px;
+    border: 1px solid var(--bsort-line);
+    background: var(--bsort-plot-bg);
+    padding: 6px;
+  }
+  .bsort-svg { display: block; width: 100%; height: auto; margin-inline: auto; }
+  .bsort-svg text { fill: var(--bsort-cell-ink); }
+  .bsort-svg .f-norm { fill: var(--bsort-norm); }
+  .bsort-svg .f-ord { fill: var(--bsort-ord); }
+  .bsort-svg .f-hi { fill: var(--bsort-hi); }
+  .bsort-svg .f-new { fill: var(--bsort-new); }
+  .bsort-svg .f-vis { fill: var(--bsort-vis); }
+  .bsort-svg .f-amb { fill: var(--bsort-amb); }
+  .bsort-svg .f-empty { fill: var(--bsort-empty); }
+  .bsort-svg .f-used { fill: var(--bsort-used); }
+  .bsort-svg .f-faded { fill: var(--bsort-faded); }
+  .bsort-svg .s-norm { stroke: var(--bsort-norm-s); }
+  .bsort-svg .s-ord { stroke: var(--bsort-ord-s); }
+  .bsort-svg .s-hot { stroke: var(--bsort-hot); }
+  .bsort-svg .s-amb { stroke: var(--bsort-amb); }
+  .bsort-svg .s-ambink { stroke: var(--bsort-amb-ink); }
+  .bsort-svg .s-vis { stroke: var(--bsort-vis); }
+  .bsort-svg .s-empty { stroke: var(--bsort-empty-s); }
+  .bsort-svg .s-used { stroke: var(--bsort-used-s); }
+  .bsort-svg .s-faded { stroke: var(--bsort-faded-s); }
+  .bsort-svg .t-used { fill: var(--bsort-used-ink); }
+  .bsort-svg .t-faded { fill: var(--bsort-faded-ink); }
+  .bsort-svg .t-vis,
+  .bsort-svg .tx-white { fill: #fff; }
+  .bsort-svg .tx-idx { fill: var(--bsort-idx); }
+  .bsort-svg .tx-amb { fill: var(--bsort-amb-ink); }
+  .bsort-svg .tx-ord { fill: var(--bsort-ord-s); }
+  .bsort-svg .tx-lab { fill: var(--bsort-norm-s); }
+  .bsort-svg .ln-norm { stroke: var(--bsort-norm-s); fill: none; }
+  .bsort-svg .ln-ord { stroke: var(--bsort-ord-s); fill: none; }
+  .bsort-svg .ln-hot { stroke: var(--bsort-hot); fill: none; }
+  .bsort-svg .ln-amb { stroke: var(--bsort-amb); fill: none; }
+  .bsort-svg .ln-faded { stroke: var(--bsort-used-s); fill: none; }
+  .bsort-svg .ln-dry { stroke: var(--bsort-dry); fill: none; }
+  .bsort-svg .m-hot { fill: var(--bsort-hot); }
+  .bsort-svg .m-ord { fill: var(--bsort-ord-s); }
+  .bsort-svg .m-amb { fill: var(--bsort-amb); }
+
+  .bsort-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; font-size: 13px; color: var(--bsort-muted); margin: 10px 0; }
+  .bsort-legend > span { display: inline-flex; align-items: center; gap: 6px; }
+  .bsort-sw { display: inline-block; width: 14px; height: 14px; border-radius: 3px; border: 1.5px solid; }
+  .bsort-sw.round { border-radius: 50%; }
+  .bsort-sw.dashed { border-style: dashed; }
+  .bsort-sw.thick { border-width: 2.5px; }
+  .bsort-sw.c-norm { background: var(--bsort-norm); border-color: var(--bsort-norm-s); }
+  .bsort-sw.c-ord { background: var(--bsort-ord); border-color: var(--bsort-ord-s); }
+  .bsort-sw.c-hi { background: var(--bsort-hi); border-color: var(--bsort-hot); }
+  .bsort-sw.c-edge { background: var(--bsort-norm); border-color: var(--bsort-hot); }
+  .bsort-sw.c-empty { background: var(--bsort-empty); border-color: var(--bsort-empty-s); }
+  .bsort-sw.c-fuse { background: var(--bsort-empty); border-color: var(--bsort-hot); }
+  .bsort-sw.c-used { background: var(--bsort-used); border-color: var(--bsort-used-s); }
+  .bsort-sw.c-amb { background: var(--bsort-amb); border-color: var(--bsort-amb-ink); }
+  .bsort-sw.c-path { background: var(--bsort-ord); border-color: var(--bsort-ord-s); }
+  .bsort-sw.c-new { background: var(--bsort-new); border-color: var(--bsort-amb); }
+  .bsort-sw.c-vis { background: var(--bsort-vis); border-color: var(--bsort-vis); }
+  .bsort-sw.c-viscur { background: var(--bsort-hi); border-color: var(--bsort-amb); }
+
+  .bsort-msg { font-size: 15px; line-height: 1.45; background: var(--bsort-msg-bg); border-radius: 8px; padding: 10px 12px; min-height: 56px; }
+
+  .bsort-panel { display: flex; flex-wrap: wrap; gap: 10px 24px; align-items: flex-start; margin-top: 10px; font-size: 14px; }
+  .bsort-group { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+  .bsort-title { font-size: 13px; font-weight: 600; color: var(--bsort-muted); }
+  .bsort-counts { display: flex; flex-wrap: wrap; gap: 4px 16px; }
+  /* larghezza riservata ai valori, che cambiano a ogni passo */
+  .bsort-counts b { font-variant-numeric: tabular-nums; font-size: 15px; display: inline-block; min-width: 2ch; }
+</style>
+
+<script>
+  // Umami è caricato globalmente da Head.astro: si usa window.umami con un guard.
+  function trackEvent(name: string, data: Record<string, unknown>): void {
+    const w = window as unknown as { umami?: { track: (n: string, d: Record<string, unknown>) => void } };
+    if (w.umami) w.umami.track(name, data);
+  }
+
+  type Lang = 'it' | 'en';
+  const SVGNS = 'http://www.w3.org/2000/svg';
+  const BASE_MS = 1200;
+  // stessi numeri della dispensa del Modulo 2-C
+  const ESEMPIO = [41, 73, 17, 56, 8, 92, 29];
+
+  // --------------------------------------------------------------------------
+  //  Parti comuni ai cinque simulatori di ordinamento
+  // --------------------------------------------------------------------------
+  interface Comuni {
+    errCount: string;
+    errNum: (p: string) => string;
+    initial: (n: number) => string;
+    counter: (k: number, n: number) => string;
+  }
+  const COMUNI: Record<Lang, Comuni> = {
+    it: {
+      errCount: 'Inserisci da 2 a 10 numeri, separati da virgole o spazi.',
+      errNum: (p) => `«${p}» non è un numero intero da 0 a 99.`,
+      initial: (n) => `Situazione iniziale (${n} ${n === 1 ? 'passo' : 'passi'} in tutto)`,
+      counter: (k, n) => `Passo ${k} di ${n}`,
+    },
+    en: {
+      errCount: 'Enter from 2 to 10 numbers, separated by commas or spaces.',
+      errNum: (p) => `“${p}” is not a whole number from 0 to 99.`,
+      initial: (n) => `Initial state (${n} ${n === 1 ? 'step' : 'steps'} in all)`,
+      counter: (k, n) => `Step ${k} of ${n}`,
+    },
+  };
+
+  function el<K extends keyof SVGElementTagNameMap>(
+    tag: K, attrs: Record<string, string | number>, parent: Element | null, text?: string | number,
+  ): SVGElementTagNameMap[K] {
+    const e = document.createElementNS(SVGNS, tag);
+    for (const k in attrs) e.setAttribute(k, String(attrs[k]));
+    if (text !== undefined) e.textContent = String(text);
+    if (parent) parent.appendChild(e);
+    return e;
+  }
+
+  function freccia(defs: Element, id: string, cls: string): void {
+    const m = el('marker', { id, viewBox: '0 0 10 10', refX: 8, refY: 5, markerWidth: 7, markerHeight: 7, orient: 'auto-start-reverse' }, defs);
+    el('path', { d: 'M0,0 L10,5 L0,10 z', class: cls }, m);
+  }
+
+  // Stile di una casella: classe di riempimento (f-), di bordo (s-), spessore e tratteggio.
+  // I colori stanno nel CSS, così valgono sia nel tema chiaro sia in quello scuro.
+  interface Sty { f: string; s: string; sw?: number; dash?: string; }
+
+  function cella(par: Element, x: number, y: number, w: number, h: number, st: Sty, rx: number): SVGRectElement {
+    const r = el('rect', { x, y, width: w, height: h, rx, class: `f-${st.f} s-${st.s}`, 'stroke-width': st.sw ?? 1.6 }, par);
+    if (st.dash) r.setAttribute('stroke-dasharray', st.dash);
+    return r;
+  }
+
+  function leggiNumeri(str: string, C: Comuni): { valori: number[] } | { errore: string } {
+    const parti = str.split(/[\s,;]+/).filter((s) => s.length > 0);
+    if (parti.length < 2 || parti.length > 10) return { errore: C.errCount };
+    const valori: number[] = [];
+    for (const p of parti) {
+      if (!/^\d{1,2}$/.test(p)) return { errore: C.errNum(p) };
+      valori.push(parseInt(p, 10));
+    }
+    return { valori };
+  }
+
+  function numeriCasuali(n: number): number[] {
+    const s = new Set<number>();
+    while (s.size < n) s.add(1 + Math.floor(Math.random() * 99));
+    return [...s];
+  }
+
+  // Lettore dei passi: tutti gli stati sono calcolati in anticipo e poi mostrati uno alla volta.
+  function avviaLettore<P extends { testo: string }>(
+    root: HTMLElement,
+    C: Comuni,
+    costruisci: (v: number[]) => P[],
+    disegna: (p: P) => void,
+    avanzato: number[],
+    track: (azione: string) => void,
+  ): void {
+    const q = <T extends Element>(sel: string) => root.querySelector(sel) as T;
+    const campo = q<HTMLInputElement>('.bsort-field');
+    const errore = q<HTMLElement>('.bsort-error');
+    const btnRestart = q<HTMLButtonElement>('.bsort-restart');
+    const btnBack = q<HTMLButtonElement>('.bsort-back');
+    const btnNext = q<HTMLButtonElement>('.bsort-next');
+    const btnPlay = q<HTMLButtonElement>('.bsort-play');
+    const speed = q<HTMLInputElement>('.bsort-speed');
+    const speedVal = q<HTMLElement>('.bsort-speed-val');
+    const counter = q<HTMLElement>('.bsort-counter');
+    const msg = q<HTMLElement>('.bsort-msg');
+
+    let passi: P[] = [];
+    let idx = 0;
+    let timer: number | null = null;
+
+    // la figura non si ingrandisce oltre 1,35 volte le dimensioni naturali e non scende
+    // sotto 0,6 volte: oltre quel limite la scena scorre in orizzontale
+    function adatta(svg: SVGSVGElement): void {
+      const vb = (svg.getAttribute('viewBox') ?? '').split(' ');
+      if (vb.length !== 4) return;
+      const w = parseFloat(vb[2]);
+      svg.style.maxWidth = Math.round(w * 1.35) + 'px';
+      svg.style.minWidth = Math.round(w * 0.6) + 'px';
+    }
+
+    function mostra(): void {
+      const last = passi.length - 1;
+      disegna(passi[idx]);
+      root.querySelectorAll<SVGSVGElement>('.bsort-svg').forEach(adatta);
+      counter.textContent = idx === 0 ? C.initial(last) : C.counter(idx, last);
+      btnBack.disabled = idx === 0;
+      btnNext.disabled = idx === last;
+      if (idx === last) track('completato');
+    }
+
+    // Il riquadro della spiegazione ha sempre l'altezza della spiegazione più lunga
+    // dell'elenco caricato: così, passando da un passo all'altro, la pagina non si sposta.
+    // Per lo stesso motivo il contatore dei passi ha sempre la larghezza della sua scritta
+    // più lunga: altrimenti, su schermi stretti, andrebbe a capo solo in alcuni passi.
+    function fissaAltezza(): void {
+      if (passi.length === 0) return;
+      const last = passi.length - 1;
+      counter.style.minWidth = '';
+      let largo = 0;
+      for (const t of [C.initial(last), C.counter(last, last)]) {
+        counter.textContent = t;
+        largo = Math.max(largo, Math.ceil(counter.getBoundingClientRect().width));
+      }
+      counter.style.minWidth = largo + 'px';
+      msg.style.minHeight = '';
+      let max = 0;
+      for (const p of passi) {
+        msg.textContent = p.testo;
+        max = Math.max(max, msg.offsetHeight);
+      }
+      msg.style.minHeight = max + 'px';
+      msg.textContent = passi[idx].testo;
+    }
+    // la larghezza del riquadro cambia con la finestra: si ricalcola l'altezza
+    let attesa = 0;
+    window.addEventListener('resize', () => {
+      window.cancelAnimationFrame(attesa);
+      attesa = window.requestAnimationFrame(fissaAltezza);
+    });
+
+    const go = (i: number) => { idx = Math.max(0, Math.min(passi.length - 1, i)); mostra(); };
+    const interval = () => BASE_MS / Number(speed.value);
+
+    function stop(): void {
+      if (timer !== null) window.clearTimeout(timer);
+      timer = null;
+      btnPlay.textContent = root.dataset.play ?? '';
+      btnPlay.classList.remove('is-on');
+    }
+    function tick(): void {
+      if (idx >= passi.length - 1) { stop(); return; }
+      go(idx + 1);
+      timer = window.setTimeout(tick, interval());
+    }
+    function play(): void {
+      if (idx >= passi.length - 1) go(0);
+      btnPlay.textContent = root.dataset.pause ?? '';
+      btnPlay.classList.add('is-on');
+      track('avvia');
+      timer = window.setTimeout(tick, interval());
+    }
+
+    function carica(v: number[]): void {
+      stop();
+      campo.value = v.join(', ');
+      errore.textContent = '';
+      errore.classList.remove('is-on');
+      passi = costruisci(v);
+      idx = 0;
+      fissaAltezza();
+      go(0);
+    }
+    function usa(): void {
+      const r = leggiNumeri(campo.value, C);
+      if ('errore' in r) {
+        stop();
+        errore.textContent = r.errore;
+        errore.classList.add('is-on');
+        return;
+      }
+      track('numeri-utente');
+      carica(r.valori);
+    }
+
+    q<HTMLButtonElement>('.bsort-use').addEventListener('click', usa);
+    campo.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); usa(); } });
+    q<HTMLButtonElement>('.bsort-random').addEventListener('click', () => { track('numeri-casuali'); carica(numeriCasuali(7)); });
+    q<HTMLButtonElement>('.bsort-simple').addEventListener('click', () => { track('esempio-semplice'); carica(ESEMPIO.slice()); });
+    q<HTMLButtonElement>('.bsort-advanced').addEventListener('click', () => { track('esempio-avanzato'); carica(avanzato.slice()); });
+
+    btnRestart.addEventListener('click', () => { stop(); go(0); });
+    btnBack.addEventListener('click', () => { stop(); go(idx - 1); });
+    btnNext.addEventListener('click', () => { stop(); track('passo'); go(idx + 1); });
+    btnPlay.addEventListener('click', () => { if (timer !== null) stop(); else play(); });
+    speed.addEventListener('input', () => { speedVal.textContent = Number(speed.value).toFixed(2) + '×'; });
+    // frecce della tastiera solo quando il componente ha il focus e non si sta scrivendo nel campo
+    root.addEventListener('keydown', (ev) => {
+      if (ev.target === campo) return;
+      if (ev.key === 'ArrowRight') { ev.preventDefault(); stop(); go(idx + 1); }
+      else if (ev.key === 'ArrowLeft') { ev.preventDefault(); stop(); go(idx - 1); }
+    });
+
+    carica(ESEMPIO.slice());
+  }
+
+  // --------------------------------------------------------------------------
+  //  Disegno di un elenco come fila di caselle numerate
+  // --------------------------------------------------------------------------
+  interface Geo { X: (j: number) => number; yb: number; ch: number; }
+
+  function disegnaFila(svg: SVGSVGElement, uid: string, celle: Array<number | null>, stileDi: (j: number) => Sty, extra?: (g: Geo) => void): void {
+    const n = celle.length, cw = 58, ch = 46, mx = 34, yb = 112;
+    const W = mx * 2 + n * cw, H = 200;
+    svg.setAttribute('viewBox', `0 0 ${Math.max(W, 420)} ${H}`);
+    const off = Math.max(0, (420 - W) / 2);
+    const X = (j: number) => off + mx + j * cw + cw / 2;
+    svg.replaceChildren();
+    const defs = el('defs', {}, svg);
+    freccia(defs, uid + 'fr', 'm-hot');
+    for (let j = 0; j < n; j++) {
+      const s = stileDi(j);
+      cella(svg, X(j) - cw / 2 + 4, yb - ch / 2, cw - 8, ch, s, 5);
+      const v = celle[j];
+      if (v !== null) el('text', { x: X(j), y: yb + 6, 'text-anchor': 'middle', 'font-weight': 700, 'font-size': 18, class: 't-' + s.f }, svg, v);
+      el('text', { x: X(j), y: yb + ch / 2 + 16, 'text-anchor': 'middle', 'font-size': 11, class: 'tx-idx' }, svg, j);
+    }
+    if (extra) extra({ X, yb, ch });
+  }
+
+  const STILE: Record<'normale' | 'ordinato' | 'evidenza' | 'bordo' | 'bordoOrd', Sty> = {
+    normale: { f: 'norm', s: 'norm' },
+    ordinato: { f: 'ord', s: 'ord' },
+    evidenza: { f: 'hi', s: 'hot', sw: 2.6 },
+    bordo: { f: 'norm', s: 'hot', sw: 3 },
+    bordoOrd: { f: 'ord', s: 'hot', sw: 3 },
+  };
+
+  // arco a doppia freccia fra due caselle (scambio)
+  function arco(svg: SVGSVGElement, uid: string, g: Geo, a: number, b: number): void {
+    const x1 = g.X(a), x2 = g.X(b), y = g.yb - g.ch / 2 - 4;
+    el('path', {
+      d: `M${x1},${y} Q${(x1 + x2) / 2},${y - 40} ${x2},${y}`,
+      class: 'ln-hot', 'stroke-width': 2.5, 'marker-start': `url(#${uid}fr)`, 'marker-end': `url(#${uid}fr)`,
+    }, svg);
+  }
+
+  // --------------------------------------------------------------------------
+  //  Testi
+  // --------------------------------------------------------------------------
+  const TXT = {
+    it: {
+      inizio: 'Situazione iniziale. A ogni passata si confrontano le coppie di vicini, da sinistra a destra, e si scambiano quelle in ordine sbagliato.',
+      passata: (p: number, ult: number) => `Passata ${p}: si confrontano le coppie dalla posizione 0 alla ${ult}. `,
+      scambio: (x: number, y: number) => `Confronto ${x} e ${y}: ${x} > ${y}, li scambio.`,
+      fermi: (x: number, y: number) => `Confronto ${x} e ${y}: ${x} ${x === y ? '=' : '<'} ${y}, restano dove sono.`,
+      nessunoScambio: ' Nessuno scambio in tutta la passata.',
+      fineAnticipata: (p: number) =>
+        `La passata ${p} non ha fatto scambi: tutte le coppie di vicini sono in ordine, quindi l'elenco è ordinato e l'algoritmo si ferma.`,
+      finePassata: (v: number) => ` Fine passata: ${v} è arrivato in fondo ed è al suo posto.`,
+      fine: (n: number) =>
+        `Dopo ${n} ${n === 1 ? 'passata' : 'passate'} anche il primo elemento è al suo posto: l'elenco è ordinato.`,
+    },
+    en: {
+      inizio: 'Initial state. In each pass the pairs of neighbours are compared from left to right, and the pairs in the wrong order are swapped.',
+      passata: (p: number, ult: number) => `Pass ${p}: the pairs from position 0 to position ${ult} are compared. `,
+      scambio: (x: number, y: number) => `I compare ${x} and ${y}: ${x} > ${y}, I swap them.`,
+      fermi: (x: number, y: number) => `I compare ${x} and ${y}: ${x} ${x === y ? '=' : '<'} ${y}, they stay where they are.`,
+      nessunoScambio: ' No swap in the whole pass.',
+      fineAnticipata: (p: number) =>
+        `Pass ${p} made no swaps: every pair of neighbours is in order, so the list is sorted and the algorithm stops.`,
+      finePassata: (v: number) => ` End of pass: ${v} has reached the end and is in its final place.`,
+      fine: (n: number) =>
+        `After ${n} ${n === 1 ? 'pass' : 'passes'} the first element is in its final place too: the list is sorted.`,
+    },
+  };
+  type Testi = (typeof TXT)[Lang];
+
+  // --------------------------------------------------------------------------
+  //  Passi dell'algoritmo
+  // --------------------------------------------------------------------------
+  interface Passo {
+    celle: number[];
+    confronti: number;
+    scambi: number;
+    tipo: 'inizio' | 'cfr' | 'fine';
+    j: number; // coppia confrontata: posizioni j e j + 1
+    sw: boolean; // la coppia è stata scambiata
+    fissi: number; // dalla posizione fissi in poi gli elementi sono al loro posto
+    passata: number;
+    finito: boolean;
+    testo: string;
+  }
+
+  function costruisci(valori: number[], L: Testi): Passo[] {
+    const a = valori.slice(), n = a.length, passi: Passo[] = [];
+    let confronti = 0, scambi = 0;
+    const foto = (o: Pick<Passo, 'tipo' | 'fissi' | 'passata' | 'testo'> & Partial<Passo>) => {
+      passi.push({ celle: a.slice(), confronti, scambi, j: -1, sw: false, finito: false, ...o });
+    };
+    foto({ tipo: 'inizio', fissi: n, passata: 0, testo: L.inizio });
+    for (let p = 1; p < n; p++) {
+      let scPassata = 0;
+      for (let j = 0; j < n - p; j++) {
+        confronti++;
+        const x = a[j], y = a[j + 1];
+        let t = j === 0 ? L.passata(p, n - p) : '';
+        let sw = false;
+        if (x > y) { a[j] = y; a[j + 1] = x; scambi++; scPassata++; sw = true; t += L.scambio(x, y); }
+        else t += L.fermi(x, y);
+        foto({ tipo: 'cfr', j, sw, fissi: n - p + 1, passata: p, testo: t });
+      }
+      const u = passi[passi.length - 1];
+      if (scPassata === 0) {
+        u.testo += L.nessunoScambio;
+        foto({ tipo: 'fine', fissi: 0, passata: p, finito: true, testo: L.fineAnticipata(p) });
+        return passi;
+      }
+      u.fissi = n - p;
+      u.testo += L.finePassata(a[n - p]);
+    }
+    foto({ tipo: 'fine', fissi: 0, passata: n - 1, finito: true, testo: L.fine(n - 1) });
+    return passi;
+  }
+
+  // --------------------------------------------------------------------------
+  //  Disegno
+  // --------------------------------------------------------------------------
+  function disegnatore(root: HTMLElement, uid: string): (p: Passo) => void {
+    const q = <T extends Element>(sel: string) => root.querySelector(sel) as T;
+    const svg = q<SVGSVGElement>('.bsort-svg');
+    const msg = q<HTMLElement>('.bsort-msg');
+    const cP = q<HTMLElement>('.bsort-c-pass'), cC = q<HTMLElement>('.bsort-c-cmp'), cS = q<HTMLElement>('.bsort-c-swap');
+    return (p) => {
+      disegnaFila(svg, uid, p.celle, (j) => {
+        const ord = p.finito || j >= p.fissi;
+        if (p.tipo === 'cfr' && (j === p.j || j === p.j + 1)) return p.sw ? STILE.evidenza : (ord ? STILE.bordoOrd : STILE.bordo);
+        return ord ? STILE.ordinato : STILE.normale;
+      }, (g) => {
+        if (p.tipo === 'cfr' && p.sw) arco(svg, uid, g, p.j, p.j + 1);
+      });
+      cP.textContent = p.passata === 0 ? '–' : String(p.passata);
+      cC.textContent = String(p.confronti);
+      cS.textContent = String(p.scambi);
+      msg.textContent = p.testo;
+    };
+  }
+
+  // --------------------------------------------------------------------------
+  //  Istanza del componente
+  // --------------------------------------------------------------------------
+  function init(root: HTMLElement, k: number): void {
+    const lang: Lang = root.dataset.lang === 'en' ? 'en' : 'it';
+    const L = TXT[lang];
+    const tracked = new Set<string>();
+    const track = (azione: string) => {
+      if (tracked.has(azione)) return;
+      tracked.add(azione);
+      trackEvent('simulatore-bubble-sort', { azione, lingua: lang });
+    };
+    avviaLettore(root, COMUNI[lang], (v) => costruisci(v, L), disegnatore(root, `bsort${k}-`), [96, 74, 81, 53, 38, 45, 19], track);
+  }
+
+  document.querySelectorAll<HTMLElement>('.bsort').forEach((root, k) => init(root, k));
+</script>

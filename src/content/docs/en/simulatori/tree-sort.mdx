@@ -1,0 +1,95 @@
+---
+title: Tree Sort
+description: Step-by-step Tree Sort simulator, with insertion into a binary search tree and in-order traversal.
+sidebar:
+  hidden: false
+  label: Tree Sort
+  order: 14
+tableOfContents: false
+---
+
+import SimulatoreTreeSort from '@components/SimulatoreTreeSort.astro';
+
+Tree Sort sorts a list by means of a data structure: the **binary search tree**. Each node holds a
+value and has at most two children; all the values in the left subtree of a node are smaller than
+its value, all those in the right subtree are greater. Sorting happens in two phases: first the
+values are inserted into the tree one at a time, then the tree is read with the **in-order
+traversal**, which returns the values in increasing order.
+
+The simulator accepts from 2 to 10 whole numbers between 0 and 99, separated by commas or spaces,
+or it can generate random ones. When the simulator has the focus, the arrow keys move one step
+forwards or backwards.
+
+<SimulatoreTreeSort />
+
+## Insertion
+
+To insert a value $v$, the comparison starts at the root: if $v$ is smaller than the node the path
+goes down to the left, if it is greater it goes down to the right. The comparison is repeated until
+an empty place is found, where $v$ becomes a new node. The path is unique, and each comparison rules
+out a whole subtree.
+
+In this version a value already present does not create a new node: the node keeps a **counter** of
+the repetitions, shown in the simulator as ×2, ×3 and so on. During the traversal the value is
+written as many times as the counter says. In the advanced example the value 44 appears twice.
+
+## The in-order traversal
+
+The in-order traversal of a tree performs, starting from the root, three operations in this order:
+
+1. the in-order traversal of the left subtree;
+2. writing the value of the node;
+3. the in-order traversal of the right subtree.
+
+The definition is recursive: steps 1 and 3 apply the same traversal to a smaller tree. The result
+is sorted because, for every node, all the smaller values, which are in the left subtree, are
+written first, then the node, and finally all the greater values. The first value written is found
+by always going down to the left from the root: it is the minimum.
+
+In the simulator every node has a fixed column, given by the position of its value among the
+distinct values. The in-order traversal therefore proceeds from left to right, and projecting the
+nodes onto the horizontal axis already gives the sorted list.
+
+## How many comparisons
+
+Inserting a value takes one comparison for each node on the path from the root to the insertion
+point; the traversal takes no comparisons at all. The cost therefore depends on the shape of the
+tree, which in turn depends on the order in which the values arrive.
+
+- If the tree is balanced, its height is about $\log_2 n$ and sorting takes a number of comparisons
+  proportional to $n \log_2 n$, like [Merge Sort](/en/simulatori/merge-sort/).
+- If the values arrive already sorted, every new node becomes the right child of the last one
+  inserted: the tree degenerates into a chain and $0 + 1 + \dots + (n-1) = \dfrac{n(n-1)}{2}$
+  comparisons are needed, as in the elementary algorithms. With the list 1, 2, 3, 4, 5, 6, 7 there
+  are 21 comparisons.
+
+| Example | Levels of the tree | Comparisons |
+|---|---|---|
+| simple: 41, 73, 17, 56, 8, 92, 29 | 3 | 10 |
+| advanced: 52, 18, 86, 44, 61, 25, 44, 37, 33, 34 | 7 | 27 |
+
+The simple example produces a perfectly balanced tree: 41 at the root, 17 and 73 on the second
+level, 8, 29, 56 and 92 on the third. In the advanced example the values 25, 37, 33 and 34 form a
+zigzag branch: 34 ends up on the seventh level and its insertion takes 6 comparisons.
+
+:::tip[Worth noticing]
+The value that arrives first becomes the root and decides how the rest of the tree is divided.
+Compare 41, 17, 73, 8, 29, 56, 92, which produces the same balanced tree as the simple example, with
+8, 17, 29, 41, 56, 73, 92, which produces a chain: same values, 10 comparisons against 21.
+:::
+
+## Properties
+
+- The algorithm does **not work in place**: the tree needs one node for each distinct value, with
+  the references to its two children, so extra memory proportional to $n$.
+- The worst case can be avoided with trees that rebalance themselves during insertions, which
+  guarantee a height proportional to $\log_2 n$.
+
+## A bit of history
+
+The binary search tree was devised around 1960, independently, by several researchers, among them
+P. F. Windley, A. D. Booth, A. J. T. Colin and T. N. Hibbard. In 1962 Georgy Adelson-Velsky and
+Evgenii Landis proposed the AVL tree, named after the initials of their surnames: the first binary
+search tree that rebalances itself.
+
+Source: [Wikipedia, *Binary search tree*](https://en.wikipedia.org/wiki/Binary_search_tree).

@@ -1,0 +1,778 @@
+---
+// ============================================================================
+//  SimulatoreMergeSort.astro
+//  Merge Sort (ordinamento per fusione) passo per passo su un elenco di 2-10
+//  interi fra 0 e 99: l'esempio della dispensa, numeri inseriti o casuali.
+//   - In alto l'albero delle divisioni: ogni livello è un livello di ricorsione;
+//     la metà sinistra viene completata prima della destra
+//   - In basso, durante una fusione, i due elenchi di partenza e il risultato
+//   - Ogni passo è una divisione oppure la copia di un elemento in una fusione
+//  Gli elementi SVG sono creati a runtime con createElement: per questo lo
+//  stile è <style is:global>, con prefisso msort-.
+// ============================================================================
+const lang = Astro.url.pathname.startsWith('/en/') ? 'en' : 'it';
+
+const i18n = {
+  it: {
+    input: 'Numeri da ordinare',
+    inputAria: 'Numeri da ordinare: da 2 a 10 interi fra 0 e 99, separati da virgole o spazi',
+    use: 'Usa questi numeri',
+    random: 'Numeri casuali',
+    simple: 'Esempio semplice',
+    advanced: 'Esempio avanzato',
+    restart: 'Riavvia',
+    back: 'Indietro',
+    next: 'Avanti',
+    play: 'Avvia',
+    pause: 'Pausa',
+    speed: 'velocità',
+    counters: 'Contatori',
+    aria: 'Albero delle divisioni e delle fusioni di Merge Sort',
+    ariaFus: 'Fusione in corso',
+    lgNorm: 'elenco da ordinare',
+    lgOrd: 'elenco ordinato',
+    lgFuse: 'fusione in corso',
+    lgCopy: 'elemento appena copiato',
+    lgUsed: 'già diviso o già copiato',
+    cDiv: 'Divisioni',
+    cCopy: 'Copie',
+    cCmp: 'Confronti',
+  },
+  en: {
+    input: 'Numbers to sort',
+    inputAria: 'Numbers to sort: from 2 to 10 whole numbers between 0 and 99, separated by commas or spaces',
+    use: 'Use these numbers',
+    random: 'Random numbers',
+    simple: 'Simple example',
+    advanced: 'Advanced example',
+    restart: 'Restart',
+    back: 'Back',
+    next: 'Next',
+    play: 'Start',
+    pause: 'Pause',
+    speed: 'speed',
+    counters: 'Counters',
+    aria: 'Tree of the splits and merges of Merge Sort',
+    ariaFus: 'Merge in progress',
+    lgNorm: 'list still to sort',
+    lgOrd: 'sorted list',
+    lgFuse: 'merge in progress',
+    lgCopy: 'element just copied',
+    lgUsed: 'already split or already copied',
+    cDiv: 'Splits',
+    cCopy: 'Copies',
+    cCmp: 'Comparisons',
+  },
+};
+const t = i18n[lang];
+---
+
+<div class="msort not-content" data-lang={lang} data-play={t.play} data-pause={t.pause} tabindex="0">
+  <div class="msort-input">
+    <span class="msort-inlabel">{t.input}</span>
+    <input type="text" class="msort-field" spellcheck="false" autocomplete="off" aria-label={t.inputAria} />
+    <button type="button" class="msort-use">{t.use}</button>
+    <button type="button" class="msort-random">{t.random}</button>
+    <button type="button" class="msort-simple">{t.simple}</button>
+    <button type="button" class="msort-advanced">{t.advanced}</button>
+  </div>
+  <div class="msort-error" role="alert"></div>
+
+  <div class="msort-buttons">
+    <button type="button" class="msort-restart">{t.restart}</button>
+    <button type="button" class="msort-back">{t.back}</button>
+    <button type="button" class="msort-next primary">{t.next}</button>
+    <button type="button" class="msort-play">{t.play}</button>
+    <span class="msort-speedcell">
+      <label>{t.speed}<input type="range" class="msort-speed" min="0.5" max="2" step="0.25" value="1" /></label>
+      <span class="msort-speed-val">1.00×</span>
+    </span>
+    <span class="msort-counter" aria-live="polite"></span>
+  </div>
+
+  <div class="msort-scene">
+    <svg class="msort-svg" role="img" aria-label={t.aria}></svg>
+    <svg class="msort-svg msort-fusion" role="img" aria-label={t.ariaFus}></svg>
+  </div>
+
+  <p class="msort-legend">
+    <span><span class="msort-sw c-norm"></span>{t.lgNorm}</span>
+    <span><span class="msort-sw c-ord"></span>{t.lgOrd}</span>
+    <span><span class="msort-sw c-fuse dashed"></span>{t.lgFuse}</span>
+    <span><span class="msort-sw c-hi thick"></span>{t.lgCopy}</span>
+    <span><span class="msort-sw c-used"></span>{t.lgUsed}</span>
+  </p>
+
+  <div class="msort-msg" role="status"></div>
+
+  <div class="msort-panel">
+    <div class="msort-group">
+      <span class="msort-title">{t.counters}</span>
+      <div class="msort-counts">
+        <span>{t.cDiv}: <b class="msort-c-div">0</b></span>
+        <span>{t.cCopy}: <b class="msort-c-copy">0</b></span>
+        <span>{t.cCmp}: <b class="msort-c-cmp">0</b></span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<style is:global>
+  .msort {
+    --msort-ink: var(--sl-color-text, #26252a);
+    --msort-muted: var(--sl-color-gray-3, #6c6b66);
+    --msort-line: var(--sl-color-hairline, #d9d7cf);
+    --msort-track: var(--sl-color-gray-5, #c8c6be);
+    --msort-btn-bg: var(--sl-color-gray-6, #f0eeea);
+    --msort-field-bg: var(--sl-color-bg, #fff);
+    --msort-accent: #ffcc44;
+    --msort-plot-bg: #fafaf8;
+    --msort-msg-bg: #f1f5f9;
+    --msort-red: #c62828;
+    /* colori della figura */
+    --msort-cell-ink: #1f2937;
+    --msort-idx: #9ca3af;
+    --msort-norm: #eaf3f8;
+    --msort-norm-s: #174a72;
+    --msort-ord: #e9f4ec;
+    --msort-ord-s: #2e7d32;
+    --msort-hi: #fde7b0;
+    --msort-hot: #d97706;
+    --msort-amb: #f59e0b;
+    --msort-amb-ink: #b45309;
+    --msort-new: #fbe5cd;
+    --msort-vis: #1f5f8b;
+    --msort-empty: #ffffff;
+    --msort-empty-s: #9ca3af;
+    --msort-used: #f3f4f6;
+    --msort-used-s: #d1d5db;
+    --msort-used-ink: #9ca3af;
+    --msort-faded: #f9fafb;
+    --msort-faded-s: #e5e7eb;
+    --msort-faded-ink: #c0c4cc;
+    --msort-dry: #c4c9d0;
+    color: var(--msort-ink);
+    max-width: 1040px;
+    min-width: 330px;
+    margin-inline: auto;
+    line-height: 1.5;
+    outline: none;
+  }
+  :root[data-theme='dark'] .msort {
+    --msort-plot-bg: #1a1a1a;
+    --msort-msg-bg: #262626;
+    --msort-red: #f87171;
+    --msort-cell-ink: #e5e7eb;
+    --msort-idx: #8b9098;
+    --msort-norm: #1b3043;
+    --msort-norm-s: #6aa6d6;
+    --msort-ord: #1c3a24;
+    --msort-ord-s: #5cb865;
+    --msort-hi: #5c4410;
+    --msort-hot: #f59e0b;
+    --msort-amb-ink: #fbbf24;
+    --msort-new: #4d3416;
+    --msort-vis: #2b78b0;
+    --msort-empty: #121212;
+    --msort-empty-s: #6b7280;
+    --msort-used: #2a2a2a;
+    --msort-used-s: #4b5563;
+    --msort-used-ink: #8b9098;
+    --msort-faded: #202020;
+    --msort-faded-s: #333333;
+    --msort-faded-ink: #5f636a;
+    --msort-dry: #555b63;
+  }
+
+  .msort button,
+  .msort p,
+  .msort ul,
+  .msort ol,
+  .msort li,
+  .msort input,
+  .msort label { margin: 0; }
+
+  /* riga dei numeri da ordinare */
+  .msort-input { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 10px; }
+  .msort-inlabel { font-size: 14px; font-weight: 600; }
+  .msort-field {
+    flex: 1 1 220px; min-width: 180px;
+    font: inherit; font-size: 14px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    padding: 6px 10px; border-radius: 6px;
+    border: 1px solid var(--msort-line); background: var(--msort-field-bg); color: var(--msort-ink);
+  }
+  .msort-field:focus { outline: none; border-color: var(--sl-color-accent, #3b5fd9); }
+  .msort-error {
+    display: none; margin: 0 0 10px; padding: 0.5rem 0.7rem; font-size: 14px;
+    border-left: 4px solid var(--msort-red); border-radius: 4px;
+    background: color-mix(in srgb, var(--msort-red) 12%, transparent); color: var(--msort-red);
+  }
+  .msort-error.is-on { display: block; }
+
+  /* pulsanti, stesso stile di SimulatoreDijkstra */
+  .msort-buttons { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 12px; }
+  .msort-input button,
+  .msort-buttons button {
+    font: inherit; font-size: 13px; padding: 6px 12px; border-radius: 6px;
+    border: 1px solid var(--msort-line); background: var(--msort-btn-bg); color: var(--msort-ink);
+    cursor: pointer;
+  }
+  .msort-input button:hover,
+  .msort-buttons button:hover { border-color: var(--msort-muted); }
+  .msort-buttons button.primary { font-weight: 600; }
+  .msort-buttons button:disabled { opacity: .45; cursor: not-allowed; }
+  .msort-buttons button.is-on { background: var(--msort-accent); border-color: var(--msort-accent); color: #3a2f00; }
+  .msort-speedcell { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--msort-muted); }
+  .msort-speedcell label { display: inline-flex; align-items: center; gap: 8px; }
+  .msort-speed-val { font-weight: 600; font-variant-numeric: tabular-nums; color: var(--msort-ink); min-width: 44px; }
+  .msort-counter { font-size: 13px; color: var(--msort-muted); margin-left: auto; font-variant-numeric: tabular-nums; text-align: right; }
+
+  .msort input[type="range"] {
+    -webkit-appearance: none; appearance: none;
+    width: 110px; height: 4px; margin: 0;
+    background: var(--msort-track); border-radius: 2px; outline: none; cursor: pointer;
+  }
+  .msort input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none; width: 16px; height: 16px; border-radius: 50%;
+    background: var(--msort-accent); border: 2px solid var(--sl-color-bg, #fff); cursor: pointer;
+  }
+  .msort input[type="range"]::-moz-range-thumb {
+    width: 16px; height: 16px; border-radius: 50%;
+    background: var(--msort-accent); border: 2px solid var(--sl-color-bg, #fff); cursor: pointer;
+  }
+
+  /* figura: su schermi stretti si scorre in orizzontale invece di rimpicciolire troppo il testo */
+  .msort-scene {
+    overflow-x: auto;
+    border-radius: 10px;
+    border: 1px solid var(--msort-line);
+    background: var(--msort-plot-bg);
+    padding: 6px;
+  }
+  .msort-svg { display: block; width: 100%; height: auto; margin-inline: auto; }
+  .msort-svg text { fill: var(--msort-cell-ink); }
+  .msort-svg .f-norm { fill: var(--msort-norm); }
+  .msort-svg .f-ord { fill: var(--msort-ord); }
+  .msort-svg .f-hi { fill: var(--msort-hi); }
+  .msort-svg .f-new { fill: var(--msort-new); }
+  .msort-svg .f-vis { fill: var(--msort-vis); }
+  .msort-svg .f-amb { fill: var(--msort-amb); }
+  .msort-svg .f-empty { fill: var(--msort-empty); }
+  .msort-svg .f-used { fill: var(--msort-used); }
+  .msort-svg .f-faded { fill: var(--msort-faded); }
+  .msort-svg .s-norm { stroke: var(--msort-norm-s); }
+  .msort-svg .s-ord { stroke: var(--msort-ord-s); }
+  .msort-svg .s-hot { stroke: var(--msort-hot); }
+  .msort-svg .s-amb { stroke: var(--msort-amb); }
+  .msort-svg .s-ambink { stroke: var(--msort-amb-ink); }
+  .msort-svg .s-vis { stroke: var(--msort-vis); }
+  .msort-svg .s-empty { stroke: var(--msort-empty-s); }
+  .msort-svg .s-used { stroke: var(--msort-used-s); }
+  .msort-svg .s-faded { stroke: var(--msort-faded-s); }
+  .msort-svg .t-used { fill: var(--msort-used-ink); }
+  .msort-svg .t-faded { fill: var(--msort-faded-ink); }
+  .msort-svg .t-vis,
+  .msort-svg .tx-white { fill: #fff; }
+  .msort-svg .tx-idx { fill: var(--msort-idx); }
+  .msort-svg .tx-amb { fill: var(--msort-amb-ink); }
+  .msort-svg .tx-ord { fill: var(--msort-ord-s); }
+  .msort-svg .tx-lab { fill: var(--msort-norm-s); }
+  .msort-svg .ln-norm { stroke: var(--msort-norm-s); fill: none; }
+  .msort-svg .ln-ord { stroke: var(--msort-ord-s); fill: none; }
+  .msort-svg .ln-hot { stroke: var(--msort-hot); fill: none; }
+  .msort-svg .ln-amb { stroke: var(--msort-amb); fill: none; }
+  .msort-svg .ln-faded { stroke: var(--msort-used-s); fill: none; }
+  .msort-svg .ln-dry { stroke: var(--msort-dry); fill: none; }
+  .msort-svg .m-hot { fill: var(--msort-hot); }
+  .msort-svg .m-ord { fill: var(--msort-ord-s); }
+  .msort-svg .m-amb { fill: var(--msort-amb); }
+
+  .msort-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; font-size: 13px; color: var(--msort-muted); margin: 10px 0; }
+  .msort-legend > span { display: inline-flex; align-items: center; gap: 6px; }
+  .msort-sw { display: inline-block; width: 14px; height: 14px; border-radius: 3px; border: 1.5px solid; }
+  .msort-sw.round { border-radius: 50%; }
+  .msort-sw.dashed { border-style: dashed; }
+  .msort-sw.thick { border-width: 2.5px; }
+  .msort-sw.c-norm { background: var(--msort-norm); border-color: var(--msort-norm-s); }
+  .msort-sw.c-ord { background: var(--msort-ord); border-color: var(--msort-ord-s); }
+  .msort-sw.c-hi { background: var(--msort-hi); border-color: var(--msort-hot); }
+  .msort-sw.c-edge { background: var(--msort-norm); border-color: var(--msort-hot); }
+  .msort-sw.c-empty { background: var(--msort-empty); border-color: var(--msort-empty-s); }
+  .msort-sw.c-fuse { background: var(--msort-empty); border-color: var(--msort-hot); }
+  .msort-sw.c-used { background: var(--msort-used); border-color: var(--msort-used-s); }
+  .msort-sw.c-amb { background: var(--msort-amb); border-color: var(--msort-amb-ink); }
+  .msort-sw.c-path { background: var(--msort-ord); border-color: var(--msort-ord-s); }
+  .msort-sw.c-new { background: var(--msort-new); border-color: var(--msort-amb); }
+  .msort-sw.c-vis { background: var(--msort-vis); border-color: var(--msort-vis); }
+  .msort-sw.c-viscur { background: var(--msort-hi); border-color: var(--msort-amb); }
+
+  .msort-msg { font-size: 15px; line-height: 1.45; background: var(--msort-msg-bg); border-radius: 8px; padding: 10px 12px; min-height: 56px; }
+
+  .msort-panel { display: flex; flex-wrap: wrap; gap: 10px 24px; align-items: flex-start; margin-top: 10px; font-size: 14px; }
+  .msort-group { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+  .msort-title { font-size: 13px; font-weight: 600; color: var(--msort-muted); }
+  .msort-counts { display: flex; flex-wrap: wrap; gap: 4px 16px; }
+  /* larghezza riservata ai valori, che cambiano a ogni passo */
+  .msort-counts b { font-variant-numeric: tabular-nums; font-size: 15px; display: inline-block; min-width: 2ch; }
+
+  .msort-fusion { margin-top: 8px; padding-top: 4px; border-top: 1px dashed var(--msort-line); }
+</style>
+
+<script>
+  // Umami è caricato globalmente da Head.astro: si usa window.umami con un guard.
+  function trackEvent(name: string, data: Record<string, unknown>): void {
+    const w = window as unknown as { umami?: { track: (n: string, d: Record<string, unknown>) => void } };
+    if (w.umami) w.umami.track(name, data);
+  }
+
+  type Lang = 'it' | 'en';
+  const SVGNS = 'http://www.w3.org/2000/svg';
+  const BASE_MS = 1200;
+  // stessi numeri della dispensa del Modulo 2-C
+  const ESEMPIO = [41, 73, 17, 56, 8, 92, 29];
+
+  // --------------------------------------------------------------------------
+  //  Parti comuni ai cinque simulatori di ordinamento
+  // --------------------------------------------------------------------------
+  interface Comuni {
+    errCount: string;
+    errNum: (p: string) => string;
+    initial: (n: number) => string;
+    counter: (k: number, n: number) => string;
+  }
+  const COMUNI: Record<Lang, Comuni> = {
+    it: {
+      errCount: 'Inserisci da 2 a 10 numeri, separati da virgole o spazi.',
+      errNum: (p) => `«${p}» non è un numero intero da 0 a 99.`,
+      initial: (n) => `Situazione iniziale (${n} ${n === 1 ? 'passo' : 'passi'} in tutto)`,
+      counter: (k, n) => `Passo ${k} di ${n}`,
+    },
+    en: {
+      errCount: 'Enter from 2 to 10 numbers, separated by commas or spaces.',
+      errNum: (p) => `“${p}” is not a whole number from 0 to 99.`,
+      initial: (n) => `Initial state (${n} ${n === 1 ? 'step' : 'steps'} in all)`,
+      counter: (k, n) => `Step ${k} of ${n}`,
+    },
+  };
+
+  function el<K extends keyof SVGElementTagNameMap>(
+    tag: K, attrs: Record<string, string | number>, parent: Element | null, text?: string | number,
+  ): SVGElementTagNameMap[K] {
+    const e = document.createElementNS(SVGNS, tag);
+    for (const k in attrs) e.setAttribute(k, String(attrs[k]));
+    if (text !== undefined) e.textContent = String(text);
+    if (parent) parent.appendChild(e);
+    return e;
+  }
+
+  function freccia(defs: Element, id: string, cls: string): void {
+    const m = el('marker', { id, viewBox: '0 0 10 10', refX: 8, refY: 5, markerWidth: 7, markerHeight: 7, orient: 'auto-start-reverse' }, defs);
+    el('path', { d: 'M0,0 L10,5 L0,10 z', class: cls }, m);
+  }
+
+  // Stile di una casella: classe di riempimento (f-), di bordo (s-), spessore e tratteggio.
+  // I colori stanno nel CSS, così valgono sia nel tema chiaro sia in quello scuro.
+  interface Sty { f: string; s: string; sw?: number; dash?: string; }
+
+  function cella(par: Element, x: number, y: number, w: number, h: number, st: Sty, rx: number): SVGRectElement {
+    const r = el('rect', { x, y, width: w, height: h, rx, class: `f-${st.f} s-${st.s}`, 'stroke-width': st.sw ?? 1.6 }, par);
+    if (st.dash) r.setAttribute('stroke-dasharray', st.dash);
+    return r;
+  }
+
+  function leggiNumeri(str: string, C: Comuni): { valori: number[] } | { errore: string } {
+    const parti = str.split(/[\s,;]+/).filter((s) => s.length > 0);
+    if (parti.length < 2 || parti.length > 10) return { errore: C.errCount };
+    const valori: number[] = [];
+    for (const p of parti) {
+      if (!/^\d{1,2}$/.test(p)) return { errore: C.errNum(p) };
+      valori.push(parseInt(p, 10));
+    }
+    return { valori };
+  }
+
+  function numeriCasuali(n: number): number[] {
+    const s = new Set<number>();
+    while (s.size < n) s.add(1 + Math.floor(Math.random() * 99));
+    return [...s];
+  }
+
+  // Lettore dei passi: tutti gli stati sono calcolati in anticipo e poi mostrati uno alla volta.
+  function avviaLettore<P extends { testo: string }>(
+    root: HTMLElement,
+    C: Comuni,
+    costruisci: (v: number[]) => P[],
+    disegna: (p: P) => void,
+    avanzato: number[],
+    track: (azione: string) => void,
+  ): void {
+    const q = <T extends Element>(sel: string) => root.querySelector(sel) as T;
+    const campo = q<HTMLInputElement>('.msort-field');
+    const errore = q<HTMLElement>('.msort-error');
+    const btnRestart = q<HTMLButtonElement>('.msort-restart');
+    const btnBack = q<HTMLButtonElement>('.msort-back');
+    const btnNext = q<HTMLButtonElement>('.msort-next');
+    const btnPlay = q<HTMLButtonElement>('.msort-play');
+    const speed = q<HTMLInputElement>('.msort-speed');
+    const speedVal = q<HTMLElement>('.msort-speed-val');
+    const counter = q<HTMLElement>('.msort-counter');
+    const msg = q<HTMLElement>('.msort-msg');
+
+    let passi: P[] = [];
+    let idx = 0;
+    let timer: number | null = null;
+
+    // la figura non si ingrandisce oltre 1,35 volte le dimensioni naturali e non scende
+    // sotto 0,6 volte: oltre quel limite la scena scorre in orizzontale
+    function adatta(svg: SVGSVGElement): void {
+      const vb = (svg.getAttribute('viewBox') ?? '').split(' ');
+      if (vb.length !== 4) return;
+      const w = parseFloat(vb[2]);
+      svg.style.maxWidth = Math.round(w * 1.35) + 'px';
+      svg.style.minWidth = Math.round(w * 0.6) + 'px';
+    }
+
+    function mostra(): void {
+      const last = passi.length - 1;
+      disegna(passi[idx]);
+      root.querySelectorAll<SVGSVGElement>('.msort-svg').forEach(adatta);
+      counter.textContent = idx === 0 ? C.initial(last) : C.counter(idx, last);
+      btnBack.disabled = idx === 0;
+      btnNext.disabled = idx === last;
+      if (idx === last) track('completato');
+    }
+
+    // Il riquadro della spiegazione ha sempre l'altezza della spiegazione più lunga
+    // dell'elenco caricato: così, passando da un passo all'altro, la pagina non si sposta.
+    // Per lo stesso motivo il contatore dei passi ha sempre la larghezza della sua scritta
+    // più lunga: altrimenti, su schermi stretti, andrebbe a capo solo in alcuni passi.
+    function fissaAltezza(): void {
+      if (passi.length === 0) return;
+      const last = passi.length - 1;
+      counter.style.minWidth = '';
+      let largo = 0;
+      for (const t of [C.initial(last), C.counter(last, last)]) {
+        counter.textContent = t;
+        largo = Math.max(largo, Math.ceil(counter.getBoundingClientRect().width));
+      }
+      counter.style.minWidth = largo + 'px';
+      msg.style.minHeight = '';
+      let max = 0;
+      for (const p of passi) {
+        msg.textContent = p.testo;
+        max = Math.max(max, msg.offsetHeight);
+      }
+      msg.style.minHeight = max + 'px';
+      msg.textContent = passi[idx].testo;
+    }
+    // la larghezza del riquadro cambia con la finestra: si ricalcola l'altezza
+    let attesa = 0;
+    window.addEventListener('resize', () => {
+      window.cancelAnimationFrame(attesa);
+      attesa = window.requestAnimationFrame(fissaAltezza);
+    });
+
+    const go = (i: number) => { idx = Math.max(0, Math.min(passi.length - 1, i)); mostra(); };
+    const interval = () => BASE_MS / Number(speed.value);
+
+    function stop(): void {
+      if (timer !== null) window.clearTimeout(timer);
+      timer = null;
+      btnPlay.textContent = root.dataset.play ?? '';
+      btnPlay.classList.remove('is-on');
+    }
+    function tick(): void {
+      if (idx >= passi.length - 1) { stop(); return; }
+      go(idx + 1);
+      timer = window.setTimeout(tick, interval());
+    }
+    function play(): void {
+      if (idx >= passi.length - 1) go(0);
+      btnPlay.textContent = root.dataset.pause ?? '';
+      btnPlay.classList.add('is-on');
+      track('avvia');
+      timer = window.setTimeout(tick, interval());
+    }
+
+    function carica(v: number[]): void {
+      stop();
+      campo.value = v.join(', ');
+      errore.textContent = '';
+      errore.classList.remove('is-on');
+      passi = costruisci(v);
+      idx = 0;
+      fissaAltezza();
+      go(0);
+    }
+    function usa(): void {
+      const r = leggiNumeri(campo.value, C);
+      if ('errore' in r) {
+        stop();
+        errore.textContent = r.errore;
+        errore.classList.add('is-on');
+        return;
+      }
+      track('numeri-utente');
+      carica(r.valori);
+    }
+
+    q<HTMLButtonElement>('.msort-use').addEventListener('click', usa);
+    campo.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); usa(); } });
+    q<HTMLButtonElement>('.msort-random').addEventListener('click', () => { track('numeri-casuali'); carica(numeriCasuali(7)); });
+    q<HTMLButtonElement>('.msort-simple').addEventListener('click', () => { track('esempio-semplice'); carica(ESEMPIO.slice()); });
+    q<HTMLButtonElement>('.msort-advanced').addEventListener('click', () => { track('esempio-avanzato'); carica(avanzato.slice()); });
+
+    btnRestart.addEventListener('click', () => { stop(); go(0); });
+    btnBack.addEventListener('click', () => { stop(); go(idx - 1); });
+    btnNext.addEventListener('click', () => { stop(); track('passo'); go(idx + 1); });
+    btnPlay.addEventListener('click', () => { if (timer !== null) stop(); else play(); });
+    speed.addEventListener('input', () => { speedVal.textContent = Number(speed.value).toFixed(2) + '×'; });
+    // frecce della tastiera solo quando il componente ha il focus e non si sta scrivendo nel campo
+    root.addEventListener('keydown', (ev) => {
+      if (ev.target === campo) return;
+      if (ev.key === 'ArrowRight') { ev.preventDefault(); stop(); go(idx + 1); }
+      else if (ev.key === 'ArrowLeft') { ev.preventDefault(); stop(); go(idx - 1); }
+    });
+
+    carica(ESEMPIO.slice());
+  }
+
+  // --------------------------------------------------------------------------
+  //  Testi
+  // --------------------------------------------------------------------------
+  const TXT = {
+    it: {
+      inizio: 'Elenco di partenza. Merge Sort lo divide a metà fino a elenchi di un solo elemento, poi fonde a due a due elenchi già ordinati. Con un numero dispari di elementi la prima metà ne ha uno in più.',
+      divido: (a: string, l: string, r: string, unici: boolean) =>
+        `Divido ${a} in ${l} e ${r}.` + (unici ? ' Entrambi hanno un solo elemento: sono già ordinati.' : ''),
+      fusione: (l: string, r: string) => `Fusione di ${l} e ${r}. `,
+      daSinistra: (x: number, y: number) =>
+        `${x} ${x === y ? '=' : '<'} ${y}: copio ${x} dalla sinistra` + (x === y ? ' (a parità si prende prima quello di sinistra).' : '.'),
+      daDestra: (y: number, x: number) => `${y} < ${x}: copio ${y} dalla destra.`,
+      finitaDestra: (v: number) => `L'elenco di destra è finito: copio ${v} senza confronti.`,
+      finitaSinistra: (v: number) => `L'elenco di sinistra è finito: copio ${v} senza confronti.`,
+      completata: (o: string) => ` Fusione completata: ${o}.`,
+      ordinato: " L'elenco è ordinato.",
+      sinistra: 'Sinistra',
+      destra: 'Destra',
+      risultato: 'Risultato',
+    },
+    en: {
+      inizio: 'Starting list. Merge Sort splits it in half until it gets lists of a single element, then merges already sorted lists two at a time. With an odd number of elements the first half has one more.',
+      divido: (a: string, l: string, r: string, unici: boolean) =>
+        `I split ${a} into ${l} and ${r}.` + (unici ? ' Both have a single element: they are already sorted.' : ''),
+      fusione: (l: string, r: string) => `Merge of ${l} and ${r}. `,
+      daSinistra: (x: number, y: number) =>
+        `${x} ${x === y ? '=' : '<'} ${y}: I copy ${x} from the left` + (x === y ? ' (on a tie the left one is taken first).' : '.'),
+      daDestra: (y: number, x: number) => `${y} < ${x}: I copy ${y} from the right.`,
+      finitaDestra: (v: number) => `The right list is finished: I copy ${v} with no comparison.`,
+      finitaSinistra: (v: number) => `The left list is finished: I copy ${v} with no comparison.`,
+      completata: (o: string) => ` Merge complete: ${o}.`,
+      ordinato: ' The list is sorted.',
+      sinistra: 'Left',
+      destra: 'Right',
+      risultato: 'Result',
+    },
+  };
+  type Testi = (typeof TXT)[Lang];
+
+  // --------------------------------------------------------------------------
+  //  Albero della ricorsione (dipende solo dal numero di elementi)
+  // --------------------------------------------------------------------------
+  interface Nodo { id: number; lo: number; hi: number; liv: number; padre: number | null; sx: number | null; dx: number | null; }
+  interface Struttura { nodi: Nodo[]; divisioni: Array<{ liv: number; m: number }>; }
+
+  function struttura(n: number): Struttura {
+    const nodi: Nodo[] = [], divisioni: Array<{ liv: number; m: number }> = [];
+    const crea = (lo: number, hi: number, liv: number, padre: number | null): number => {
+      const id = nodi.length;
+      nodi.push({ id, lo, hi, liv, padre, sx: null, dx: null });
+      if (hi - lo > 1) {
+        const m = lo + Math.ceil((hi - lo) / 2);
+        divisioni.push({ liv, m });
+        nodi[id].sx = crea(lo, m, liv + 1, id);
+        nodi[id].dx = crea(m, hi, liv + 1, id);
+      }
+      return id;
+    };
+    crea(0, n, 0, null);
+    return { nodi, divisioni };
+  }
+
+  // --------------------------------------------------------------------------
+  //  Passi dell'algoritmo
+  // --------------------------------------------------------------------------
+  type StatoN = 'nascosto' | 'disordine' | 'ordinato' | 'diviso' | 'fusione' | 'usato';
+  interface StatoNodo { vis: boolean; cont: Array<number | null>; st: StatoN; }
+  interface Fusione { L: number[]; R: number[]; i: number; j: number; da: 'L' | 'R'; out: number[]; tot: number; }
+  interface Passo {
+    S: Struttura;
+    stato: StatoNodo[];
+    confronti: number;
+    copie: number;
+    divisioni: number;
+    cur: number; // nodo su cui si lavora
+    tipo: 'inizio' | 'div' | 'copia';
+    fus: Fusione | null;
+    testo: string;
+  }
+
+  function costruisci(valori: number[], L: Testi): Passo[] {
+    const n = valori.length, S = struttura(n);
+    const stato: StatoNodo[] = S.nodi.map(() => ({ vis: false, cont: [], st: 'nascosto' }));
+    let confronti = 0, copie = 0, divisioni = 0;
+    const passi: Passo[] = [];
+    const foto = (o: Pick<Passo, 'testo'> & Partial<Passo>) => {
+      passi.push({
+        S, stato: stato.map((s) => ({ vis: s.vis, cont: s.cont.slice(), st: s.st })),
+        confronti, copie, divisioni, cur: -1, tipo: 'inizio', fus: null, ...o,
+      });
+    };
+    const elenco = (a: number[]) => a.join(', ');
+    stato[0] = { vis: true, cont: valori.slice(), st: n > 1 ? 'disordine' : 'ordinato' };
+    foto({ testo: L.inizio });
+
+    const ms = (id: number): number[] => {
+      const N = S.nodi[id];
+      if (N.hi - N.lo <= 1 || N.sx === null || N.dx === null) return stato[id].cont as number[];
+      const a = stato[id].cont as number[];
+      const m = Math.ceil(a.length / 2), sx = a.slice(0, m), dx = a.slice(m);
+      divisioni++;
+      stato[id].st = 'diviso';
+      stato[N.sx] = { vis: true, cont: sx, st: sx.length === 1 ? 'ordinato' : 'disordine' };
+      stato[N.dx] = { vis: true, cont: dx, st: dx.length === 1 ? 'ordinato' : 'disordine' };
+      foto({ cur: id, tipo: 'div', testo: L.divido(elenco(a), elenco(sx), elenco(dx), sx.length === 1 && dx.length === 1) });
+      const sl = ms(N.sx).slice(), sr = ms(N.dx).slice();
+      stato[id] = { vis: true, cont: new Array<number | null>(a.length).fill(null), st: 'fusione' };
+      let i = 0, j = 0;
+      const out: number[] = [];
+      while (i < sl.length || j < sr.length) {
+        let v: number, da: 'L' | 'R', t: string;
+        if (i < sl.length && j < sr.length) {
+          confronti++;
+          if (sl[i] <= sr[j]) { v = sl[i]; da = 'L'; t = L.daSinistra(sl[i], sr[j]); i++; }
+          else { v = sr[j]; da = 'R'; t = L.daDestra(sr[j], sl[i]); j++; }
+        } else if (i < sl.length) { v = sl[i]; da = 'L'; t = L.finitaDestra(v); i++; }
+        else { v = sr[j]; da = 'R'; t = L.finitaSinistra(v); j++; }
+        out.push(v);
+        copie++;
+        stato[id].cont[out.length - 1] = v;
+        const fine = out.length === a.length;
+        if (fine) { stato[id].st = 'ordinato'; stato[N.sx].st = 'usato'; stato[N.dx].st = 'usato'; }
+        foto({
+          cur: id, tipo: 'copia', fus: { L: sl, R: sr, i, j, da, out: out.slice(), tot: a.length },
+          testo: L.fusione(elenco(sl), elenco(sr)) + t + (fine ? L.completata(elenco(out)) : ''),
+        });
+      }
+      return out;
+    };
+    ms(0);
+    passi[passi.length - 1].testo += L.ordinato;
+    return passi;
+  }
+
+  // --------------------------------------------------------------------------
+  //  Disegno
+  // --------------------------------------------------------------------------
+  function disegnatore(root: HTMLElement, L: Testi): (p: Passo) => void {
+    const q = <T extends Element>(sel: string) => root.querySelector(sel) as T;
+    const svg = q<SVGSVGElement>('.msort-svg');
+    const svgF = q<SVGSVGElement>('.msort-fusion');
+    const msg = q<HTMLElement>('.msort-msg');
+    const cD = q<HTMLElement>('.msort-c-div'), cC = q<HTMLElement>('.msort-c-copy'), cF = q<HTMLElement>('.msort-c-cmp');
+    const cw = 40, ch = 34, gap = 22, mx = 24, my = 30, dy = 74;
+
+    const fila = (par: Element, vals: Array<number | null>, x0: number, y: number, stili: (j: number) => Sty) => {
+      vals.forEach((v, j) => {
+        const s = stili(j);
+        cella(par, x0 + j * cw + 2, y - ch / 2, cw - 4, ch, s, 4);
+        if (v !== null) el('text', { x: x0 + j * cw + cw / 2, y: y + 6, 'text-anchor': 'middle', 'font-weight': 700, 'font-size': 16, class: 't-' + s.f }, par, v);
+      });
+    };
+
+    return (p) => {
+      const S = p.S, n = S.nodi[0].hi;
+      const maxLiv = Math.max(...S.nodi.map((N) => N.liv));
+      // a ogni livello, dopo ciascun confine di divisione dei livelli superiori si lascia uno spazio
+      const X = (i: number, liv: number) => mx + i * cw + gap * S.divisioni.filter((d) => d.liv < liv && d.m <= i).length;
+      const Y = (liv: number) => my + liv * dy;
+      const W = X(n - 1, maxLiv + 1) + cw + mx, H = my + maxLiv * dy + ch / 2 + 14;
+      svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+      svg.replaceChildren();
+
+      for (const N of S.nodi) {
+        if (N.padre === null || !p.stato[N.id].vis) continue;
+        const P = S.nodi[N.padre];
+        const xp = (X(P.lo, P.liv) + X(P.hi - 1, P.liv) + cw) / 2, xc = (X(N.lo, N.liv) + X(N.hi - 1, N.liv) + cw) / 2;
+        const tenue = p.stato[N.id].st === 'usato';
+        el('line', { x1: xp, y1: Y(P.liv) + ch / 2, x2: xc, y2: Y(N.liv) - ch / 2, class: tenue ? 'ln-faded' : 'ln-norm', 'stroke-width': 1.6 }, svg);
+      }
+      for (const N of S.nodi) {
+        const s = p.stato[N.id];
+        if (!s.vis) continue;
+        const cur = p.cur === N.id;
+        fila(svg, s.cont, X(N.lo, N.liv), Y(N.liv), (j) => {
+          if (s.st === 'usato') return { f: 'faded', s: 'faded' };
+          if (s.st === 'diviso') return { f: 'used', s: 'used' };
+          if (s.st === 'fusione') {
+            if (s.cont[j] === null) return { f: 'empty', s: 'hot', dash: '4 3' };
+            if (p.fus && cur && j === p.fus.out.length - 1) return { f: 'hi', s: 'hot', sw: 2.5 };
+            return { f: 'norm', s: 'hot', sw: 2 };
+          }
+          if (s.st === 'ordinato') return { f: 'ord', s: 'ord', sw: cur ? 3 : 1.6 };
+          return { f: 'norm', s: 'norm', sw: cur && p.tipo === 'div' ? 3 : 1.6 };
+        });
+      }
+
+      // pannello della fusione: i due elenchi di partenza e il risultato. Il riquadro ha
+      // sempre le dimensioni della fusione più grande (quella finale, con tutti gli n
+      // elementi), così la pagina non si sposta quando una fusione inizia o finisce:
+      // cambia solo il contenuto, centrato orizzontalmente.
+      const larghezza = (tot: number) => 210 + 2 * tot * cw;
+      const WF = larghezza(n);
+      svgF.setAttribute('viewBox', `0 0 ${WF} 80`);
+      svgF.replaceChildren();
+      const f = p.fus;
+      if (f) {
+        const ox = (WF - larghezza(f.tot)) / 2;
+        const gx = 30, xL = ox + 70, xR = xL + f.L.length * cw + gx + 20, xO = xR + f.R.length * cw + gx + 40;
+        const et = (x: number, t: string) => el('text', { x, y: 16, 'font-size': 12, 'font-weight': 700, class: 'tx-lab' }, svgF, t);
+        et(xL, L.sinistra); et(xR, L.destra); et(xO, L.risultato);
+        const preso = (lato: 'L' | 'R', j: number) => (lato === 'L' ? j < f.i : j < f.j);
+        const appena = (lato: 'L' | 'R', j: number) => f.da === lato && j === (lato === 'L' ? f.i - 1 : f.j - 1);
+        const prossimo = (lato: 'L' | 'R', j: number) => j === (lato === 'L' ? f.i : f.j);
+        const st = (lato: 'L' | 'R') => (j: number): Sty =>
+          appena(lato, j) ? { f: 'used', s: 'hot', sw: 2.8 }
+            : preso(lato, j) ? { f: 'used', s: 'used' }
+              : prossimo(lato, j) ? { f: 'norm', s: 'norm', sw: 2.2 } : { f: 'norm', s: 'norm' };
+        fila(svgF, f.L, xL, 48, st('L'));
+        fila(svgF, f.R, xR, 48, st('R'));
+        const o: Array<number | null> = [...f.out, ...new Array<null>(f.tot - f.out.length).fill(null)];
+        fila(svgF, o, xO, 48, (j) => j === f.out.length - 1 ? { f: 'hi', s: 'hot', sw: 2.5 }
+          : (o[j] === null ? { f: 'empty', s: 'empty', dash: '4 3' } : { f: 'norm', s: 'norm' }));
+      }
+
+      cD.textContent = String(p.divisioni);
+      cC.textContent = String(p.copie);
+      cF.textContent = String(p.confronti);
+      msg.textContent = p.testo;
+    };
+  }
+
+  // --------------------------------------------------------------------------
+  //  Istanza del componente
+  // --------------------------------------------------------------------------
+  function init(root: HTMLElement): void {
+    const lang: Lang = root.dataset.lang === 'en' ? 'en' : 'it';
+    const L = TXT[lang];
+    const tracked = new Set<string>();
+    const track = (azione: string) => {
+      if (tracked.has(azione)) return;
+      tracked.add(azione);
+      trackEvent('simulatore-merge-sort', { azione, lingua: lang });
+    };
+    avviaLettore(root, COMUNI[lang], (v) => costruisci(v, L), disegnatore(root, L), [27, 90, 49, 83, 35, 58, 64, 71, 12, 96], track);
+  }
+
+  document.querySelectorAll<HTMLElement>('.msort').forEach((root) => init(root));
+</script>

@@ -1,0 +1,100 @@
+---
+title: Merge Sort
+description: Simulatore passo per passo di Merge Sort (ordinamento per fusione), con l'albero delle divisioni e le fusioni elemento per elemento.
+sidebar:
+  hidden: false
+  label: Merge Sort
+  order: 13
+tableOfContents: false
+---
+
+import SimulatoreMergeSort from '@components/SimulatoreMergeSort.astro';
+
+Merge Sort, in italiano *ordinamento per fusione*, applica la strategia **divide et impera**: un
+problema grande si spezza in problemi più piccoli dello stesso tipo, si risolvono questi e si
+combinano i risultati. L'elenco viene diviso a metà, ciascuna metà viene ordinata con lo stesso
+metodo, e le due metà ordinate vengono **fuse** in un unico elenco ordinato. La divisione si ferma
+agli elenchi di un solo elemento, che sono già ordinati.
+
+Nella parte alta del simulatore si vede l'albero delle divisioni: ogni livello corrisponde a un
+livello di ricorsione. Nella parte bassa, durante una fusione, compaiono i due elenchi da fondere
+e il risultato in costruzione. Si possono inserire da 2 a 10 numeri interi fra 0 e 99, separati
+da virgole o spazi, oppure generarne di casuali; quando il simulatore ha il focus, le frecce della
+tastiera spostano di un passo avanti o indietro.
+
+<SimulatoreMergeSort />
+
+## Il procedimento
+
+Per ordinare un elenco di $n$ elementi:
+
+1. se $n = 1$ l'elenco è già ordinato e non c'è nulla da fare;
+2. altrimenti lo si divide in due metà; con $n$ dispari la prima metà ha un elemento in più;
+3. si ordina la prima metà con lo stesso procedimento;
+4. si ordina la seconda metà con lo stesso procedimento;
+5. si fondono le due metà ordinate.
+
+Il procedimento è **ricorsivo**: i punti 3 e 4 richiamano l'intero procedimento su un elenco più
+corto. Per questo nel simulatore la metà sinistra viene completata, fino all'ultima fusione,
+prima di cominciare la metà destra.
+
+## La fusione
+
+Per fondere due elenchi già ordinati $L$ e $R$ basta confrontare i loro primi elementi non ancora
+copiati: il minore viene copiato nel risultato e si avanza nel suo elenco. A parità si copia
+quello di sinistra. Quando uno dei due elenchi è finito, gli elementi rimasti nell'altro si
+copiano senza altri confronti: sono già in ordine e sono maggiori o uguali a tutti quelli copiati.
+
+Ogni confronto produce una copia, e l'ultimo elemento si copia sempre senza confronto: una fusione
+con un risultato di $m$ elementi richiede quindi al più $m - 1$ confronti. Nell'esempio semplice
+l'ultima fusione unisce 17, 41, 56, 73 e 8, 29, 92 con 6 confronti; quando 73 è stato copiato,
+l'elenco di sinistra è finito e 92 si copia senza confronto.
+
+## Quanti confronti
+
+A ogni livello dell'albero compaiono tutti gli $n$ elementi, quindi le fusioni di un livello
+copiano $n$ elementi con meno di $n$ confronti. Poiché a ogni livello le parti si dimezzano, i
+livelli di fusione sono $\lceil \log_2 n \rceil$, e il lavoro complessivo è proporzionale a
+$n \log_2 n$, qualunque sia l'ordine di partenza. Più precisamente, con $k = \lceil \log_2 n \rceil$
+il numero massimo di confronti è
+
+$$
+n k - 2^{k} + 1
+$$
+
+Entrambi gli esempi del simulatore raggiungono questo massimo: 14 confronti con 7 elementi e 25
+con 10. La differenza rispetto agli algoritmi elementari diventa enorme sugli elenchi lunghi: con
+1000 elementi $n(n-1)/2$ vale 499 500, mentre $n \log_2 n$ vale circa 10 000.
+
+| Esempio | Divisioni | Copie | Confronti |
+|---|---|---|---|
+| semplice: 41, 73, 17, 56, 8, 92, 29 | 6 | 20 | 14 |
+| avanzato: 27, 90, 49, 83, 35, 58, 64, 71, 12, 96 | 9 | 34 | 25 |
+
+Le divisioni sono sempre $n - 1$: ogni divisione aumenta di uno il numero delle parti, che passa da
+1 a $n$. Le copie dipendono solo da $n$: ogni elemento viene copiato una volta per ogni livello di
+fusione che attraversa.
+
+:::tip[Da osservare]
+I confronti di una fusione dipendono da come si alternano i due elenchi. Se tutti gli elementi di
+un elenco sono minori di tutti quelli dell'altro, bastano tanti confronti quanti sono gli elementi
+del primo elenco a esaurirsi. Con l'elenco 7, 6, 5, 4, 3, 2, 1 i confronti scendono a 9, il minimo
+possibile con 7 elementi.
+:::
+
+## Proprietà
+
+- L'algoritmo **non lavora in loco**: la fusione scrive il risultato in un elenco di appoggio,
+  quindi serve memoria aggiuntiva proporzionale a $n$.
+- L'algoritmo è **stabile**: due elementi uguali mantengono l'ordine reciproco di partenza,
+  perché a parità si copia prima quello di sinistra, che nell'elenco di partenza veniva prima.
+
+## Un po' di storia
+
+Donald Knuth attribuisce Merge Sort a John von Neumann, che nel 1945 lo scrisse come programma per
+l'EDVAC, il calcolatore a programma memorizzato allora in fase di progetto. Fu uno dei primi
+programmi della storia, scritto senza poterlo provare su una macchina reale. Nel 1970 Knuth ne
+analizzò il manoscritto originale nell'articolo *Von Neumann's First Computer Program*.
+
+Fonti: [MathWorld, *Merge Sort*](https://mathworld.wolfram.com/MergeSort.html);
+D. E. Knuth, *Von Neumann's First Computer Program*, ACM Computing Surveys, 1970.

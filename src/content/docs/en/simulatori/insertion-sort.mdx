@@ -1,0 +1,85 @@
+---
+title: Insertion Sort
+description: Step-by-step Insertion Sort simulator, with the key, the empty cell, shifts and comparisons.
+sidebar:
+  hidden: false
+  label: Insertion Sort
+  order: 12
+tableOfContents: false
+---
+
+import SimulatoreInsertionSort from '@components/SimulatoreInsertionSort.astro';
+
+Insertion Sort is the method often used to arrange playing cards in one's hand: one card at a time
+is picked up and inserted in the right place among those already sorted. The list is split into
+two parts: on the left the sorted part, which at the start contains only the first element, on the
+right the part still to sort. In each pass the first element of the part still to sort, called the
+**key**, is inserted into the sorted part.
+
+The simulator accepts from 2 to 10 whole numbers between 0 and 99, separated by commas or spaces,
+or it can generate random ones. When the simulator has the focus, the arrow keys move one step
+forwards or backwards.
+
+<SimulatoreInsertionSort />
+
+## The procedure
+
+Given a list $a_0, a_1, \dots, a_{n-1}$ of $n$ elements, for $i$ from $1$ to $n - 1$:
+
+1. the key $k = a_i$ is taken out of the list, leaving an empty cell at position $i$;
+2. as long as the element to the left of the empty cell is greater than $k$, it is moved one cell
+   to the right, and the empty cell moves one cell to the left;
+3. the shifting stops when the element to the left is less than or equal to $k$, or when the empty
+   cell has reached position 0, and $k$ is written into the empty cell.
+
+A shift is not a swap: each element greater than the key is written only once, into the next cell,
+and the key is written only once, at the end of the pass.
+
+## How many comparisons and how many shifts
+
+An **inversion** is a pair of elements, not necessarily neighbours, in which the larger one comes
+before the smaller one. Each shift removes exactly one inversion, because the shifted element is
+greater than the key and came before it. The shifts are therefore as many as the inversions of the
+starting list: the same number as the swaps of [Bubble Sort](/en/simulatori/bubble-sort/), but each
+one costs a single write instead of the three of a swap.
+
+In each pass there is one comparison more than the shifts, except when the key goes all the way to
+cell 0: there the comparison that stops the shifting is missing.
+
+- Best case, list already sorted: every key stops at the first comparison, so $n - 1$ comparisons
+  and no shifts are enough.
+- Worst case, list in decreasing order: every key goes all the way to cell 0, and
+  $\dfrac{n(n-1)}{2}$ comparisons and as many shifts are needed.
+
+| Example | Inversions | Comparisons | Shifts |
+|---|---|---|---|
+| simple: 41, 73, 17, 56, 8, 92, 29 | 11 | 15 | 11 |
+| advanced: 92, 85, 77, 23, 64, 41, 12 | 19 | 21 | 19 |
+
+Insertion Sort is **adaptive**: the closer the list is to being sorted, the less work it does. For
+this reason it is often preferred in practice for short or nearly sorted lists, even though in the
+worst case the number of comparisons grows like $n^2$.
+
+:::tip[Worth noticing]
+When the key is greater than the whole sorted part, a single comparison is enough: in the simple
+example this happens with 73 in pass 1 and with 92 in pass 5. With the list 1, 2, 3, 4, 5, 6, 7 it
+happens in every pass, and the comparisons drop to 6.
+:::
+
+## Properties
+
+- The algorithm works **in place**: it modifies the list itself and uses only one auxiliary
+  variable for the key.
+- The algorithm is **stable**: two equal elements keep their original relative order. The shifting
+  stops in front of an element equal to the key, which is therefore not overtaken; the simulator
+  points this out when it happens, for example with 5, 5, 3, 5, 1.
+
+## A bit of history
+
+Donald Knuth, in *The Art of Computer Programming*, reports that sorting by insertion was mentioned
+by John Mauchly as early as 1946, in the first published discussion of computer sorting. Mauchly,
+one of the designers of ENIAC, discussed it in the lecture *Sorting and Collating* of the summer
+course held that year at the Moore School of the University of Pennsylvania, in Philadelphia.
+
+Sources: D. E. Knuth, *The Art of Computer Programming*, vol. 3, *Sorting and Searching*, p. 82;
+[programme of the Moore School lectures, 1946](https://curation.cs.manchester.ac.uk/digital60/www.digital60.org/birth/themooreschool/list.html).

@@ -1,0 +1,97 @@
+---
+title: Tree Sort
+description: Simulatore passo per passo di Tree Sort (ordinamento tramite albero), con inserimento in un albero binario di ricerca e visita simmetrica.
+sidebar:
+  hidden: false
+  label: Tree Sort
+  order: 14
+tableOfContents: false
+---
+
+import SimulatoreTreeSort from '@components/SimulatoreTreeSort.astro';
+
+Tree Sort, in italiano *ordinamento tramite albero*, ordina un elenco servendosi di una struttura
+dati: l'**albero binario di ricerca**. Ogni nodo contiene un valore e ha al più due figli; tutti i
+valori del sottoalbero sinistro di un nodo sono minori del suo valore, tutti quelli del sottoalbero
+destro sono maggiori. L'ordinamento avviene in due fasi: prima si inseriscono i valori uno alla
+volta nell'albero, poi lo si legge con la **visita simmetrica**, che restituisce i valori in ordine
+crescente.
+
+Nel simulatore si possono inserire da 2 a 10 numeri interi fra 0 e 99, separati da virgole o
+spazi, oppure generarne di casuali. Quando il simulatore ha il focus, le frecce della tastiera
+spostano di un passo avanti o indietro.
+
+<SimulatoreTreeSort />
+
+## L'inserimento
+
+Per inserire un valore $v$ si parte dalla radice e lo si confronta con il nodo: se $v$ è minore si
+scende a sinistra, se è maggiore si scende a destra. Si ripete il confronto finché si trova una
+posizione vuota, dove $v$ diventa un nuovo nodo. Il cammino è unico, e ogni confronto esclude un
+intero sottoalbero.
+
+In questa versione un valore già presente non crea un nuovo nodo: il nodo tiene un **contatore**
+delle ripetizioni, che nel simulatore compare come ×2, ×3 e così via. Durante la visita il valore
+viene scritto tante volte quante indica il contatore. Nell'esempio avanzato il valore 44 compare
+due volte.
+
+## La visita simmetrica
+
+La visita simmetrica di un albero esegue, a partire dalla radice, tre operazioni in quest'ordine:
+
+1. la visita simmetrica del sottoalbero sinistro;
+2. la scrittura del valore del nodo;
+3. la visita simmetrica del sottoalbero destro.
+
+La definizione è ricorsiva: i punti 1 e 3 applicano la stessa visita a un albero più piccolo.
+Il risultato è ordinato perché, per ogni nodo, vengono scritti prima tutti i valori minori, che
+stanno nel sottoalbero sinistro, poi il nodo, e infine tutti i valori maggiori. Il primo valore
+scritto si trova scendendo sempre a sinistra a partire dalla radice: è il minimo.
+
+Nel simulatore ogni nodo occupa una colonna fissa, data dalla posizione del suo valore fra i
+valori distinti. La visita simmetrica procede quindi da sinistra a destra, e proiettando i nodi
+sull'asse orizzontale si legge già l'elenco ordinato.
+
+## Quanti confronti
+
+Inserire un valore richiede un confronto per ogni nodo del cammino dalla radice al punto di
+inserimento; la visita, invece, non richiede confronti. Il costo dipende quindi dalla forma
+dell'albero, che a sua volta dipende dall'ordine di arrivo dei valori.
+
+- Se l'albero è bilanciato, la sua altezza è circa $\log_2 n$ e l'ordinamento richiede un numero
+  di confronti proporzionale a $n \log_2 n$, come [Merge Sort](/it/simulatori/merge-sort/).
+- Se i valori arrivano già ordinati, ogni nuovo nodo diventa figlio destro dell'ultimo inserito:
+  l'albero degenera in una catena e servono $0 + 1 + \dots + (n-1) = \dfrac{n(n-1)}{2}$ confronti,
+  come negli algoritmi elementari. Con l'elenco 1, 2, 3, 4, 5, 6, 7 i confronti sono 21.
+
+| Esempio | Livelli dell'albero | Confronti |
+|---|---|---|
+| semplice: 41, 73, 17, 56, 8, 92, 29 | 3 | 10 |
+| avanzato: 52, 18, 86, 44, 61, 25, 44, 37, 33, 34 | 7 | 27 |
+
+L'esempio semplice produce un albero perfettamente bilanciato: 41 alla radice, 17 e 73 al secondo
+livello, 8, 29, 56 e 92 al terzo. Nell'esempio avanzato i valori 25, 37, 33 e 34 formano un ramo a
+zig-zag: 34 finisce al settimo livello e il suo inserimento richiede 6 confronti.
+
+:::tip[Da osservare]
+Il valore che arriva per primo diventa la radice e decide come si divide il resto dell'albero.
+Si confrontino 41, 17, 73, 8, 29, 56, 92, che produce lo stesso albero bilanciato dell'esempio
+semplice, e 8, 17, 29, 41, 56, 73, 92, che produce una catena: stessi valori, 10 confronti contro
+21.
+:::
+
+## Proprietà
+
+- L'algoritmo **non lavora in loco**: l'albero richiede un nodo per ogni valore distinto, con i
+  riferimenti ai due figli, quindi memoria aggiuntiva proporzionale a $n$.
+- Il caso peggiore si può evitare con gli alberi che si ribilanciano da soli durante gli
+  inserimenti, che garantiscono un'altezza proporzionale a $\log_2 n$.
+
+## Un po' di storia
+
+L'albero binario di ricerca fu ideato intorno al 1960, in modo indipendente, da più ricercatori,
+fra cui P. F. Windley, A. D. Booth, A. J. T. Colin e T. N. Hibbard. Nel 1962 Georgij
+Adel'son-Vel'skij ed Evgenij Landis proposero l'albero AVL, dalle iniziali dei loro cognomi: il
+primo albero binario di ricerca che si ribilancia da solo.
+
+Fonte: [Wikipedia, *Binary search tree*](https://en.wikipedia.org/wiki/Binary_search_tree).

@@ -1,0 +1,96 @@
+---
+title: Bubble Sort
+description: Step-by-step Bubble Sort simulator, with comparisons between neighbouring elements, swaps, passes and early termination.
+sidebar:
+  hidden: false
+  label: Bubble Sort
+  order: 10
+tableOfContents: false
+---
+
+import SimulatoreBubbleSort from '@components/SimulatoreBubbleSort.astro';
+
+Bubble Sort sorts a list by comparing neighbouring elements only. The list is scanned from left to
+right and, whenever two neighbours are in the wrong order, they are swapped. At the end of each
+pass the largest value among those not yet in place has reached the end, like a bubble rising to
+the surface: hence the name.
+
+The simulator accepts from 2 to 10 whole numbers between 0 and 99, separated by commas or spaces,
+or it can generate random ones. When the simulator has the focus, the arrow keys move one step
+forwards or backwards.
+
+<SimulatoreBubbleSort />
+
+## The procedure
+
+Given a list $a_0, a_1, \dots, a_{n-1}$ of $n$ elements:
+
+1. all pairs of neighbours $a_j, a_{j+1}$ in the part still to sort are compared from left to
+   right; if $a_j > a_{j+1}$, the two elements are swapped;
+2. at the end of the pass the last element of the part still to sort is in its final place, and
+   the part still to sort becomes one element shorter;
+3. if the pass made no swaps, the list is already sorted and the algorithm stops; otherwise it
+   goes back to step 1.
+
+At most $n - 1$ passes are needed: once the last $n - 1$ elements are in place, the first one is
+in place too.
+
+## Why the maximum reaches the end
+
+During a pass, the largest value met so far is always greater than its right-hand neighbour, so it
+is swapped and keeps moving to the right. Once reached, the maximum of the part still to sort does
+not stop until the last position. In the initial example this can be seen in the first pass: 73 is
+carried to the right until it meets 92, which from that point goes all the way to the end.
+
+## How many comparisons and how many swaps
+
+Pass $p$ compares $n - p$ pairs. In the worst case all $n - 1$ passes are needed, and the
+comparisons are
+
+$$
+(n-1) + (n-2) + \dots + 1 = \frac{n(n-1)}{2}
+$$
+
+that is 21 with 7 elements. In the best case, with the list already sorted, the first pass makes
+no swaps and $n - 1$ comparisons are enough.
+
+The number of swaps has a precise meaning. An **inversion** is a pair of elements, not
+necessarily neighbours, in which the larger one comes before the smaller one. Swapping two
+neighbours changes only the order between those two, so it removes exactly one inversion. The
+swaps are therefore as many as the inversions of the starting list: from $0$ for a list already
+sorted up to $n(n-1)/2$ for a list in decreasing order.
+
+| Example | Inversions | Passes | Comparisons | Swaps |
+|---|---|---|---|---|
+| simple: 41, 73, 17, 56, 8, 92, 29 | 11 | 5 | 20 | 11 |
+| advanced: 96, 74, 81, 53, 38, 45, 19 | 19 | 6 | 21 | 19 |
+
+In the simple example the fifth pass makes no swaps and the algorithm stops one pass before the
+maximum. In any case the number of comparisons grows like $n^2$: doubling the length of the list
+roughly quadruples the work in the worst case.
+
+:::tip[Worth noticing]
+Large values rise quickly, small values sink slowly: a small element moves to the left by a single
+position per pass. In the advanced example 19 starts in the last cell and reaches the first one
+only in the sixth pass, which is why every possible pass is needed.
+:::
+
+## Properties
+
+- The algorithm works **in place**: it modifies the list itself and uses only one auxiliary
+  variable for the swap.
+- The algorithm is **stable**: two equal elements keep their original relative order. A swap
+  happens only if $a_j > a_{j+1}$, so two equal values are never swapped. Stability matters when
+  sorting data with several fields: a list of students already in alphabetical order, then sorted
+  by mark with a stable algorithm, stays in alphabetical order among students with the same mark.
+
+## A bit of history
+
+The earliest known description of the algorithm is in a 1956 paper by Edward H. Friend in the
+*Journal of the ACM*, where it appears as *sorting by exchange*. The name *bubble sort* first
+appears in print in 1962, in a book by Kenneth E. Iverson. Donald Knuth, in *The Art of Computer
+Programming*, concluded that the algorithm has little to recommend it apart from its catchy name;
+it is still one of the most common examples in teaching, because it is simple to describe and to
+prove correct.
+
+Source: [Owen Astrachan, *Bubble Sort: An Archaeological Algorithmic Analysis*, SIGCSE 2003](https://users.cs.duke.edu/~ola/bubble/bubble.html).
