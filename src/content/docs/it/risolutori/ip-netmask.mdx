@@ -1,0 +1,32 @@
+---
+title: Indirizzo di rete e parte host da IP e maschera (IPv4)
+description: "Risolutore online IPv4: dati indirizzo IP e maschera di sottorete in decimale, ricava prefisso CIDR, indirizzo di rete e parte host, passo-passo."
+sidebar:
+  hidden: false
+  label: IP e maschera
+  order: 9
+tableOfContents: false
+---
+
+import IPNetmask from '@components/IPNetmask.astro';
+
+Dati un **indirizzo IP** e una **maschera di sottorete** in notazione decimale
+puntata, questo risolutore ricava il **prefisso CIDR** (Classless Inter-Domain
+Routing, la notazione con la barra), l'**indirizzo di rete** e la **parte host**
+di un indirizzo IPv4 (Internet Protocol, versione 4). Lo svolgimento converte ogni
+ottetto in binario con le divisioni successive, mostra quali bit dell'IP vengono
+selezionati dalla maschera e riconverte i risultati in decimale con l'espansione
+posizionale.
+
+<IPNetmask />
+
+:::note[Come si leggono le figure]
+I $32$ bit dell'IP sono scritti sopra quelli della maschera. Dove la maschera vale
+$1$, il bit dell'IP appartiene alla **parte di rete**: il rettangolo rosso raccoglie
+queste colonne e i bit dell'IP al suo interno, completati con zeri, formano
+l'indirizzo di rete. Dove la maschera vale $0$, il bit dell'IP appartiene alla
+**parte host**: il rettangolo verde raccoglie queste colonne e i bit dell'IP al suo
+interno, preceduti da zeri, formano la parte host. Il calcolo dell'indirizzo di rete
+coincide con l'operazione AND bit a bit fra IP e maschera; quello della parte host
+con l'AND bit a bit fra IP e maschera negata (NOT, che scambia ogni $0$ con $1$).
+:::

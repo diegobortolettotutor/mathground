@@ -1785,7 +1785,10 @@ function buildQuickBoard(r: DivResult): Frame {
     grid-template-columns: repeat(3, minmax(0, 1fr));
     align-items: stretch;
     gap: 0.75rem;
-    margin: 1.25rem 0 0.6rem;
+    /* stessa larghezza massima, centratura e distanza dal pulsante
+       passo-passo (1.25rem) degli altri risolutori */
+    max-width: 48rem;
+    margin: 1.25rem auto;
   }
   .dp-btn {
     box-sizing: border-box;
@@ -1808,7 +1811,9 @@ function buildQuickBoard(r: DivResult): Frame {
   }
   .dp-btn:hover { border-color: var(--dp-accent); color: var(--dp-accent); }
   .dp-btn:active { transform: scale(0.96); }
-  .dp-step-btn { width: 100%; margin: 0 0 1rem; }
+  /* largo quanto la riga dei tre pulsanti: display flex (non inline-flex)
+     perche' margin auto possa centrarlo */
+  .dp-step-btn { display: flex; width: 100%; max-width: 48rem; margin: 0 auto 1rem; }
   .dp-analyze { margin-top: 1rem; }
 
   /* ----- messaggi ----- */

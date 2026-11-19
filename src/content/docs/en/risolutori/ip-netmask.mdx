@@ -1,0 +1,31 @@
+---
+title: Network address and host part from IP and subnet mask (IPv4)
+description: "Online IPv4 solver: given an IP address and a subnet mask in dotted decimal, finds the CIDR prefix, network address and host part, step by step."
+sidebar:
+  hidden: false
+  label: IP and subnet mask
+  order: 9
+tableOfContents: false
+---
+
+import IPNetmask from '@components/IPNetmask.astro';
+
+Given an **IP address** and a **subnet mask** in dotted decimal notation, this
+solver finds the **CIDR prefix** (Classless Inter-Domain Routing, the slash
+notation), the **network address** and the **host part** of an IPv4 (Internet
+Protocol, version 4) address. The solution converts each octet to binary by
+successive division, shows which bits of the IP are selected by the mask, and
+converts the results back to decimal by positional expansion.
+
+<IPNetmask />
+
+:::note[How to read the figures]
+The $32$ bits of the IP are written above those of the mask. Where the mask is
+$1$, the IP bit belongs to the **network part**: the red rectangle gathers these
+columns, and the IP bits inside it, completed with zeros, form the network
+address. Where the mask is $0$, the IP bit belongs to the **host part**: the green
+rectangle gathers these columns, and the IP bits inside it, preceded by zeros, form
+the host part. Computing the network address is the same as the bitwise AND of IP
+and mask; computing the host part is the bitwise AND of IP and negated mask (NOT,
+which swaps every $0$ with $1$).
+:::

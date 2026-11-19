@@ -1,0 +1,1144 @@
+---
+/**
+ * IPNetmask.astro — Risolutore IPv4: dato un indirizzo IP e una maschera di
+ * sottorete in notazione decimale puntata, ricava prefisso CIDR, indirizzo di
+ * rete e parte host, con lo svolgimento completo. Nativo, responsive,
+ * bilingue (it/en).
+ *
+ * Dipendenze:  npm install katex
+ *
+ * Uso in una pagina .mdx di Starlight:
+ *   import IPNetmask from '@components/IPNetmask.astro';
+ *   <IPNetmask />
+ *
+ * ── Svolgimento (come nel Modulo 1-C, Reti) ────────────────────────────
+ *   1) dati: IP e maschera, 32 bit divisi in quattro ottetti
+ *   2) ogni ottetto da decimale a binario con le divisioni successive per 2
+ *      (stessa tabella con freccia di lettura di BaseConverter), con gli
+ *      zeri a sinistra fino a 8 bit; i valori gia' convertiti non si ripetono
+ *   3) controllo della maschera, prefisso CIDR, bit di rete e bit host
+ *   4) indirizzo di rete: figura con IP sopra e maschera sotto, rettangolo
+ *      rosso trasparente sulle colonne in cui la maschera vale 1; si copiano
+ *      i bit dell'IP dentro il rettangolo e si completa con zeri. Ritorno al
+ *      decimale con l'espansione posizionale (stessa board di BaseConverter)
+ *   5) parte host: stessa figura con rettangolo verde sulle colonne in cui la
+ *      maschera vale 0 (AND bit a bit fra IP e maschera negata)
+ *   6) riepilogo, controllo (rete + host = IP ottetto per ottetto) ed
+ *      eventuale osservazione se l'IP coincide con rete o broadcast
+ *
+ * ── Ritorno al decimale ────────────────────────────────────────────────
+ *   Un ottetto tutto dentro il rettangolo e' identico all'ottetto dell'IP;
+ *   uno tutto fuori contiene solo zeri aggiunti: per entrambi si dice il
+ *   valore senza ricalcolarlo. L'ottetto attraversato dal confine (bit
+ *   copiati e zeri aggiunti insieme) si converte sempre per esteso.
+ *
+ * ── Limiti ─────────────────────────────────────────────────────────────
+ *   Solo IPv4. La maschera si inserisce in decimale puntato e deve avere gli
+ *   1 consecutivi da sinistra (prefissi da /0 a /32).
+ */
+
+import 'katex/dist/katex.min.css';
+
+const lang = (Astro.currentLocale ?? 'it').toLowerCase().startsWith('en') ? 'en' : 'it';
+
+const UI = {
+  it: {
+    step1: 'Step 1 — INSERISCI INDIRIZZO IP E MASCHERA',
+    ipLabel: 'Indirizzo IP',
+    maskLabel: 'Maschera di sottorete',
+    help1: 'Scrivere entrambi i valori in notazione decimale puntata: quattro numeri interi da 0 a 255 separati da punti.',
+    help2: 'Nella maschera gli 1 devono essere tutti consecutivi a partire da sinistra, per esempio 255.255.255.192.',
+    btnReset: 'AZZERA VALORI',
+    btnRandom: 'VALORE CASUALE',
+    btnQuick: 'RISULTATO SINTETICO',
+    btnStep: 'SVOLGIMENTO PASSO-PASSO',
+  },
+  en: {
+    step1: 'Step 1 — ENTER IP ADDRESS AND MASK',
+    ipLabel: 'IP address',
+    maskLabel: 'Subnet mask',
+    help1: 'Write both values in dotted decimal notation: four integers from 0 to 255 separated by dots.',
+    help2: 'In the mask all the 1s must be consecutive starting from the left, for example 255.255.255.192.',
+    btnReset: 'RESET VALUES',
+    btnRandom: 'RANDOM VALUE',
+    btnQuick: 'QUICK RESULT',
+    btnStep: 'STEP-BY-STEP SOLUTION',
+  },
+}[lang];
+---
+
+<div class="ipn-root" data-lang={lang}>
+  <!-- Step 1: inserimento di IP e maschera -->
+  <section class="ipn-panel">
+    <h3 class="ipn-steplabel">{UI.step1}</h3>
+    <div class="ipn-fields">
+      <div class="ipn-field">
+        <label for="ipnIp" class="ipn-label">{UI.ipLabel}</label>
+        <input id="ipnIp" class="ipn-input" type="text" inputmode="decimal" autocomplete="off" spellcheck="false" placeholder="192.168.1.66" value="" />
+      </div>
+      <div class="ipn-field">
+        <label for="ipnMask" class="ipn-label">{UI.maskLabel}</label>
+        <input id="ipnMask" class="ipn-input" type="text" inputmode="decimal" autocomplete="off" spellcheck="false" placeholder="255.255.255.192" value="" />
+      </div>
+    </div>
+    <div class="ipn-help">
+      <p>{UI.help1}</p>
+      <p>{UI.help2}</p>
+    </div>
+    <div id="ipnStatus" class="ipn-status" role="alert" aria-live="polite"></div>
+  </section>
+
+  <!-- Azioni -->
+  <div class="ipn-actions">
+    <button id="ipnBtnReset" class="ipn-btn ipn-btn-ghost" type="button">{UI.btnReset}</button>
+    <button id="ipnBtnRandom" class="ipn-btn ipn-btn-ghost" type="button">{UI.btnRandom}</button>
+    <button id="ipnBtnQuick" class="ipn-btn ipn-btn-ghost" type="button">{UI.btnQuick}</button>
+  </div>
+  <div class="ipn-secondary">
+    <button id="ipnBtnStep" class="ipn-btn ipn-btn-ghost ipn-btn-wide" type="button">{UI.btnStep}</button>
+  </div>
+
+  <!-- Output -->
+  <section id="ipnQuick" class="ipn-result" hidden></section>
+  <section id="ipnFull" class="ipn-result" hidden></section>
+</div>
+<style is:global>
+  .ipn-root {
+    --ipn-radius: 12px;
+    --ipn-surface: var(--sl-color-gray-6, #1a1a1a);
+    --ipn-border: var(--sl-color-gray-5, #383838);
+    --ipn-accent: var(--sl-color-accent, #4f7cff);
+    --ipn-red: #d11111;
+    --ipn-green: #1f9d55;
+    --ipn-accent-hi: var(--sl-color-accent-high, #b8c8ff);
+    --ipn-faint: var(--sl-color-gray-3, #888);
+    font-size: 1rem;
+    line-height: 1.5;
+    color: var(--sl-color-text, inherit);
+    width: 100%;
+    min-width: 330px;
+    margin: 1.5rem 0;
+    text-align: center;
+  }
+  .ipn-root *,
+  .ipn-root *::before,
+  .ipn-root *::after { box-sizing: border-box; }
+
+  /* reset difensivo contro il margin-top che Starlight inietta sugli elementi
+     "fratelli" dentro il contenuto markdown: stesso fix di BaseConverter,
+     esteso a ogni contenitore costruito dinamicamente via JS */
+  .ipn-root[data-lang] .ipn-fields,
+  .ipn-root[data-lang] .ipn-field,
+  .ipn-root[data-lang] .ipn-label,
+  .ipn-root[data-lang] .ipn-input,
+  .ipn-root[data-lang] .ipn-help,
+  .ipn-root[data-lang] .ipn-grid,
+  .ipn-root[data-lang] .ipn-cell,
+  .ipn-root[data-lang] .ipn-board-scroller,
+  .ipn-root[data-lang] .ipn-term,
+  .ipn-root[data-lang] .ipn-plus,
+  .ipn-root[data-lang] .ipn-poslabel,
+  .ipn-root[data-lang] .ipn-booktable,
+  .ipn-root[data-lang] .ipn-booktable th,
+  .ipn-root[data-lang] .ipn-booktable td,
+  .ipn-root[data-lang] .ipn-remainder-box,
+  .ipn-root[data-lang] .ipn-readarrow,
+  .ipn-root[data-lang] .ipn-readarrow-head,
+  .ipn-root[data-lang] .ipn-fig {
+    margin: 0 !important;
+  }
+
+  .ipn-panel {
+    background: var(--ipn-surface);
+    border: 1px solid var(--ipn-border);
+    border-radius: var(--ipn-radius);
+    padding: 1.25rem 1rem;
+    margin: 1.25rem 0;
+  }
+  .ipn-steplabel {
+    margin: 0 0 1rem;
+    font-size: clamp(0.85rem, 2.4vw, 1rem);
+    letter-spacing: 0.02em;
+    color: var(--sl-color-text-accent, var(--ipn-accent-hi));
+  }
+
+  /* campi IP e maschera */
+  .ipn-fields { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: center; gap: 1rem 2rem; }
+  .ipn-field { display: flex; flex-direction: column; align-items: center; gap: 0.4rem; }
+  .ipn-label { font-size: 0.95rem; line-height: 1.4rem; color: var(--sl-color-text-accent, var(--ipn-accent-hi)); }
+  .ipn-input {
+    background: var(--sl-color-bg, #000);
+    color: var(--sl-color-text, #fff);
+    border: 1.5px solid var(--ipn-border);
+    border-radius: 6px;
+    text-align: center;
+    padding: 0.45rem 0.6rem;
+    font: inherit;
+    line-height: 1.5rem;
+    font-family: var(--__sl-font-mono, ui-monospace, monospace);
+    letter-spacing: 0.04em;
+    width: 13rem;
+    max-width: 100%;
+    transition: background-color 0.15s ease, border-color 0.15s ease;
+  }
+  .ipn-input:hover { border-color: var(--ipn-accent); background: color-mix(in srgb, var(--ipn-accent) 10%, var(--sl-color-bg, #000)); }
+  .ipn-input:focus { border-color: var(--ipn-accent); outline: none; }
+  .ipn-input.ipn-invalid { border-color: var(--ipn-red); }
+  .ipn-help { margin-top: 0.75rem; font-size: 0.82rem; color: var(--ipn-faint); }
+  .ipn-help p { margin: 0.25rem 0; }
+
+  .ipn-status { margin: 0.6rem 0 0; font-size: 0.95rem; }
+  .ipn-status.ipn-error {
+    padding: 0.6rem 0.8rem;
+    border-left: 4px solid var(--ipn-red);
+    background: color-mix(in srgb, var(--ipn-red) 8%, transparent);
+    border-radius: 4px;
+    text-align: left;
+  }
+
+  /* pulsanti */
+  .ipn-actions {
+    display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.75rem; align-items: stretch; margin: 1.25rem auto; max-width: 48rem;
+  }
+  .ipn-actions .ipn-btn {
+    box-sizing: border-box; width: 100%; margin: 0;
+    height: 3.6rem; padding: 0 1rem; line-height: 1.2;
+    display: inline-flex; align-items: center; justify-content: center; text-align: center;
+  }
+  /* stessa larghezza massima e stessa centratura della riga dei tre pulsanti */
+  .ipn-secondary { max-width: 48rem; margin: 1.25rem auto 0; }
+  .ipn-btn {
+    font: inherit; font-weight: 600; cursor: pointer;
+    border-radius: 999px; padding: 0.7rem 1.4rem; border: 1.5px solid transparent;
+    transition: transform 0.1s ease, background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+  }
+  .ipn-btn:active { transform: scale(0.96); }
+  .ipn-btn-ghost { background: transparent; color: var(--sl-color-text, inherit); border-color: var(--ipn-border); }
+  .ipn-btn-ghost:hover { border-color: var(--ipn-accent); color: var(--ipn-accent); }
+  .ipn-btn-wide { padding: 0.9rem 1.4rem; width: 100%; margin: 0 0 1rem; }
+
+  /* output */
+  .ipn-result {
+    background: var(--ipn-surface); border: 1px solid var(--ipn-border);
+    border-radius: var(--ipn-radius); margin-top: 1.5rem; padding: 1.5rem 1rem;
+    opacity: 0; transition: opacity 0.3s ease; text-align: left;
+  }
+  .ipn-result.ipn-visible { opacity: 1; }
+  .ipn-result h2 { text-align: center; }
+  .ipn-result h5 {
+    margin: 2.25rem 0 1rem; padding-top: 1rem;
+    font-size: 0.95rem; letter-spacing: 0.03em; color: var(--sl-color-text-accent, var(--ipn-accent-hi));
+  }
+  .ipn-result h5:first-child { margin-top: 0; padding-top: 0; }
+  .ipn-text p { margin: 0.7rem 0; }
+  .ipn-tip {
+    background: var(--sl-color-gray-6, rgba(255,255,255,0.04));
+    border-left: 4px solid var(--ipn-accent);
+    border-radius: 6px; padding: 0.9rem 1rem; margin: 1.25rem 0;
+  }
+  .ipn-katex { overflow-x: auto; overflow-y: hidden; padding: 0.75rem 0.25rem; margin: 1.25rem 0; }
+  .ipn-katex .katex-display { margin: 0; }
+  .ipn-red-strong { color: var(--ipn-red); }
+  .ipn-green-strong { color: var(--ipn-green); }
+
+  /* blocco di un singolo ottetto (conversioni) */
+  .ipn-octblock {
+    border-top: 1px dashed var(--ipn-border);
+    margin-top: 1.25rem;
+    padding-top: 0.5rem;
+  }
+
+  /* ----- figura dei 32 bit con rettangolo di selezione (SVG) -----
+     Coordinate del viewBox in px "logici": la figura scala con la colonna
+     di testo e, sotto la larghezza minima, scorre in orizzontale. */
+  .ipn-figwrap { overflow-x: auto; margin: 1.5rem 0; padding: 0.25rem 0; }
+  .ipn-fig { display: block; width: 100%; min-width: 38rem; max-width: 54rem; height: auto; margin: 0 auto !important; }
+  .ipn-fig .ipn-c { fill: var(--sl-color-bg, #fff); stroke: var(--sl-color-gray-4, #888); stroke-width: 0.8; }
+  .ipn-fig .ipn-cfill { fill: color-mix(in srgb, var(--sl-color-gray-5, #888) 45%, var(--sl-color-bg, #fff)); stroke: var(--sl-color-gray-4, #888); stroke-width: 0.8; stroke-dasharray: 2 2; }
+  .ipn-fig text { fill: var(--sl-color-text, #222); font-family: var(--__sl-font-mono, ui-monospace, monospace); }
+  .ipn-fig .ipn-bit { font-size: 14px; font-weight: 700; }
+  .ipn-fig .ipn-bitfill { font-size: 14px; font-weight: 700; fill: var(--ipn-faint); }
+  .ipn-fig .ipn-cross { fill: none; stroke: var(--sl-color-gray-3, #888); stroke-width: 1.4; stroke-linecap: round; }
+  .ipn-fig .ipn-rowlabel { font-family: var(--sl-font, sans-serif); font-size: 12.5px; font-weight: 600; }
+  .ipn-fig .ipn-bracelabel { font-family: var(--sl-font, sans-serif); font-size: 11.5px; }
+  .ipn-fig .ipn-brace { fill: none; stroke-width: 1.3; }
+
+  /* ----- board posizionale (binario -> decimale), da BaseConverter ----- */
+  .ipn-board-scroller { overflow-x: auto; padding: 0.5rem 0.25rem 0.75rem; margin: 1.25rem 0; text-align: center; }
+  .ipn-grid {
+    display: inline-grid;
+    align-items: center;
+    justify-content: center;
+    column-gap: 0.35rem;
+    row-gap: 0.3rem;
+    margin: 0 auto;
+  }
+  .ipn-cell { white-space: nowrap; text-align: center; }
+  .ipn-digit {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.6rem;
+    height: 1.6rem;
+    padding: 0 0.3rem;
+    border: 2px solid var(--ipn-border);
+    border-radius: 4px;
+    font-family: var(--__sl-font-mono, ui-monospace, monospace);
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: var(--ipn-red);
+  }
+  .ipn-poslabel { font-size: 0.78rem; line-height: 1.15; color: var(--ipn-faint); }
+  .ipn-poslabel .ipn-green { color: var(--ipn-green); font-weight: 700; }
+  .ipn-term { display: flex; align-items: center; justify-content: center; gap: 0.15rem; }
+  .ipn-plus { align-self: center; padding: 0 0.1rem; opacity: 0.85; }
+
+  /* ----- tabelle in stile "libro", da BaseConverter ----- */
+  .ipn-tablewrap { display: flex; justify-content: center; overflow-x: auto; margin: 1.5rem 0 !important; padding: 0.25rem; }
+  .ipn-booktable {
+    border-collapse: collapse;
+    margin: 0 auto;
+    font-family: var(--__sl-font-mono, ui-monospace, monospace);
+    font-size: 0.92rem;
+  }
+  .ipn-booktable th, .ipn-booktable td {
+    border: none;
+    padding: 0.22rem 1.1rem;
+    text-align: center;
+    white-space: nowrap;
+  }
+  .ipn-booktable thead tr {
+    border-top: 1.5px solid var(--sl-color-text, currentColor);
+    border-bottom: 1.5px solid var(--sl-color-text, currentColor);
+  }
+  .ipn-booktable th {
+    font-family: var(--sl-font, inherit);
+    font-weight: 700;
+    color: var(--sl-color-text-accent, var(--ipn-accent-hi));
+    padding-top: 0.4rem;
+    padding-bottom: 0.4rem;
+  }
+  .ipn-booktable tbody tr:last-child { border-bottom: 1.5px solid var(--sl-color-text, currentColor); }
+  .ipn-booktable tbody tr:nth-child(even) {
+    background: color-mix(in srgb, var(--sl-color-gray-5, #888) 32%, transparent);
+  }
+  .ipn-booktable td.ipn-rowhead { font-family: var(--sl-font, system-ui, sans-serif); text-align: left; font-weight: 600; }
+  .ipn-sumtable thead { display: none; }
+  .ipn-sumtable tbody tr:first-child { border-top: 1.5px solid var(--sl-color-text, currentColor); }
+  .ipn-sumtable td { text-align: left; }
+  .ipn-divtable td.ipn-remainder { color: var(--sl-color-text, #111); font-weight: 700; }
+  .ipn-remainder-box {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 1.5rem; height: 1.5rem; padding: 0 0.25rem;
+    border: 2px solid var(--sl-color-text, #111);
+    border-radius: 4px;
+  }
+  /* freccia rossa verticale di lettura dei resti (vedi BaseConverter: altezza
+     e zebratura impostate via JS da fitReadArrows) */
+  .ipn-divtable td.ipn-readarrow-cell {
+    border: none;
+    padding: 0 0.6rem;
+    vertical-align: middle;
+    position: relative;
+  }
+  .ipn-readarrow { position: relative; width: 3px; margin: 0 auto; background: var(--ipn-red); }
+  .ipn-readarrow-head { position: absolute; top: -4px; left: 50%; width: 0; height: 0; }
+  .ipn-readarrow-head::before,
+  .ipn-readarrow-head::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 3px;
+    height: 10px;
+    background: var(--ipn-red);
+    border-radius: 1.5px;
+    transform-origin: top center;
+  }
+  .ipn-readarrow-head::before { transform: translateX(-50%) rotate(-24deg); }
+  .ipn-readarrow-head::after { transform: translateX(-50%) rotate(24deg); }
+
+  @media (max-width: 600px) {
+    .ipn-root { font-size: 0.95rem; }
+    .ipn-actions { grid-template-columns: 1fr; }
+    .ipn-actions .ipn-btn, .ipn-btn-wide { width: 100%; }
+    .ipn-result { padding: 1rem 0.5rem; }
+    .ipn-fields { flex-direction: column; align-items: stretch; }
+    .ipn-field { align-items: stretch; }
+    .ipn-input { width: 100%; }
+  }
+</style>
+<script>
+  import katex from 'katex';
+  import renderMathInElement from 'katex/contrib/auto-render';
+
+  document.querySelectorAll('.ipn-root').forEach((root) => initIPNetmask(root));
+
+  function initIPNetmask(root) {
+    const LANG = (root.dataset.lang || document.documentElement.lang || 'it')
+      .toLowerCase().startsWith('en') ? 'en' : 'it';
+
+    const RED = '#d11111';
+    const GREEN = '#1f9d55';
+    const GRAY = '#8a8a8a';
+
+    // ============================================================= i18n
+    const D = {
+      it: {
+        titleQuick: 'Risultato sintetico',
+        titleStep: 'Svolgimento passo-passo',
+        posLabel: 'posizione',
+
+        errEmpty: { ip: "Inserire l'indirizzo IP.", mask: 'Inserire la maschera di sottorete.' },
+        errParts: {
+          ip: "L'indirizzo IP deve essere formato da quattro numeri separati da punti, per esempio 192.168.1.66.",
+          mask: 'La maschera deve essere formata da quattro numeri separati da punti, per esempio 255.255.255.192.',
+        },
+        errOctetEmpty: { ip: (k) => `Nell'indirizzo IP l'ottetto ${k} è vuoto.`, mask: (k) => `Nella maschera l'ottetto ${k} è vuoto.` },
+        errOctet: {
+          ip: (k, t) => `Nell'indirizzo IP l'ottetto ${k} ("${t}") non è valido: ogni ottetto deve essere un numero intero da 0 a 255.`,
+          mask: (k, t) => `Nella maschera l'ottetto ${k} ("${t}") non è valido: ogni ottetto deve essere un numero intero da 0 a 255.`,
+        },
+        errMaskShape: (mask, k, bits) =>
+          `La maschera ${mask} non è valida: gli 1 devono essere tutti consecutivi a partire da sinistra, seguiti soltanto da 0, ma dopo il primo 0 compare di nuovo un 1 (ottetto ${k}: ${bits}). Un ottetto della maschera può valere soltanto 0, 128, 192, 224, 240, 248, 252, 254 oppure 255, e dopo il primo ottetto diverso da 255 gli ottetti successivi valgono 0.`,
+
+        // 1. dati
+        s1: '1. Dati',
+        s1Text: (ip, mask) =>
+          `<p>Sono dati l'indirizzo IP \\( ${ip} \\) e la maschera di sottorete \\( ${mask} \\), in notazione decimale puntata. Ciascuno dei due è una sequenza di \\( 32 \\) bit, divisa in quattro <b>ottetti</b>, cioè gruppi di \\( 8 \\) bit: ogni numero fra i punti è il valore decimale di un ottetto, da \\( 0 \\) a \\( 255 \\). Per vedere quali bit dell'IP vengono selezionati dalla maschera occorre scrivere tutti gli ottetti in base \\( 2 \\).</p>`,
+
+        // 2. decimale -> binario
+        s2: '2. Conversione degli ottetti da decimale a binario',
+        s2Intro:
+          `<p>Ogni ottetto si converte con il metodo delle divisioni successive: si divide ripetutamente il valore per \\( 2 \\), annotando quoziente e resto, finché il quoziente non diventa \\( 0 \\). Le cifre binarie sono i resti letti <b class="ipn-red-strong">dal basso verso l'alto</b>. Un ottetto ha sempre esattamente \\( 8 \\) bit: se si ottengono meno di \\( 8 \\) cifre, si aggiungono zeri a sinistra, che non cambiano il valore.</p>`,
+        ipOctLabel: (k) => `Ottetto ${k} dell'IP`,
+        maskOctLabel: (k) => `Ottetto ${k} della maschera`,
+        octHead: (label, v) => `<p><b>${label}</b>: \\( ${v}_{10} \\)</p>`,
+        note255:
+          '<b>Da ricordare:</b> \\( 255 \\) è il più grande numero intero che si può scrivere con \\( 8 \\) bit, perché si ottiene con tutti gli \\( 8 \\) bit a \\( 1 \\): \\( 128+64+32+16+8+4+2+1 = 255 = 2^{8}-1 \\). Quindi \\( 255 \\) si scrive \\( 11111111 \\) e, viceversa, \\( 8 \\) bit tutti a \\( 1 \\) valgono \\( 255 \\). Per chi non lo ricorda, ecco comunque il calcolo.',
+        bTableHead: { div: 'Dividendo', quo: 'Quoziente', rem: 'Resto' },
+        bRead: "<p>Resti letti dal basso verso l'alto:</p>",
+        padNote: (len, add) =>
+          `<p>${len === 1 ? 'Si ottiene una sola cifra' : `Si ottengono \\( ${len} \\) cifre`}: si ${add === 1 ? 'aggiunge uno zero' : `aggiungono \\( ${add} \\) zeri`} a sinistra per completare gli \\( 8 \\) bit dell'ottetto.</p>`,
+        already: (label, v, bits) =>
+          `<p><b>${label}</b>: \\( ${v}_{10} \\) è già stato convertito sopra, quindi \\( ${v}_{10} = \\text{${bits}}_{2} \\).</p>`,
+        recapIntro: '<p>Riassumendo, IP e maschera ottetto per ottetto:</p>',
+        recapHead: ['', 'Ottetto 1', 'Ottetto 2', 'Ottetto 3', 'Ottetto 4'],
+        recapRows: ['IP (decimale)', 'IP (binario)', 'Maschera (decimale)', 'Maschera (binario)'],
+
+        // 3. prefisso
+        s3: '3. Prefisso CIDR: bit di rete e bit host',
+        s3Text: (p) =>
+          `<p>Nella maschera gli \\( 1 \\) sono tutti consecutivi a partire da sinistra e sono seguiti soltanto da \\( 0 \\), quindi la maschera è valida. Il numero di \\( 1 \\) è il <b>prefisso CIDR</b> (Classless Inter-Domain Routing: la notazione con la barra, per esempio \\( /24 \\)). Qui gli \\( 1 \\) sono \\( ${p} \\): il prefisso è \\( /${p} \\).</p>`,
+        s3Tex: (p, h) => `\\text{bit di rete} = ${p}, \\qquad \\text{bit host} = 32 - ${p} = ${h}`,
+        boundary: (p) => {
+          if (p === 0) return '<p>La maschera non contiene alcun \\( 1 \\): nessun bit appartiene alla parte di rete.</p>';
+          if (p === 32) return '<p>La maschera non contiene alcuno \\( 0 \\): tutti i bit appartengono alla parte di rete.</p>';
+          if (p % 8 === 0) return `<p>Il confine fra parte di rete e parte host coincide con il confine fra l'ottetto ${p / 8} e l'ottetto ${p / 8 + 1}.</p>`;
+          const k = Math.floor(p / 8) + 1, r = p % 8;
+          return `<p>Il confine fra parte di rete e parte host cade <b>dentro</b> l'ottetto ${k}, dopo ${r === 1 ? 'il suo primo bit' : `i suoi primi \\( ${r} \\) bit`}: i gruppi da \\( 8 \\) servono a scrivere l'indirizzo, non stabiliscono il confine della rete.</p>`;
+        },
+
+        // 4. rete
+        s4: '4. Indirizzo di rete',
+        s4Intro: (p) =>
+          `<p>Si scrivono i \\( 32 \\) bit dell'IP e, esattamente sotto, quelli della maschera. Il rettangolo <b class="ipn-red-strong">rosso</b> raccoglie entrambe le righe nelle colonne in cui la maschera vale \\( 1 \\): la sua lunghezza, \\( ${p} \\) bit, è stabilita dagli \\( 1 \\) della maschera, ma i bit da conservare sono quelli <b>dell'IP</b> che si trovano dentro il rettangolo. Si copiano questi bit e si completano i \\( 32 \\) bit scrivendo \\( 0 \\) in tutte le colonne restanti: il risultato è l'<b>indirizzo di rete</b>. I bit dell'IP fuori dal rettangolo sono barrati con una X grigia, perché non vengono riportati.</p>`,
+        s4IntroNone:
+          "<p>La maschera non contiene alcun \\( 1 \\), quindi nessuna colonna viene selezionata: non si conserva alcun bit dell'IP e l'indirizzo di rete è formato da \\( 32 \\) zeri.</p>",
+        s4And:
+          "<p>Questa operazione è l'<b>AND bit a bit</b> fra IP e maschera: in ogni colonna il risultato vale \\( 1 \\) soltanto se valgono \\( 1 \\) sia il bit dell'IP sia il bit della maschera.</p>",
+        backIntro: (what) =>
+          `<p>Si riconverte ora in decimale ciascun ottetto ${what} con l'espansione posizionale: ogni bit si moltiplica per la potenza di \\( 2 \\) corrispondente alla sua posizione, contata da destra a partire da \\( 0 \\), e si sommano i termini.</p>`,
+        backNet: "dell'indirizzo di rete",
+        backHost: 'della parte host',
+        octCopied: (k, v) =>
+          `<p><b>Ottetto ${k}</b>: tutti i suoi \\( 8 \\) bit sono copiati dall'IP, quindi è identico all'ottetto ${k} dell'IP e vale \\( ${v} \\).</p>`,
+        octZero: (k) => `<p><b>Ottetto ${k}</b>: contiene soltanto zeri aggiunti, quindi vale \\( 0 \\).</p>`,
+        octExpand: (k, bits) =>
+          `<p><b>Ottetto ${k}</b>: \\( \\text{${bits}}_{2} \\) contiene sia bit copiati dall'IP sia zeri aggiunti; se ne calcola il valore:</p>`,
+        netResult: "<p>L'indirizzo di rete è quindi:</p>",
+        binWord: 'binario',
+        decWord: 'decimale',
+
+        // 5. host
+        s5: '5. Parte host',
+        s5Intro: (h) =>
+          `<p>Si ridisegnano le stesse due righe. Ora il rettangolo <b class="ipn-green-strong">verde</b> raccoglie soltanto le colonne in cui la maschera vale \\( 0 \\): è lungo \\( ${h} \\) bit. Si copiano i bit dell'IP che si trovano dentro il rettangolo e si scrive \\( 0 \\) in tutte le colonne di rete, a sinistra, fino a completare i \\( 32 \\) bit: il risultato è la <b>parte host</b>. I bit dell'IP fuori dal rettangolo sono barrati con una X grigia, perché non vengono riportati.</p>`,
+        s5IntroNone:
+          "<p>La maschera non contiene alcuno \\( 0 \\), quindi non ci sono bit host: la parte host è formata da \\( 32 \\) zeri.</p>",
+        s5And:
+          "<p>Questa operazione è l'<b>AND bit a bit</b> fra l'IP e la <b>maschera negata</b>, cioè la maschera a cui si applica il NOT, che scambia ogni \\( 0 \\) con \\( 1 \\) e ogni \\( 1 \\) con \\( 0 \\).</p>",
+        hostResult: '<p>La parte host è quindi:</p>',
+
+        // 6. riepilogo
+        s6: '6. Riepilogo',
+        sumRows: ['Indirizzo IP (decimale)', 'Indirizzo IP (binario)',
+          'Maschera di sottorete (decimale)', 'Maschera di sottorete (binario)',
+          'Prefisso CIDR', 'Bit di rete', 'Bit host',
+          'Indirizzo di rete (decimale)', 'Indirizzo di rete (binario)',
+          'Parte host (decimale)', 'Parte host (binario)'],
+        checkText:
+          "<p>Controllo: rete e parte host occupano colonne diverse, quindi sommando i loro ottetti uno per uno si riottiene l'IP:</p>",
+        noteNet:
+          "Tutti i bit host dell'IP valgono 0: l'IP coincide con l'indirizzo di rete, che identifica l'intera sottorete e in una sottorete ordinaria non si assegna a un dispositivo.",
+        noteBc:
+          "Tutti i bit host dell'IP valgono 1: l'IP coincide con l'indirizzo broadcast della sottorete, che non identifica un singolo dispositivo e in una sottorete ordinaria non si assegna.",
+
+        // figura
+        figIp: 'IP (binario)',
+        figMask: 'Maschera (binario)',
+        figNet: 'Rete (binario)',
+        figHost: 'Host (binario)',
+        braceIp: (n) => (n === 1 ? "1 bit dell'IP" : `${n} bit dell'IP`),
+        braceZero: (n) => (n === 1 ? '1 zero aggiunto' : `${n} zeri aggiunti`),
+        figAria: (kind) => (kind === 'net'
+          ? "Bit dell'IP e della maschera: il rettangolo rosso seleziona le colonne in cui la maschera vale 1; sotto, l'indirizzo di rete."
+          : "Bit dell'IP e della maschera: il rettangolo verde seleziona le colonne in cui la maschera vale 0; sotto, la parte host."),
+      },
+      en: {
+        titleQuick: 'Quick result',
+        titleStep: 'Step-by-step solution',
+        posLabel: 'position',
+
+        errEmpty: { ip: 'Enter the IP address.', mask: 'Enter the subnet mask.' },
+        errParts: {
+          ip: 'The IP address must consist of four numbers separated by dots, for example 192.168.1.66.',
+          mask: 'The mask must consist of four numbers separated by dots, for example 255.255.255.192.',
+        },
+        errOctetEmpty: { ip: (k) => `In the IP address, octet ${k} is empty.`, mask: (k) => `In the mask, octet ${k} is empty.` },
+        errOctet: {
+          ip: (k, t) => `In the IP address, octet ${k} ("${t}") is not valid: each octet must be an integer from 0 to 255.`,
+          mask: (k, t) => `In the mask, octet ${k} ("${t}") is not valid: each octet must be an integer from 0 to 255.`,
+        },
+        errMaskShape: (mask, k, bits) =>
+          `The mask ${mask} is not valid: all the 1s must be consecutive starting from the left, followed only by 0s, but after the first 0 a 1 appears again (octet ${k}: ${bits}). An octet of the mask can only be 0, 128, 192, 224, 240, 248, 252, 254 or 255, and after the first octet other than 255 all the following octets are 0.`,
+
+        s1: '1. Data',
+        s1Text: (ip, mask) =>
+          `<p>The IP address \\( ${ip} \\) and the subnet mask \\( ${mask} \\) are given in dotted decimal notation. Each of them is a sequence of \\( 32 \\) bits, split into four <b>octets</b>, that is groups of \\( 8 \\) bits: each number between the dots is the decimal value of one octet, from \\( 0 \\) to \\( 255 \\). To see which bits of the IP are selected by the mask, all the octets must be written in base \\( 2 \\).</p>`,
+
+        s2: '2. Converting the octets from decimal to binary',
+        s2Intro:
+          `<p>Each octet is converted by successive division: the value is repeatedly divided by \\( 2 \\), writing down quotient and remainder, until the quotient becomes \\( 0 \\). The binary digits are the remainders read <b class="ipn-red-strong">from bottom to top</b>. An octet always has exactly \\( 8 \\) bits: if fewer than \\( 8 \\) digits are obtained, zeros are added on the left, which do not change the value.</p>`,
+        ipOctLabel: (k) => `Octet ${k} of the IP`,
+        maskOctLabel: (k) => `Octet ${k} of the mask`,
+        octHead: (label, v) => `<p><b>${label}</b>: \\( ${v}_{10} \\)</p>`,
+        note255:
+          '<b>Worth remembering:</b> \\( 255 \\) is the largest integer that can be written with \\( 8 \\) bits, because it is obtained with all \\( 8 \\) bits set to \\( 1 \\): \\( 128+64+32+16+8+4+2+1 = 255 = 2^{8}-1 \\). So \\( 255 \\) is written \\( 11111111 \\) and, conversely, \\( 8 \\) bits all set to \\( 1 \\) are worth \\( 255 \\). For anyone who does not remember it, here is the computation anyway.',
+        bTableHead: { div: 'Dividend', quo: 'Quotient', rem: 'Remainder' },
+        bRead: '<p>Remainders read from bottom to top:</p>',
+        padNote: (len, add) =>
+          `<p>${len === 1 ? 'Only one digit is' : `\\( ${len} \\) digits are`} obtained: ${add === 1 ? 'one zero is' : `\\( ${add} \\) zeros are`} added on the left to complete the \\( 8 \\) bits of the octet.</p>`,
+        already: (label, v, bits) =>
+          `<p><b>${label}</b>: \\( ${v}_{10} \\) has already been converted above, so \\( ${v}_{10} = \\text{${bits}}_{2} \\).</p>`,
+        recapIntro: '<p>Summing up, IP and mask octet by octet:</p>',
+        recapHead: ['', 'Octet 1', 'Octet 2', 'Octet 3', 'Octet 4'],
+        recapRows: ['IP (decimal)', 'IP (binary)', 'Mask (decimal)', 'Mask (binary)'],
+
+        s3: '3. CIDR prefix: network bits and host bits',
+        s3Text: (p) =>
+          `<p>In the mask the \\( 1 \\)s are all consecutive starting from the left and are followed only by \\( 0 \\)s, so the mask is valid. The number of \\( 1 \\)s is the <b>CIDR prefix</b> (Classless Inter-Domain Routing: the slash notation, for example \\( /24 \\)). Here there are \\( ${p} \\) ones: the prefix is \\( /${p} \\).</p>`,
+        s3Tex: (p, h) => `\\text{network bits} = ${p}, \\qquad \\text{host bits} = 32 - ${p} = ${h}`,
+        boundary: (p) => {
+          if (p === 0) return '<p>The mask contains no \\( 1 \\): no bit belongs to the network part.</p>';
+          if (p === 32) return '<p>The mask contains no \\( 0 \\): every bit belongs to the network part.</p>';
+          if (p % 8 === 0) return `<p>The boundary between network part and host part coincides with the boundary between octet ${p / 8} and octet ${p / 8 + 1}.</p>`;
+          const k = Math.floor(p / 8) + 1, r = p % 8;
+          return `<p>The boundary between network part and host part falls <b>inside</b> octet ${k}, after ${r === 1 ? 'its first bit' : `its first \\( ${r} \\) bits`}: the groups of \\( 8 \\) are used to write the address, they do not set the boundary of the network.</p>`;
+        },
+
+        s4: '4. Network address',
+        s4Intro: (p) =>
+          `<p>The \\( 32 \\) bits of the IP are written and, exactly below them, those of the mask. The <b class="ipn-red-strong">red</b> rectangle gathers both rows in the columns where the mask is \\( 1 \\): its length, \\( ${p} \\) bits, is set by the \\( 1 \\)s of the mask, but the bits to keep are those <b>of the IP</b> lying inside the rectangle. These bits are copied and the \\( 32 \\) bits are completed by writing \\( 0 \\) in all the remaining columns: the result is the <b>network address</b>. The IP bits outside the rectangle are crossed out with a grey X, because they are not carried over.</p>`,
+        s4IntroNone:
+          '<p>The mask contains no \\( 1 \\), so no column is selected: no bit of the IP is kept and the network address consists of \\( 32 \\) zeros.</p>',
+        s4And:
+          '<p>This operation is the <b>bitwise AND</b> of IP and mask: in each column the result is \\( 1 \\) only if both the IP bit and the mask bit are \\( 1 \\).</p>',
+        backIntro: (what) =>
+          `<p>Each octet ${what} is now converted back to decimal by positional expansion: each bit is multiplied by the power of \\( 2 \\) corresponding to its position, counted from the right starting at \\( 0 \\), and the terms are added.</p>`,
+        backNet: 'of the network address',
+        backHost: 'of the host part',
+        octCopied: (k, v) =>
+          `<p><b>Octet ${k}</b>: all its \\( 8 \\) bits are copied from the IP, so it is identical to octet ${k} of the IP and its value is \\( ${v} \\).</p>`,
+        octZero: (k) => `<p><b>Octet ${k}</b>: it contains only added zeros, so its value is \\( 0 \\).</p>`,
+        octExpand: (k, bits) =>
+          `<p><b>Octet ${k}</b>: \\( \\text{${bits}}_{2} \\) contains both bits copied from the IP and added zeros; its value is computed:</p>`,
+        netResult: '<p>The network address is therefore:</p>',
+        binWord: 'binary',
+        decWord: 'decimal',
+
+        s5: '5. Host part',
+        s5Intro: (h) =>
+          `<p>The same two rows are drawn again. Now the <b class="ipn-green-strong">green</b> rectangle gathers only the columns where the mask is \\( 0 \\): it is \\( ${h} \\) bits long. The IP bits lying inside the rectangle are copied and \\( 0 \\) is written in all the network columns, on the left, until the \\( 32 \\) bits are complete: the result is the <b>host part</b>. The IP bits outside the rectangle are crossed out with a grey X, because they are not carried over.</p>`,
+        s5IntroNone:
+          '<p>The mask contains no \\( 0 \\), so there are no host bits: the host part consists of \\( 32 \\) zeros.</p>',
+        s5And:
+          '<p>This operation is the <b>bitwise AND</b> of the IP and the <b>negated mask</b>, that is the mask with NOT applied, which turns every \\( 0 \\) into \\( 1 \\) and every \\( 1 \\) into \\( 0 \\).</p>',
+        hostResult: '<p>The host part is therefore:</p>',
+
+        s6: '6. Summary',
+        sumRows: ['IP address (decimal)', 'IP address (binary)',
+          'Subnet mask (decimal)', 'Subnet mask (binary)',
+          'CIDR prefix', 'Network bits', 'Host bits',
+          'Network address (decimal)', 'Network address (binary)',
+          'Host part (decimal)', 'Host part (binary)'],
+        checkText:
+          '<p>Check: network address and host part occupy different columns, so adding their octets one by one gives back the IP:</p>',
+        noteNet:
+          'All the host bits of the IP are 0: the IP coincides with the network address, which identifies the whole subnet and in an ordinary subnet is not assigned to a device.',
+        noteBc:
+          'All the host bits of the IP are 1: the IP coincides with the broadcast address of the subnet, which does not identify a single device and in an ordinary subnet is not assigned.',
+
+        figIp: 'IP (binary)',
+        figMask: 'Mask (binary)',
+        figNet: 'Network (binary)',
+        figHost: 'Host (binary)',
+        braceIp: (n) => (n === 1 ? '1 IP bit' : `${n} IP bits`),
+        braceZero: (n) => (n === 1 ? '1 added zero' : `${n} added zeros`),
+        figAria: (kind) => (kind === 'net'
+          ? 'IP and mask bits: the red rectangle selects the columns where the mask is 1; below, the network address.'
+          : 'IP and mask bits: the green rectangle selects the columns where the mask is 0; below, the host part.'),
+      },
+    }[LANG];
+    const L = D;
+
+    // ── riferimenti DOM ──────────────────────────────────────────────
+    const ipInput = root.querySelector('#ipnIp');
+    const maskInput = root.querySelector('#ipnMask');
+    const statusEl = root.querySelector('#ipnStatus');
+    const quickEl = root.querySelector('#ipnQuick');
+    const fullEl = root.querySelector('#ipnFull');
+
+    // ── helper rendering (da BaseConverter) ──────────────────────────
+    const KOPTS_DISPLAY = { throwOnError: false, displayMode: true };
+    const KOPTS_INLINE = { throwOnError: false, displayMode: false };
+    const RMOPTS = {
+      throwOnError: false,
+      delimiters: [
+        { left: '\\(', right: '\\)', display: false },
+        { left: '\\[', right: '\\]', display: true },
+      ],
+    };
+    function kx(tex, display) {
+      try { return katex.renderToString(tex, display ? KOPTS_DISPLAY : KOPTS_INLINE); }
+      catch (e) { return '<span style="color:#e55">[KaTeX error]</span>'; }
+    }
+    function renderInline(el) { try { renderMathInElement(el, RMOPTS); } catch (e) {} }
+    function reveal(el) { el.hidden = false; el.style.display = 'block'; requestAnimationFrame(() => el.classList.add('ipn-visible')); }
+    function hide(el) { el.classList.remove('ipn-visible'); el.style.display = 'none'; el.hidden = true; }
+    function tip(msg) { statusEl.textContent = msg; statusEl.className = 'ipn-status ipn-error'; }
+    function unTip() {
+      statusEl.textContent = ''; statusEl.className = 'ipn-status';
+      ipInput.classList.remove('ipn-invalid'); maskInput.classList.remove('ipn-invalid');
+    }
+    function emit(target, html, tex) {
+      if (html) { const d = document.createElement('div'); d.className = 'ipn-text'; d.innerHTML = html; target.appendChild(d); renderInline(d); }
+      if (tex) { const w = document.createElement('div'); w.className = 'ipn-katex'; w.innerHTML = kx(tex, true); target.appendChild(w); }
+    }
+    function emitTip(target, html) {
+      const d = document.createElement('div'); d.className = 'ipn-tip'; d.innerHTML = html; target.appendChild(d); renderInline(d);
+    }
+    function appendNode(target, node) { target.appendChild(node); }
+    function heading(target, text) { const h = document.createElement('h5'); h.textContent = text; target.appendChild(h); }
+    function block(target) { const b = document.createElement('div'); b.className = 'ipn-octblock'; target.appendChild(b); return b; }
+    function clearResults() { quickEl.innerHTML = ''; fullEl.innerHTML = ''; hide(quickEl); hide(fullEl); }
+
+    // ── bit e ottetti ────────────────────────────────────────────────
+    const bitsOf = (oct) => oct.map((v) => v.toString(2).padStart(8, '0')).join('');
+    const octetsOf = (bits) => [0, 1, 2, 3].map((k) => parseInt(bits.slice(8 * k, 8 * k + 8), 2));
+    const dotted = (oct) => oct.join('.');
+    const dottedBits = (bits) => bits.match(/.{8}/g).join('.');
+
+    // ── parsing di un indirizzo in decimale puntato ──────────────────
+    function parseDotted(raw) {
+      const s = String(raw).trim().replace(/\s+/g, '');
+      if (!s) return { error: 'empty' };
+      const parts = s.split('.');
+      if (parts.length !== 4) return { error: 'parts' };
+      const oct = [];
+      for (let k = 0; k < 4; k++) {
+        const t = parts[k];
+        if (t === '') return { error: 'octet_empty', k: k + 1 };
+        if (!/^[0-9]{1,3}$/.test(t) || parseInt(t, 10) > 255) return { error: 'octet', k: k + 1, detail: t };
+        oct.push(parseInt(t, 10));
+      }
+      return { ok: true, oct };
+    }
+    function parseError(field, err) {
+      if (err.error === 'empty') return L.errEmpty[field];
+      if (err.error === 'parts') return L.errParts[field];
+      if (err.error === 'octet_empty') return L.errOctetEmpty[field](err.k);
+      return L.errOctet[field](err.k, err.detail);
+    }
+
+    // ── analisi: prefisso, rete, parte host ──────────────────────────
+    function analyze(ipOct, maskOct) {
+      const ipBits = bitsOf(ipOct);
+      const maskBits = bitsOf(maskOct);
+      const firstZero = maskBits.indexOf('0');
+      const p = firstZero === -1 ? 32 : firstZero;
+      const again = maskBits.indexOf('1', p);
+      if (again !== -1) {
+        const k = Math.floor(again / 8);
+        return { error: 'mask_shape', k: k + 1, bits: maskBits.slice(8 * k, 8 * k + 8) };
+      }
+      const h = 32 - p;
+      const netBits = ipBits.slice(0, p) + '0'.repeat(h);
+      const hostBits = '0'.repeat(p) + ipBits.slice(p);
+      return {
+        ipOct, maskOct, ipBits, maskBits, p, h, netBits, hostBits,
+        netOct: octetsOf(netBits), hostOct: octetsOf(hostBits),
+      };
+    }
+
+    // ============================================================= costruttori visuali
+
+    // board dell'espansione posizionale (da BaseConverter)
+    function buildPositionalBoard(digits, base) {
+      const n = digits.length;
+      const scroller = document.createElement('div');
+      scroller.className = 'ipn-board-scroller';
+      const grid = document.createElement('div');
+      grid.className = 'ipn-grid';
+      const nCols = 2 * n - 1;
+      grid.style.gridTemplateColumns = `repeat(${nCols}, auto)`;
+      digits.forEach((d, idx) => {
+        const power = n - 1 - idx;
+        const col = 2 * idx + 1;
+        const sym = String(d);
+
+        const digitCell = document.createElement('div');
+        digitCell.className = 'ipn-cell ipn-digit';
+        digitCell.style.gridColumn = String(col);
+        digitCell.style.gridRow = '1';
+        digitCell.textContent = sym;
+        grid.appendChild(digitCell);
+
+        const posLabel = document.createElement('div');
+        posLabel.className = 'ipn-cell ipn-poslabel';
+        posLabel.style.gridColumn = String(col);
+        posLabel.style.gridRow = '2';
+        // etichetta su due righe: con 8 bit la board resta dentro la colonna di testo
+        posLabel.innerHTML = `${L.posLabel}<br><span class="ipn-green">${power}</span>`;
+        grid.appendChild(posLabel);
+
+        const termCell = document.createElement('div');
+        termCell.className = 'ipn-cell ipn-term';
+        termCell.style.gridColumn = String(col);
+        termCell.style.gridRow = '3';
+        termCell.innerHTML = kx(`\\textcolor{${RED}}{\\text{${sym}}}\\cdot ${base}^{\\textcolor{${GREEN}}{${power}}}`, false);
+        grid.appendChild(termCell);
+
+        if (idx < n - 1) {
+          const plus = document.createElement('div');
+          plus.className = 'ipn-cell ipn-plus';
+          plus.style.gridColumn = String(col + 1);
+          plus.style.gridRow = '3';
+          plus.innerHTML = kx('+', false);
+          grid.appendChild(plus);
+        }
+      });
+      scroller.appendChild(grid);
+      return scroller;
+    }
+
+    // tabella divisioni successive con freccia rossa di lettura (da BaseConverter)
+    function buildDivisionTable(rows, toBase) {
+      const wrap = document.createElement('div');
+      wrap.className = 'ipn-tablewrap';
+      const table = document.createElement('table');
+      table.className = 'ipn-booktable ipn-divtable';
+      const thead = document.createElement('thead');
+      thead.innerHTML = `<tr><th>${L.bTableHead.div}</th><th></th><th>${L.bTableHead.quo}</th><th>${L.bTableHead.rem}</th><th></th></tr>`;
+      table.appendChild(thead);
+      const tbody = document.createElement('tbody');
+      rows.forEach((r, idx) => {
+        const tr = document.createElement('tr');
+        const tdDiv = document.createElement('td'); tdDiv.textContent = String(r.dividend);
+        const tdOp = document.createElement('td'); tdOp.innerHTML = kx(`\\div ${toBase} \\;=\\;`, false);
+        const tdQuo = document.createElement('td'); tdQuo.textContent = String(r.quotient);
+        const tdRem = document.createElement('td'); tdRem.className = 'ipn-remainder';
+        const box = document.createElement('span'); box.className = 'ipn-remainder-box'; box.textContent = String(r.remainder);
+        tdRem.appendChild(box);
+        tr.appendChild(tdDiv); tr.appendChild(tdOp); tr.appendChild(tdQuo); tr.appendChild(tdRem);
+        if (idx === 0) {
+          const tdArrow = document.createElement('td');
+          tdArrow.className = 'ipn-readarrow-cell';
+          tdArrow.rowSpan = rows.length;
+          const arrow = document.createElement('div');
+          arrow.className = 'ipn-readarrow';
+          const head = document.createElement('div');
+          head.className = 'ipn-readarrow-head';
+          arrow.appendChild(head);
+          tdArrow.appendChild(arrow);
+          tr.appendChild(tdArrow);
+        }
+        tbody.appendChild(tr);
+      });
+      table.appendChild(tbody);
+      wrap.appendChild(table);
+      return wrap;
+    }
+
+    // tabella generica in stile "libro" (celle in HTML)
+    function buildBookTable(head, rows, extraClass) {
+      const wrap = document.createElement('div');
+      wrap.className = 'ipn-tablewrap';
+      const table = document.createElement('table');
+      table.className = 'ipn-booktable' + (extraClass ? ' ' + extraClass : '');
+      const thead = document.createElement('thead');
+      thead.innerHTML = `<tr>${head.map((x) => `<th>${x}</th>`).join('')}</tr>`;
+      table.appendChild(thead);
+      const tbody = document.createElement('tbody');
+      rows.forEach((r) => {
+        const tr = document.createElement('tr');
+        r.forEach((cell, j) => {
+          const td = document.createElement('td');
+          if (j === 0) td.className = 'ipn-rowhead';
+          td.innerHTML = cell;
+          tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
+      });
+      table.appendChild(tbody);
+      wrap.appendChild(table);
+      return wrap;
+    }
+
+    // ── figura SVG: IP sopra, maschera sotto, rettangolo di selezione,
+    //    riga del risultato con i bit copiati e gli zeri aggiunti ───────
+    const FG = { cell: 22, gap: 9, label: 150, pad: 10 };
+    const fx = (i) => FG.label + i * FG.cell + Math.floor(i / 8) * FG.gap;
+    const FIG_RIGHT = fx(31) + FG.cell;
+    const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    function svgText(x, y, txt, cls, anchor) {
+      return `<text x="${x}" y="${y}" class="${cls}" text-anchor="${anchor || 'middle'}" dominant-baseline="central">${esc(txt)}</text>`;
+    }
+
+    function buildMaskFigure(kind, info) {
+      const net = kind === 'net';
+      const a = net ? 0 : info.p;          // colonne selezionate: [a, b)
+      const b = net ? info.p : 32;
+      const res = net ? info.netBits : info.hostBits;
+      const color = net ? RED : GREEN;
+      const C = FG.cell;
+      // niente valori decimali degli ottetti nella figura: al confine fra bit
+      // selezionati e bit esclusi un valore riferito all'intero ottetto confonde.
+      // Le parentesi (e le etichette) sono staccate di 36 unita' dalla riga
+      // del risultato.
+      const yIp = 6, yMask = 32, yRes = 92, yBrace = 128, yBraceTxt = 142, H = 154;
+      const W = FIG_RIGHT + FG.pad;
+      const out = [];
+      out.push(`<svg class="ipn-fig" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(L.figAria(kind))}" xmlns="http://www.w3.org/2000/svg">`);
+
+      // una riga di 32 caselle. Opzioni:
+      //  sel: [da, a) colonne selezionate; fuori da qui, nella riga del
+      //       risultato, le caselle sono zeri aggiunti (grigi e tratteggiati)
+      //  cross: [da, a) colonne selezionate; le altre si barrano con una X grigia
+      const row = (y, bits, label, opts) => {
+        const o = opts || {};
+        out.push(svgText(FG.label - 10, y + C / 2, label, 'ipn-rowlabel', 'end'));
+        for (let i = 0; i < 32; i++) {
+          const filler = o.sel && !(i >= o.sel[0] && i < o.sel[1]);
+          const crossed = o.cross && !(i >= o.cross[0] && i < o.cross[1]);
+          out.push(`<rect x="${fx(i)}" y="${y}" width="${C}" height="${C}" class="${filler ? 'ipn-cfill' : 'ipn-c'}"/>`);
+          if (o.sel && !filler) {
+            out.push(`<rect x="${fx(i)}" y="${y}" width="${C}" height="${C}" fill="${color}" fill-opacity="0.16"/>`);
+          }
+          out.push(svgText(fx(i) + C / 2, y + C / 2 + 0.5, bits[i], filler ? 'ipn-bitfill' : 'ipn-bit'));
+          if (crossed) {
+            const x0 = fx(i) + 3, y0 = y + 3, s = C - 6;
+            out.push(`<path d="M ${x0} ${y0} L ${x0 + s} ${y0 + s} M ${x0} ${y0 + s} L ${x0 + s} ${y0}" class="ipn-cross"/>`);
+          }
+        }
+      };
+      row(yIp, info.ipBits, L.figIp, { cross: [a, b] });
+      row(yMask, info.maskBits, L.figMask);
+      row(yRes, res, net ? L.figNet : L.figHost, { sel: [a, b] });
+
+      if (b > a) {
+        // rettangolo trasparente che raccoglie IP e maschera sulle colonne selezionate
+        const x1 = fx(a) - 4, x2 = fx(b - 1) + C + 4;
+        out.push(`<rect x="${x1}" y="${yIp - 4}" width="${x2 - x1}" height="${yMask + C + 4 - (yIp - 4)}" rx="5" fill="${color}" fill-opacity="0.16" stroke="${color}" stroke-width="2.2"/>`);
+        // stesso contorno, piu' sottile, sui bit copiati nella riga del risultato
+        out.push(`<rect x="${x1}" y="${yRes - 4}" width="${x2 - x1}" height="${C + 8}" rx="5" fill="none" stroke="${color}" stroke-width="1.4"/>`);
+        // freccia verso il basso: i bit dell'IP scendono nel risultato
+        const cx = (x1 + x2) / 2;
+        out.push(`<line x1="${cx}" y1="${yMask + C + 9}" x2="${cx}" y2="${yRes - 15}" stroke="${color}" stroke-width="2.2"/>`);
+        out.push(`<polygon points="${cx - 6},${yRes - 16} ${cx + 6},${yRes - 16} ${cx},${yRes - 7}" fill="${color}"/>`);
+      }
+
+      // parentesi sotto il risultato: bit copiati / zeri aggiunti
+      const segs = net
+        ? [[0, info.p, L.braceIp(info.p), color], [info.p, 32, L.braceZero(info.h), GRAY]]
+        : [[0, info.p, L.braceZero(info.p), GRAY], [info.p, 32, L.braceIp(info.h), color]];
+      segs.forEach(([s, e, txt, col]) => {
+        if (e <= s) return;
+        const bx1 = fx(s) + 2, bx2 = fx(e - 1) + C - 2;
+        out.push(`<path d="M ${bx1} ${yBrace - 5} V ${yBrace} H ${bx2} V ${yBrace - 5}" class="ipn-brace" stroke="${col}"/>`);
+        // etichetta centrata, ma tenuta dentro la figura se il tratto e' corto
+        const w = txt.length * 6.2;
+        let x = (bx1 + bx2) / 2, anchor = 'middle';
+        if (x - w / 2 < FG.label) { x = bx1; anchor = 'start'; }
+        else if (x + w / 2 > FIG_RIGHT) { x = bx2; anchor = 'end'; }
+        out.push(svgText(x, yBraceTxt, txt, 'ipn-bracelabel', anchor));
+      });
+
+      out.push('</svg>');
+      const wrap = document.createElement('div');
+      wrap.className = 'ipn-figwrap';
+      wrap.innerHTML = out.join('');
+      return wrap;
+    }
+
+    // ============================================================= passaggi
+
+    // divisioni successive per 2 di un ottetto: tabella + lettura, ritorna le cifre
+    function renderDivisions(target, valueBig, toBase) {
+      const rows = [];
+      let q = valueBig;
+      const b = BigInt(toBase);
+      if (q === 0n) rows.push({ dividend: '0', quotient: '0', remainder: 0 });
+      else {
+        while (q > 0n) {
+          const r = Number(q % b);
+          const nq = q / b;
+          rows.push({ dividend: q.toString(), quotient: nq.toString(), remainder: r });
+          q = nq;
+        }
+      }
+      const raw = rows.map((r) => r.remainder).reverse().join('');
+      appendNode(target, buildDivisionTable(rows, toBase));
+      emit(target, L.bRead, `${valueBig.toString()}_{10} \\;\\Longrightarrow\\; \\text{${raw}}_{${toBase}}`);
+      return raw;
+    }
+
+    // espansione posizionale di un ottetto (board + somma), da BaseConverter
+    function renderPositional(target, digits, fromBase, valueBig) {
+      const n = digits.length;
+      const termsTex = digits.map((d, idx) => `${d}\\cdot ${fromBase}^{${n - 1 - idx}}`).join(' + ');
+      const valuesTex2 = digits.map((d, idx) => {
+        const p = (BigInt(fromBase) ** BigInt(n - 1 - idx)).toString();
+        return `${d}\\cdot ${p}`;
+      }).join(' + ');
+      const productsTex = digits.map((d, idx) => (BigInt(d) * (BigInt(fromBase) ** BigInt(n - 1 - idx))).toString()).join(' + ');
+      const inTex = `\\text{${digits.join('')}}_{${fromBase}}`;
+      appendNode(target, buildPositionalBoard(digits, fromBase));
+      emit(target, '', `\\begin{aligned} ${inTex} &= ${termsTex} \\\\ & = ${valuesTex2} \\\\ & = ${productsTex} \\\\ & = ${valueBig.toString()}_{10} \\end{aligned}`);
+    }
+
+    // ritorno al decimale degli ottetti del risultato
+    function renderBack(target, kind, info) {
+      const a = kind === 'net' ? 0 : info.p;
+      const b = kind === 'net' ? info.p : 32;
+      const bits = kind === 'net' ? info.netBits : info.hostBits;
+      const oct = kind === 'net' ? info.netOct : info.hostOct;
+      emit(target, L.backIntro(kind === 'net' ? L.backNet : L.backHost));
+      for (let k = 0; k < 4; k++) {
+        const lo = 8 * k, hi = 8 * k + 8;
+        const selected = Math.max(0, Math.min(hi, b) - Math.max(lo, a));
+        const ob = bits.slice(lo, hi);
+        const blk = block(target);
+        if (selected === 8) emit(blk, L.octCopied(k + 1, info.ipOct[k]));
+        else if (selected === 0) emit(blk, L.octZero(k + 1));
+        else {
+          emit(blk, L.octExpand(k + 1, ob));
+          renderPositional(blk, ob.split('').map(Number), 2, BigInt(oct[k]));
+        }
+      }
+    }
+
+    function resultTex(bits, oct) {
+      return `\\begin{aligned} \\text{${L.binWord}:}\\;\\; & \\texttt{${dottedBits(bits)}} \\\\ \\text{${L.decWord}:}\\;\\; & ${dotted(oct)} \\end{aligned}`;
+    }
+
+    function buildSummary(info) {
+      const mono = (s) => `<code>${s}</code>`;
+      const vals = [
+        dotted(info.ipOct), dottedBits(info.ipBits), dotted(info.maskOct), dottedBits(info.maskBits),
+        '/' + info.p, String(info.p), String(info.h),
+        dotted(info.netOct), dottedBits(info.netBits), dotted(info.hostOct), dottedBits(info.hostBits),
+      ];
+      const rows = L.sumRows.map((label, i) => [label, mono(vals[i])]);
+      return buildBookTable(['', ''], rows, 'ipn-sumtable');
+    }
+
+    function hostNote(info) {
+      if (info.h < 2) return '';
+      const hostOfIp = info.ipBits.slice(info.p);
+      if (!hostOfIp.includes('1')) return L.noteNet;
+      if (!hostOfIp.includes('0')) return L.noteBc;
+      return '';
+    }
+
+    // ============================================================= svolgimento completo
+    function renderFull(target, info) {
+      const ipDec = dotted(info.ipOct), maskDec = dotted(info.maskOct);
+
+      // 1. dati
+      heading(target, L.s1);
+      emit(target, L.s1Text(ipDec, maskDec));
+
+      // 2. decimale -> binario, un ottetto alla volta (senza ripetere i valori gia' visti)
+      heading(target, L.s2);
+      emit(target, L.s2Intro);
+      const seen = new Map();
+      const items = [
+        ...info.ipOct.map((v, k) => ({ v, label: L.ipOctLabel(k + 1) })),
+        ...info.maskOct.map((v, k) => ({ v, label: L.maskOctLabel(k + 1) })),
+      ];
+      items.forEach(({ v, label }) => {
+        const blk = block(target);
+        if (seen.has(v)) { emit(blk, L.already(label, v, seen.get(v))); return; }
+        emit(blk, L.octHead(label, v));
+        if (v === 255) emitTip(blk, L.note255);
+        const raw = renderDivisions(blk, BigInt(v), 2);
+        const add = 8 - raw.length;
+        if (add > 0) {
+          emit(blk, L.padNote(raw.length, add),
+            `\\text{${raw}}_{2} = \\textcolor{${GRAY}}{\\text{${'0'.repeat(add)}}}\\text{${raw}}_{2}`);
+        }
+        seen.set(v, raw.padStart(8, '0'));
+      });
+      const ipB = info.ipBits.match(/.{8}/g), mB = info.maskBits.match(/.{8}/g);
+      emit(target, L.recapIntro);
+      appendNode(target, buildBookTable(L.recapHead, [
+        [L.recapRows[0], ...info.ipOct.map(String)],
+        [L.recapRows[1], ...ipB],
+        [L.recapRows[2], ...info.maskOct.map(String)],
+        [L.recapRows[3], ...mB],
+      ]));
+
+      // 3. prefisso
+      heading(target, L.s3);
+      emit(target, L.s3Text(info.p), L.s3Tex(info.p, info.h));
+      emit(target, L.boundary(info.p));
+
+      // 4. indirizzo di rete
+      heading(target, L.s4);
+      emit(target, info.p > 0 ? L.s4Intro(info.p) : L.s4IntroNone);
+      appendNode(target, buildMaskFigure('net', info));
+      emit(target, L.s4And);
+      renderBack(target, 'net', info);
+      emit(target, L.netResult, resultTex(info.netBits, info.netOct));
+
+      // 5. parte host
+      heading(target, L.s5);
+      emit(target, info.h > 0 ? L.s5Intro(info.h) : L.s5IntroNone);
+      appendNode(target, buildMaskFigure('host', info));
+      emit(target, L.s5And);
+      renderBack(target, 'host', info);
+      emit(target, L.hostResult, resultTex(info.hostBits, info.hostOct));
+
+      // 6. riepilogo e controllo
+      heading(target, L.s6);
+      appendNode(target, buildSummary(info));
+      const sums = [0, 1, 2, 3].map((k) => `(${info.netOct[k]} + ${info.hostOct[k]})`).join('.');
+      emit(target, L.checkText, `${sums} = ${dotted(info.ipOct)}`);
+      const note = hostNote(info);
+      if (note) emitTip(target, note);
+    }
+
+    // ============================================================= orchestratore
+    let ipnRandomUsed = false;
+    function ipnTrack(mode, prefix) {
+      if (window.umami) {
+        umami.track('ipnetmask-solve', { mode, prefix, randomUsed: ipnRandomUsed });
+      }
+    }
+    function elabora(quick) {
+      const target = quick ? quickEl : fullEl;
+      const other = quick ? fullEl : quickEl;
+      quickEl.innerHTML = ''; fullEl.innerHTML = '';
+      unTip();
+
+      const ipP = parseDotted(ipInput.value);
+      if (ipP.error) { tip(parseError('ip', ipP)); ipInput.classList.add('ipn-invalid'); hide(quickEl); hide(fullEl); return; }
+      const mP = parseDotted(maskInput.value);
+      if (mP.error) { tip(parseError('mask', mP)); maskInput.classList.add('ipn-invalid'); hide(quickEl); hide(fullEl); return; }
+      const info = analyze(ipP.oct, mP.oct);
+      if (info.error) {
+        tip(L.errMaskShape(dotted(mP.oct), info.k, info.bits));
+        maskInput.classList.add('ipn-invalid'); hide(quickEl); hide(fullEl); return;
+      }
+
+      emit(target, `<h2>${quick ? L.titleQuick : L.titleStep}</h2>`);
+      if (quick) {
+        appendNode(target, buildSummary(info));
+        const note = hostNote(info);
+        if (note) emitTip(target, note);
+      } else {
+        renderFull(target, info);
+      }
+
+      hide(other);
+      reveal(target);
+      fitReadArrows();
+      ipnTrack(quick ? 'quick' : 'steps', info.p);
+    }
+
+    // altezza + zebra della freccia di lettura (da BaseConverter)
+    const READARROW_INSET = 18;
+    function fitReadArrows(tries) {
+      tries = tries || 0;
+      requestAnimationFrame(() => {
+        const cells = root.querySelectorAll('.ipn-readarrow-cell');
+        if (!cells.length) return;
+        let pending = false;
+        cells.forEach((cell) => {
+          const line = cell.querySelector('.ipn-readarrow');
+          if (!line) return;
+          const h = cell.getBoundingClientRect().height;
+          if (h <= 0) { pending = true; return; }
+          line.style.height = Math.max(0, h - READARROW_INSET) + 'px';
+          const rowsCount = parseInt(cell.getAttribute('rowspan'), 10) || 1;
+          const rowH = h / rowsCount;
+          const table = cell.closest('table');
+          const evenRow = table ? table.querySelector('tbody tr:nth-child(2)') : null;
+          const tint = evenRow ? getComputedStyle(evenRow).backgroundColor : 'transparent';
+          cell.style.backgroundImage =
+            `repeating-linear-gradient(to bottom, transparent 0px, transparent ${rowH}px, ${tint} ${rowH}px, ${tint} ${2 * rowH}px)`;
+        });
+        if (pending && tries < 12) fitReadArrows(tries + 1);
+      });
+    }
+
+    // ── valore casuale: IP privato, prefisso da /16 a /30, IP che non
+    //    coincide con l'indirizzo di rete ne' con il broadcast ──────────
+    function randomInRange(min, max) { return min + Math.floor(Math.random() * (max - min + 1)); }
+    function randomCase() {
+      const p = randomInRange(16, 30);
+      const h = 32 - p;
+      const kind = randomInRange(0, 2);
+      const first = kind === 0 ? [192, 168] : kind === 1 ? [172, randomInRange(16, 31)] : [10, randomInRange(0, 255)];
+      const base = bitsOf([...first, randomInRange(0, 255), randomInRange(0, 255)]);
+      const host = randomInRange(1, 2 ** h - 2);
+      const ipBits = base.slice(0, p) + host.toString(2).padStart(h, '0');
+      const maskBits = '1'.repeat(p) + '0'.repeat(h);
+      return { ip: dotted(octetsOf(ipBits)), mask: dotted(octetsOf(maskBits)) };
+    }
+
+    // ── interazioni ──────────────────────────────────────────────────
+    const onEdit = () => { clearResults(); unTip(); ipnRandomUsed = false; };
+    ipInput.addEventListener('input', onEdit);
+    maskInput.addEventListener('input', onEdit);
+    root.querySelector('#ipnBtnReset').addEventListener('click', () => {
+      ipInput.value = ''; maskInput.value = ''; onEdit();
+    });
+    root.querySelector('#ipnBtnRandom').addEventListener('click', () => {
+      const c = randomCase();
+      ipInput.value = c.ip; maskInput.value = c.mask;
+      clearResults(); unTip();
+      ipnRandomUsed = true;
+    });
+    root.querySelector('#ipnBtnQuick').addEventListener('click', () => elabora(true));
+    root.querySelector('#ipnBtnStep').addEventListener('click', () => elabora(false));
+    window.addEventListener('resize', () => fitReadArrows());
+
+    // ── avvio ────────────────────────────────────────────────────────
+    ipInput.value = '';
+    maskInput.value = '';
+    renderInline(root);
+  }
+</script>
