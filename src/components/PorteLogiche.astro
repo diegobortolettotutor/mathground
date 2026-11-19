@@ -1,0 +1,920 @@
+---
+/**
+ * PorteLogiche.astro — Risolutore per operazioni logiche bit a bit su parole
+ * da 4, 8, 12 o 16 bit, nativo, responsive, bilingue (it/en).
+ *
+ * Dipendenze:  npm install katex
+ *
+ * Uso in una pagina .mdx di Starlight:
+ *   import PorteLogiche from '@components/PorteLogiche.astro';
+ *   <PorteLogiche />
+ *
+ * ── Porte ───────────────────────────────────────────────────────────────
+ *   A un ingresso:   BUFFER, NOT                  (una sola riga: A)
+ *   A due ingressi:  AND, OR, NAND, NOR, XOR, XNOR (due righe: A e B)
+ *   Uscita sempre Y. Simboli "a forma distintiva" (ANSI/IEEE 91), disegnati
+ *   in SVG con currentColor, quindi corretti sia in tema chiaro che scuro.
+ *
+ * ── Input ───────────────────────────────────────────────────────────────
+ *   Una casella per bit, accetta solo 0 o 1; avanzamento automatico,
+ *   Backspace torna indietro, frecce sinistra/destra, incolla distribuito
+ *   sulle caselle a partire da quella selezionata. Caselle inizializzate a 0.
+ *   Cambiando il numero di bit si conservano i bit meno significativi.
+ *
+ * ── Svolgimento ─────────────────────────────────────────────────────────
+ *   1) logica booleana e carrellata di tutte le porte (simbolo, espressione,
+ *      tabella di verita'), due per riga: porta normale a sinistra e sua
+ *      negata a destra (BUFFER/NOT, AND/NAND, OR/NOR, XOR/XNOR), con la porta
+ *      scelta evidenziata
+ *   2) la porta scelta: descrizione, simbolo, espressione, tabella
+ *   3) calcolo bit a bit: caselle A (e B) incolonnate, freccia, caselle Y;
+ *      la colonna piu' a sinistra e la riga di tabella che usa sono
+ *      evidenziate come esempio di lettura
+ *   4) risultato
+ */
+
+import 'katex/dist/katex.min.css';
+
+const lang = (Astro.currentLocale ?? 'it').toLowerCase().startsWith('en') ? 'en' : 'it';
+
+const UI = {
+  it: {
+    step1: 'Step 1 — SCEGLI LA PORTA E IL NUMERO DI BIT',
+    gateLabel: 'Porta logica',
+    bitsLabel: 'Numero di bit',
+    step2: 'Step 2 — INSERISCI I BIT',
+    help1: 'Ogni casella accetta soltanto 0 oppure 1; dopo ogni cifra il cursore passa da solo alla casella successiva.',
+    help2: "È possibile anche incollare un'intera sequenza di bit a partire dalla casella selezionata.",
+    btnReset: 'AZZERA VALORI',
+    btnRandom: 'VALORI CASUALI',
+    btnQuick: 'RISULTATO SINTETICO',
+    btnStep: 'SVOLGIMENTO PASSO-PASSO',
+  },
+  en: {
+    step1: 'Step 1 — CHOOSE THE GATE AND THE NUMBER OF BITS',
+    gateLabel: 'Logic gate',
+    bitsLabel: 'Number of bits',
+    step2: 'Step 2 — ENTER THE BITS',
+    help1: 'Each box accepts only 0 or 1; after each digit the cursor moves to the next box by itself.',
+    help2: 'A whole sequence of bits can also be pasted, starting from the selected box.',
+    btnReset: 'RESET VALUES',
+    btnRandom: 'RANDOM VALUES',
+    btnQuick: 'QUICK RESULT',
+    btnStep: 'STEP-BY-STEP SOLUTION',
+  },
+}[lang];
+
+// ordine a coppie: porta normale, poi la sua negata
+const GATE_OPTIONS = [
+  ['buf', 'BUFFER'], ['not', 'NOT'], ['and', 'AND'], ['nand', 'NAND'],
+  ['or', 'OR'], ['nor', 'NOR'], ['xor', 'XOR'], ['xnor', 'XNOR'],
+];
+---
+
+<div class="pl-root" data-lang={lang}>
+  <!-- Step 1: porta e numero di bit -->
+  <section class="pl-panel">
+    <h3 class="pl-steplabel">{UI.step1}</h3>
+    <div class="pl-selrow">
+      <div class="pl-selblock">
+        <label for="plGate" class="pl-label">{UI.gateLabel}</label>
+        <select id="plGate" class="pl-select pl-select-gate">
+          {GATE_OPTIONS.map(([id, name]) => (
+            <option value={id} selected={id === 'and'}>{name}</option>
+          ))}
+        </select>
+      </div>
+      <div class="pl-selblock">
+        <label for="plBits" class="pl-label">{UI.bitsLabel}</label>
+        <select id="plBits" class="pl-select">
+          <option value="4">4</option>
+          <option value="8" selected>8</option>
+          <option value="12">12</option>
+          <option value="16">16</option>
+        </select>
+      </div>
+    </div>
+  </section>
+
+  <!-- Step 2: inserimento dei bit + simbolo della porta -->
+  <section class="pl-panel">
+    <h3 class="pl-steplabel">{UI.step2}</h3>
+    <div id="plBoardIn"></div>
+    <div id="plSymbol" class="pl-symbol"></div>
+    <div class="pl-help">
+      <p>{UI.help1}</p>
+      <p>{UI.help2}</p>
+    </div>
+    <div id="plStatus" class="pl-status" role="alert" aria-live="polite"></div>
+  </section>
+
+  <!-- Azioni -->
+  <div class="pl-actions">
+    <button id="plBtnReset" class="pl-btn pl-btn-ghost" type="button">{UI.btnReset}</button>
+    <button id="plBtnRandom" class="pl-btn pl-btn-ghost" type="button">{UI.btnRandom}</button>
+    <button id="plBtnQuick" class="pl-btn pl-btn-ghost" type="button">{UI.btnQuick}</button>
+  </div>
+  <div class="pl-secondary">
+    <button id="plBtnStep" class="pl-btn pl-btn-ghost pl-btn-wide" type="button">{UI.btnStep}</button>
+  </div>
+
+  <!-- Output -->
+  <section id="plQuick" class="pl-result" hidden></section>
+  <section id="plFull" class="pl-result" hidden></section>
+</div>
+<style is:global>
+  .pl-root {
+    --pl-radius: 12px;
+    --pl-surface: var(--sl-color-gray-6, #1a1a1a);
+    --pl-border: var(--sl-color-gray-5, #383838);
+    --pl-accent: var(--sl-color-accent, #4f7cff);
+    --pl-accent-hi: var(--sl-color-accent-high, #b8c8ff);
+    --pl-yellow: #ffcc44;
+    --pl-red: #d11111;
+    --pl-faint: var(--sl-color-gray-3, #888);
+    font-size: 1rem;
+    line-height: 1.5;
+    color: var(--sl-color-text, inherit);
+    width: 100%;
+    min-width: 330px;
+    margin: 1.5rem 0;
+    text-align: center;
+  }
+  .pl-root *,
+  .pl-root *::before,
+  .pl-root *::after { box-sizing: border-box; }
+
+  /* reset difensivo contro il margin-top che Starlight inietta sugli elementi
+     "fratelli" dentro il contenuto markdown (stesso fix di BaseConverter),
+     esteso a tutti i contenitori costruiti via JS */
+  .pl-root[data-lang] :is(
+    .pl-selrow, .pl-selblock, .pl-label, .pl-select,
+    .pl-board-scroller, .pl-board, .pl-board > *, .pl-symbol, .pl-symbol > *,
+    .pl-help, .pl-cards, .pl-card, .pl-card > *, .pl-card-svg > *,
+    .pl-figure, .pl-figure > *, .pl-figure-left > *, .pl-gate-svg,
+    .pl-tablewrap, .pl-booktable, .pl-booktable *, .pl-arrow, .pl-arrow > *
+  ) {
+    /* solo contenitori e figli diretti: mai i nodi interni di KaTeX, che
+       usano margin-right in linea per la spaziatura attorno a + e \cdot.
+       Dentro :is() solo selettori di classe, cosi' la specificita' resta
+       (0,3,0) e le regole .pl-root[data-lang] .pl-xxx scritte piu' sotto,
+       con margini propri, prevalgono per ordine di sorgente. */
+    margin: 0 !important;
+  }
+
+  .pl-panel {
+    background: var(--pl-surface);
+    border: 1px solid var(--pl-border);
+    border-radius: var(--pl-radius);
+    padding: 1.25rem 1rem;
+    margin: 1.25rem 0;
+  }
+  .pl-steplabel {
+    margin: 0 0 1rem;
+    font-size: clamp(0.85rem, 2.4vw, 1rem);
+    letter-spacing: 0.02em;
+    color: var(--sl-color-text-accent, var(--pl-accent-hi));
+  }
+  .pl-label { font-size: 0.95rem; line-height: 1.4rem; color: var(--sl-color-text-accent, var(--pl-accent-hi)); }
+
+  /* riga dei due menu a tendina: porta logica e numero di bit */
+  .pl-selrow { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: center; gap: 1rem 2rem; }
+  .pl-selblock { display: flex; flex-direction: column; align-items: center; gap: 0.4rem; }
+  .pl-select-gate { min-width: 9.5rem; font-weight: 600; letter-spacing: 0.03em; }
+  .pl-select {
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    background-color: var(--sl-color-bg, #000);
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' stroke='%23888' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+    background-repeat: no-repeat;
+    background-position: right 0.75rem center;
+    background-size: 10px 6px;
+    color: var(--sl-color-text, #fff);
+    border: 1.5px solid var(--pl-border);
+    border-radius: 6px;
+    padding: 0.5rem 2rem 0.5rem 0.9rem;
+    font: inherit;
+    line-height: 1.5rem;
+    cursor: pointer;
+    transition: border-color 0.15s ease;
+  }
+  .pl-select:hover, .pl-select:focus { border-color: var(--pl-accent); outline: none; }
+
+  /* ----- casellario dei bit (input e svolgimento) -----
+     griglia: colonna 1 = etichetta "A =", poi una colonna per bit, con una
+     colonna-spaziatore stretta ogni 4 bit per leggere i gruppi da 4 */
+  .pl-board-scroller { overflow-x: auto; padding: 0.5rem 0.25rem 0.75rem; }
+  .pl-result .pl-board-scroller { margin: 1.25rem 0 !important; }
+  .pl-board {
+    display: inline-grid;
+    align-items: center;
+    justify-items: center;
+    column-gap: 0.22rem;
+    row-gap: 0.35rem;
+  }
+  .pl-rowlabel { padding-right: 0.5rem; justify-self: end; white-space: nowrap; font-size: 1.05rem; }
+  .pl-pos { font-size: 0.72rem; color: var(--pl-faint); font-family: var(--__sl-font-mono, ui-monospace, monospace); }
+  .pl-bit, .pl-cell {
+    width: 1.95rem;
+    height: 2.2rem;
+    border: 1.5px solid var(--pl-border);
+    border-radius: 4px;
+    font-family: var(--__sl-font-mono, ui-monospace, monospace);
+    font-size: 1.15rem;
+    font-weight: 700;
+    text-align: center;
+  }
+  .pl-bit {
+    padding: 0;
+    background: var(--sl-color-bg, #000);
+    color: var(--sl-color-text, #fff);
+    caret-color: transparent;
+    transition: background-color 0.15s ease, border-color 0.15s ease;
+  }
+  .pl-bit:hover { border-color: var(--pl-accent); background: color-mix(in srgb, var(--pl-accent) 10%, var(--sl-color-bg, #000)); }
+  .pl-bit:focus { border-color: var(--pl-accent); outline: none; background: color-mix(in srgb, var(--pl-accent) 18%, var(--sl-color-bg, #000)); }
+  .pl-bit.pl-bit-empty { border-color: var(--pl-red); background: color-mix(in srgb, var(--pl-red) 12%, var(--sl-color-bg, #000)); }
+  .pl-cell { display: inline-flex; align-items: center; justify-content: center; border-width: 2px; }
+  .pl-cell.pl-out { color: var(--pl-red); border-color: color-mix(in srgb, var(--pl-red) 55%, var(--pl-border)); }
+  .pl-hl { background: color-mix(in srgb, var(--pl-yellow) 32%, transparent); }
+  .pl-pos.pl-hl { background: none; color: var(--sl-color-text, inherit); font-weight: 700; }
+
+  /* freccia verso il basso tra ingressi e uscita, con il nome della porta */
+  .pl-arrow { display: flex; align-items: center; justify-content: center; gap: 0.6rem; padding: 0.15rem 0; }
+  .pl-arrow svg { display: block; }
+  .pl-arrow-name { font-weight: 700; letter-spacing: 0.04em; font-size: 0.9rem; color: var(--sl-color-text-accent, var(--pl-accent-hi)); }
+
+  /* simbolo della porta sotto le caselle */
+  .pl-root[data-lang] .pl-symbol {
+    display: flex; flex-direction: column; align-items: center; gap: 0.2rem;
+    margin: 0.75rem 0 0.5rem !important;
+  }
+  .pl-gate-svg { display: block; max-width: 100%; height: auto; color: var(--sl-color-text, currentColor); }
+  .pl-symbol-caption { font-size: 0.95rem; }
+  .pl-symbol-caption b { letter-spacing: 0.04em; }
+
+  .pl-help { margin-top: 0.5rem; font-size: 0.82rem; color: var(--pl-faint); }
+  .pl-help p { margin: 0.25rem 0; }
+
+  .pl-status { margin: 0.6rem 0 0; font-size: 0.95rem; }
+  .pl-status.pl-error {
+    padding: 0.6rem 0.8rem;
+    border-left: 4px solid var(--pl-red);
+    background: color-mix(in srgb, var(--pl-red) 8%, transparent);
+    border-radius: 4px;
+  }
+
+  /* pulsanti (identici a BaseConverter) */
+  .pl-actions {
+    display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.75rem; align-items: stretch; margin: 1.25rem auto; max-width: 48rem;
+  }
+  .pl-actions .pl-btn {
+    box-sizing: border-box; width: 100%; margin: 0;
+    height: 3.6rem; padding: 0 1rem; line-height: 1.2;
+    display: inline-flex; align-items: center; justify-content: center; text-align: center;
+  }
+  .pl-secondary { margin-top: 1.25rem; }
+  .pl-btn {
+    font: inherit; font-weight: 600; cursor: pointer;
+    border-radius: 999px; padding: 0.7rem 1.4rem; border: 1.5px solid transparent;
+    transition: transform 0.1s ease, background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+  }
+  .pl-btn:active { transform: scale(0.96); }
+  .pl-btn-ghost { background: transparent; color: var(--sl-color-text, inherit); border-color: var(--pl-border); }
+  .pl-btn-ghost:hover { border-color: var(--pl-accent); color: var(--pl-accent); }
+  .pl-btn-wide { padding: 0.9rem 1.4rem; width: 100%; margin: 0 0 1rem; }
+
+  /* output */
+  .pl-result {
+    background: var(--pl-surface); border: 1px solid var(--pl-border);
+    border-radius: var(--pl-radius); margin-top: 1.5rem; padding: 1.5rem 1rem;
+    opacity: 0; transition: opacity 0.3s ease; text-align: left;
+  }
+  .pl-result.pl-visible { opacity: 1; }
+  .pl-result h2 { text-align: center; }
+  .pl-result h5 {
+    margin: 2.25rem 0 1rem; padding-top: 1rem;
+    font-size: 0.95rem; letter-spacing: 0.03em; color: var(--sl-color-text-accent, var(--pl-accent-hi));
+  }
+  .pl-result h5:first-child { margin-top: 0; padding-top: 0; }
+  .pl-text p { margin: 0.7rem 0; }
+  .pl-result .pl-board-scroller { text-align: center; }
+
+  /* carrellata delle porte: due schede per riga, porta normale a sinistra
+     e la sua negata a destra */
+  .pl-root[data-lang] .pl-cards {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.9rem;
+    max-width: 30rem;
+    margin: 1rem auto 1.5rem !important;
+  }
+  .pl-card {
+    display: flex; flex-direction: column; align-items: center; gap: 0.45rem;
+    padding: 0.8rem 0.6rem 0.9rem;
+    border: 1.5px solid var(--pl-border);
+    border-radius: 10px;
+    text-align: center;
+  }
+  .pl-card.pl-card-on { border: 2.5px solid var(--pl-yellow); box-shadow: 0 0 0 3px color-mix(in srgb, var(--pl-yellow) 25%, transparent); }
+  .pl-card-name { font-weight: 700; letter-spacing: 0.05em; }
+  /* la descrizione si allarga in verticale: le tabelle di verita' delle due
+     schede di una stessa riga finiscono cosi' allineate in basso */
+  .pl-card-desc { font-size: 0.8rem; color: var(--pl-faint); line-height: 1.35; flex: 1 1 auto; }
+
+  /* porta scelta: simbolo + espressione + tabella affiancati */
+  .pl-root[data-lang] .pl-figure {
+    display: flex; flex-wrap: wrap; align-items: center; justify-content: center;
+    gap: 1.25rem 2.5rem;
+    margin: 1.5rem 0 !important;
+  }
+  .pl-figure-left { display: flex; flex-direction: column; align-items: center; gap: 0.5rem; }
+
+  /* tabelle di verita' in stile "libro" (come BaseConverter) */
+  .pl-tablewrap { display: flex; justify-content: center; }
+  .pl-booktable {
+    border-collapse: collapse;
+    font-family: var(--__sl-font-mono, ui-monospace, monospace);
+    font-size: 0.92rem;
+    display: table !important;
+    width: auto !important;
+  }
+  .pl-booktable th, .pl-booktable td { border: none; padding: 0.18rem 0.95rem; text-align: center; white-space: nowrap; }
+  .pl-booktable thead tr {
+    border-top: 1.5px solid var(--sl-color-text, currentColor);
+    border-bottom: 1.5px solid var(--sl-color-text, currentColor);
+  }
+  .pl-booktable th {
+    font-family: 'KaTeX_Math', 'Times New Roman', serif;
+    font-style: italic;
+    font-weight: 400;
+    font-size: 1.05rem;
+    color: var(--sl-color-text-accent, var(--pl-accent-hi));
+    padding-top: 0.3rem;
+    padding-bottom: 0.3rem;
+    background: transparent;
+  }
+  .pl-booktable th.pl-th-y, .pl-booktable td.pl-td-y { border-left: 1.5px solid var(--pl-border); }
+  .pl-booktable td.pl-td-y { font-weight: 700; }
+  .pl-booktable tbody tr:last-child { border-bottom: 1.5px solid var(--sl-color-text, currentColor); }
+  .pl-booktable tbody tr:nth-child(even) { background: color-mix(in srgb, var(--sl-color-gray-5, #888) 32%, transparent); }
+  .pl-booktable tbody tr.pl-hl { background: color-mix(in srgb, var(--pl-yellow) 38%, transparent); }
+  .pl-booktable.pl-small { font-size: 0.82rem; }
+  .pl-booktable.pl-small th, .pl-booktable.pl-small td { padding: 0.08rem 0.6rem; }
+
+  .pl-katex { overflow-x: auto; overflow-y: hidden; padding: 0.25rem; }
+  .pl-katex .katex-display { margin: 0; }
+
+  @media (max-width: 600px) {
+    .pl-root { font-size: 0.95rem; }
+    .pl-actions { grid-template-columns: 1fr; }
+    .pl-actions .pl-btn, .pl-btn-wide { width: 100%; }
+    .pl-result { padding: 1rem 0.5rem; }
+    .pl-bit, .pl-cell { width: 1.7rem; height: 2rem; font-size: 1.05rem; }
+    .pl-board { column-gap: 0.15rem; }
+  }
+</style>
+<script>
+  import katex from 'katex';
+  import renderMathInElement from 'katex/contrib/auto-render';
+
+  const root = document.querySelector('.pl-root');
+  if (root) initPorteLogiche(root);
+
+  function initPorteLogiche(root) {
+    const LANG = (root.dataset.lang || document.documentElement.lang || 'it')
+      .toLowerCase().startsWith('en') ? 'en' : 'it';
+
+    // ============================================================= porte
+    // f lavora su bit numerici 0/1; per le porte a un ingresso b e' ignorato
+    const GATES = {
+      buf:  { name: 'BUFFER', inputs: 1, f: (a) => a,             tex: 'Y = A' },
+      not:  { name: 'NOT',    inputs: 1, f: (a) => 1 - a,         tex: 'Y = \\overline{A}' },
+      and:  { name: 'AND',    inputs: 2, f: (a, b) => a & b,      tex: 'Y = A \\cdot B' },
+      or:   { name: 'OR',     inputs: 2, f: (a, b) => a | b,      tex: 'Y = A + B' },
+      nand: { name: 'NAND',   inputs: 2, f: (a, b) => 1 - (a & b), tex: 'Y = \\overline{A \\cdot B}' },
+      nor:  { name: 'NOR',    inputs: 2, f: (a, b) => 1 - (a | b), tex: 'Y = \\overline{A + B}' },
+      xor:  { name: 'XOR',    inputs: 2, f: (a, b) => a ^ b,      tex: 'Y = A \\oplus B' },
+      xnor: { name: 'XNOR',   inputs: 2, f: (a, b) => 1 - (a ^ b), tex: 'Y = \\overline{A \\oplus B}' },
+    };
+    // a coppie: porta normale, poi la sua negata (una coppia per riga nella carrellata)
+    const GATE_ORDER = ['buf', 'not', 'and', 'nand', 'or', 'nor', 'xor', 'xnor'];
+
+    // simbolo "a forma distintiva" (ANSI/IEEE 91) in un viewBox 160x80.
+    // Corpo alto 50 (y da 15 a 65), ingressi a y=28 e y=52 (o y=40 se uno
+    // solo), uscita a y=40. Le linee d'ingresso terminano esattamente sul
+    // bordo del corpo (per OR/XOR sul punto della curva posteriore a quelle
+    // quote: x(t) = 45 + 26 t(1-t), con y=28 o 52 -> t~0.26/0.74 -> x=50).
+    function gateSvg(gate, width) {
+      const g = GATES[gate];
+      const two = g.inputs === 2;
+      const fam = { buf: 'buf', not: 'buf', and: 'and', nand: 'and', or: 'or', nor: 'or', xor: 'xor', xnor: 'xor' }[gate];
+      const bubble = gate === 'not' || gate === 'nand' || gate === 'nor' || gate === 'xnor';
+      const yA = two ? 28 : 40, yB = 52;
+      let body, extra = '', inEnd = 50;
+      if (fam === 'and') body = 'M50,15 H75 A25,25 0 0 1 75,65 H50 Z';
+      else if (fam === 'buf') body = 'M50,15 L100,40 L50,65 Z';
+      else {
+        body = 'M45,15 Q75,15 100,40 Q75,65 45,65 Q58,40 45,15 Z';
+        if (fam === 'xor') { extra = '<path d="M37,65 Q50,40 37,15"/>'; inEnd = 42; }
+      }
+      const outStart = bubble ? 109 : 100;
+      const h = Math.round(width / 2);
+      return `<svg class="pl-gate-svg" viewBox="0 0 160 80" width="${width}" height="${h}" role="img" aria-label="${g.name}" xmlns="http://www.w3.org/2000/svg">`
+        + '<g fill="none" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round">'
+        + `<path d="${body}"/>${extra}`
+        + (bubble ? '<circle cx="104.5" cy="40" r="4.5"/>' : '')
+        + `<path d="M14,${yA} H${inEnd}"/>`
+        + (two ? `<path d="M14,${yB} H${inEnd}"/>` : '')
+        + `<path d="M${outStart},40 H146"/>`
+        + '</g>'
+        + '<g fill="currentColor" stroke="none" font-family="KaTeX_Math, \'Times New Roman\', serif" font-style="italic" font-size="15">'
+        + `<text x="1" y="${yA + 5}">A</text>`
+        + (two ? `<text x="1" y="${yB + 5}">B</text>` : '')
+        + '<text x="149" y="45">Y</text>'
+        + '</g></svg>';
+    }
+
+    // ============================================================= i18n
+    const D = {
+      it: {
+        titleQuick: 'Risultato sintetico',
+        titleStep: 'Svolgimento passo-passo',
+        errEmpty: 'Ogni casella deve contenere un bit, cioè 0 oppure 1: le caselle vuote sono evidenziate in rosso.',
+        bitAria: (row, pos) => `${row}, bit in posizione ${pos}`,
+
+        s1Title: '1 — LOGICA BOOLEANA E PORTE LOGICHE',
+        s1Intro:
+          '<p>La <b>logica booleana</b>, introdotta dal matematico George Boole, lavora con due soli valori: \\(0\\) (falso) e \\(1\\) (vero). Nei circuiti digitali questi due valori corrispondono a due livelli di tensione, basso e alto, e ogni cifra binaria si chiama <b>bit</b> (dall\'inglese <i>binary digit</i>, cifra binaria).</p>'
+          + '<p>Una <b>porta logica</b> è un circuito che riceve uno o due bit in ingresso e produce un bit in uscita secondo una regola fissa. La regola si descrive in modo completo con la <b>tabella di verità</b>, che elenca il valore dell\'uscita per ogni possibile combinazione degli ingressi: con un ingresso le combinazioni sono \\(2\\), con due ingressi sono \\(2^2 = 4\\). Per convenzione gli ingressi si indicano con \\(A\\) e \\(B\\), l\'uscita con \\(Y\\).</p>'
+          + '<p>I simboli usati sono quelli «a forma distintiva» della norma ANSI/IEEE 91 (American National Standards Institute / Institute of Electrical and Electronics Engineers), i più diffusi nei libri di testo.</p>',
+        s1One: '<p>Le porte a <b>un ingresso</b> sono due: il BUFFER e la NOT.</p>',
+        s1Two: '<p>Le porte a <b>due ingressi</b> sono sei: AND, NAND, OR, NOR, XOR e XNOR. In ogni riga, a sinistra c\'è la porta e a destra la sua negata.</p>',
+        s1Bubble:
+          '<p>Nei simboli il piccolo cerchio sull\'uscita indica la <b>negazione</b>: la NOT è un BUFFER con l\'uscita negata, e allo stesso modo NAND, NOR e XNOR sono AND, OR e XOR con l\'uscita negata. Infatti in ciascuna di queste tabelle di verità la colonna \\(Y\\) è esattamente l\'opposta di quella della porta corrispondente senza cerchio.</p>',
+
+        s2Title: (name) => `2 — LA PORTA SCELTA: ${name}`,
+        s2Intro: (name) => `<p>Nel caso in esame è stata scelta la porta <b>${name}</b>.</p>`,
+
+        s3Title: '3 — CALCOLO BIT A BIT',
+        s3Intro2: (n) =>
+          `<p>Le due parole \\(A\\) e \\(B\\) hanno \\(${n}\\) bit ciascuna, con le posizioni numerate da destra a partire da \\(0\\). L'operazione si esegue <b>bit a bit</b>: ogni colonna si tratta in modo indipendente dalle altre, senza riporti. Per ogni colonna si leggono il bit di \\(A\\) e il bit di \\(B\\), si cerca nella tabella di verità la riga con quella combinazione e si scrive in \\(Y\\) il valore corrispondente.</p>`,
+        s3Intro1: (n) =>
+          `<p>La parola \\(A\\) ha \\(${n}\\) bit, con le posizioni numerate da destra a partire da \\(0\\). L'operazione si esegue <b>bit a bit</b>: per ogni colonna si legge il bit di \\(A\\), si cerca nella tabella di verità la riga corrispondente e si scrive in \\(Y\\) il valore indicato.</p>`,
+        s3Example2: (p, a, b, y) =>
+          `<p>Per esempio, nella colonna evidenziata (posizione \\(${p}\\)) si ha \\(A = ${a}\\) e \\(B = ${b}\\): la riga evidenziata nella tabella di verità del punto 2 dà \\(Y = ${y}\\). Ripetendo la stessa lettura per tutte le colonne si ottiene la parola \\(Y\\):</p>`,
+        s3Example1: (p, a, y) =>
+          `<p>Per esempio, nella colonna evidenziata (posizione \\(${p}\\)) si ha \\(A = ${a}\\): la riga evidenziata nella tabella di verità del punto 2 dà \\(Y = ${y}\\). Ripetendo la stessa lettura per tutte le colonne si ottiene la parola \\(Y\\):</p>`,
+
+        s4Title: '4 — RISULTATO',
+        final: (name, tex) => `<p>Applicando la porta ${name} bit a bit si ottiene \\( Y = ${tex} \\).</p>`,
+        quickFinal: (tex) => `<p>Risultato: \\( Y = ${tex} \\)</p>`,
+
+        short: {
+          buf: '«ripetitore»: \\(Y\\) è uguale ad \\(A\\)',
+          not: '«non», invertitore: \\(Y\\) è l\'opposto di \\(A\\)',
+          and: '«e»: \\(Y = 1\\) solo se \\(A\\) e \\(B\\) valgono entrambi \\(1\\)',
+          or: '«o»: \\(Y = 1\\) se almeno un ingresso vale \\(1\\)',
+          nand: '«non e»: AND con l\'uscita negata',
+          nor: '«non o»: OR con l\'uscita negata',
+          xor: '«o esclusivo»: \\(Y = 1\\) se gli ingressi sono diversi',
+          xnor: '«equivalenza»: \\(Y = 1\\) se gli ingressi sono uguali',
+        },
+        long: {
+          buf: '<p>Il BUFFER (in italiano «separatore» o «ripetitore») ha un solo ingresso e riporta in uscita lo stesso valore: \\(Y = A\\). Dal punto di vista logico non cambia nulla; nei circuiti reali serve a rigenerare il segnale e a pilotare più ingressi collegati alla stessa uscita.</p>',
+          not: '<p>La porta NOT (dall\'inglese <i>not</i>, «non»), detta anche <b>invertitore</b>, ha un solo ingresso e ne restituisce il valore opposto: \\(Y = 1\\) quando \\(A = 0\\) e \\(Y = 0\\) quando \\(A = 1\\). La negazione si indica con una barra sopra la variabile.</p>',
+          and: '<p>La porta AND (dall\'inglese <i>and</i>, «e») realizza il <b>prodotto logico</b>: \\(Y = 1\\) solo quando \\(A\\) <i>e</i> \\(B\\) valgono entrambi \\(1\\). Il nome di prodotto deriva dal fatto che la tabella coincide con la moltiplicazione ordinaria tra \\(0\\) e \\(1\\).</p>',
+          or: '<p>La porta OR (dall\'inglese <i>or</i>, «o») realizza la <b>somma logica</b>: \\(Y = 1\\) quando almeno uno degli ingressi vale \\(1\\). A differenza della somma ordinaria, \\(1 + 1 = 1\\) e non esiste alcun riporto.</p>',
+          nand: '<p>La porta NAND (abbreviazione di <i>NOT AND</i>, «non e») è una AND seguita da una NOT: \\(Y = 0\\) solo quando \\(A\\) e \\(B\\) valgono entrambi \\(1\\). È una porta <b>universale</b>: con sole porte NAND si può costruire qualsiasi altra funzione logica.</p>',
+          nor: '<p>La porta NOR (abbreviazione di <i>NOT OR</i>, «non o») è una OR seguita da una NOT: \\(Y = 1\\) solo quando \\(A\\) e \\(B\\) valgono entrambi \\(0\\). Come la NAND, è una porta universale.</p>',
+          xor: '<p>La porta XOR (abbreviazione di <i>eXclusive OR</i>, «o esclusivo») dà \\(Y = 1\\) quando gli ingressi sono <b>diversi</b> tra loro: vale \\(1\\) uno dei due, ma non entrambi. Coincide con la somma binaria di due bit trascurando il riporto.</p>',
+          xnor: '<p>La porta XNOR (abbreviazione di <i>eXclusive NOR</i>, cioè XOR con l\'uscita negata) dà \\(Y = 1\\) quando gli ingressi sono <b>uguali</b> tra loro; per questo si chiama anche porta di <b>equivalenza</b>.</p>',
+        },
+      },
+      en: {
+        titleQuick: 'Quick result',
+        titleStep: 'Step-by-step solution',
+        errEmpty: 'Each box must contain one bit, that is 0 or 1: the empty boxes are highlighted in red.',
+        bitAria: (row, pos) => `${row}, bit in position ${pos}`,
+
+        s1Title: '1 — BOOLEAN LOGIC AND LOGIC GATES',
+        s1Intro:
+          '<p><b>Boolean logic</b>, introduced by the mathematician George Boole, works with only two values: \\(0\\) (false) and \\(1\\) (true). In digital circuits these two values correspond to two voltage levels, low and high, and each binary digit is called a <b>bit</b>.</p>'
+          + '<p>A <b>logic gate</b> is a circuit that receives one or two input bits and produces one output bit according to a fixed rule. The rule is fully described by the <b>truth table</b>, which lists the output value for every possible combination of the inputs: with one input there are \\(2\\) combinations, with two inputs there are \\(2^2 = 4\\). By convention the inputs are called \\(A\\) and \\(B\\), and the output \\(Y\\).</p>'
+          + '<p>The symbols used are the "distinctive shape" ones of the ANSI/IEEE 91 standard (American National Standards Institute / Institute of Electrical and Electronics Engineers), the most common in textbooks.</p>',
+        s1One: '<p>There are two <b>single-input</b> gates: BUFFER and NOT.</p>',
+        s1Two: '<p>There are six <b>two-input</b> gates: AND, NAND, OR, NOR, XOR and XNOR. In each row, the gate is on the left and its negated version on the right.</p>',
+        s1Bubble:
+          '<p>In the symbols, the small circle on the output means <b>negation</b>: NOT is a BUFFER with a negated output, and in the same way NAND, NOR and XNOR are AND, OR and XOR with a negated output. Indeed, in each of these truth tables the \\(Y\\) column is exactly the opposite of that of the corresponding gate without the circle.</p>',
+
+        s2Title: (name) => `2 — THE CHOSEN GATE: ${name}`,
+        s2Intro: (name) => `<p>In this case the <b>${name}</b> gate has been chosen.</p>`,
+
+        s3Title: '3 — BITWISE CALCULATION',
+        s3Intro2: (n) =>
+          `<p>The two words \\(A\\) and \\(B\\) have \\(${n}\\) bits each, with positions numbered from the right starting at \\(0\\). The operation is carried out <b>bitwise</b>: each column is handled independently of the others, with no carries. For each column, the bit of \\(A\\) and the bit of \\(B\\) are read, the truth-table row with that combination is looked up, and the corresponding value is written in \\(Y\\).</p>`,
+        s3Intro1: (n) =>
+          `<p>The word \\(A\\) has \\(${n}\\) bits, with positions numbered from the right starting at \\(0\\). The operation is carried out <b>bitwise</b>: for each column, the bit of \\(A\\) is read, the corresponding truth-table row is looked up, and the value it gives is written in \\(Y\\).</p>`,
+        s3Example2: (p, a, b, y) =>
+          `<p>For example, in the highlighted column (position \\(${p}\\)) we have \\(A = ${a}\\) and \\(B = ${b}\\): the highlighted row of the truth table in step 2 gives \\(Y = ${y}\\). Repeating the same reading for every column gives the word \\(Y\\):</p>`,
+        s3Example1: (p, a, y) =>
+          `<p>For example, in the highlighted column (position \\(${p}\\)) we have \\(A = ${a}\\): the highlighted row of the truth table in step 2 gives \\(Y = ${y}\\). Repeating the same reading for every column gives the word \\(Y\\):</p>`,
+
+        s4Title: '4 — RESULT',
+        final: (name, tex) => `<p>Applying the ${name} gate bitwise gives \\( Y = ${tex} \\).</p>`,
+        quickFinal: (tex) => `<p>Result: \\( Y = ${tex} \\)</p>`,
+
+        short: {
+          buf: '"repeater": \\(Y\\) equals \\(A\\)',
+          not: 'inverter: \\(Y\\) is the opposite of \\(A\\)',
+          and: '\\(Y = 1\\) only if \\(A\\) and \\(B\\) are both \\(1\\)',
+          or: '\\(Y = 1\\) if at least one input is \\(1\\)',
+          nand: 'AND with a negated output',
+          nor: 'OR with a negated output',
+          xor: '"exclusive or": \\(Y = 1\\) if the inputs differ',
+          xnor: '"equivalence": \\(Y = 1\\) if the inputs are equal',
+        },
+        long: {
+          buf: '<p>The BUFFER has a single input and copies the same value to the output: \\(Y = A\\). From the logical point of view nothing changes; in real circuits it is used to regenerate the signal and to drive several inputs connected to the same output.</p>',
+          not: '<p>The NOT gate, also called <b>inverter</b>, has a single input and returns its opposite value: \\(Y = 1\\) when \\(A = 0\\) and \\(Y = 0\\) when \\(A = 1\\). Negation is written as a bar over the variable.</p>',
+          and: '<p>The AND gate implements the <b>logical product</b>: \\(Y = 1\\) only when \\(A\\) <i>and</i> \\(B\\) are both \\(1\\). It is called a product because its table coincides with ordinary multiplication between \\(0\\) and \\(1\\).</p>',
+          or: '<p>The OR gate implements the <b>logical sum</b>: \\(Y = 1\\) when at least one of the inputs is \\(1\\). Unlike the ordinary sum, \\(1 + 1 = 1\\) and there is no carry.</p>',
+          nand: '<p>The NAND gate (short for <i>NOT AND</i>) is an AND followed by a NOT: \\(Y = 0\\) only when \\(A\\) and \\(B\\) are both \\(1\\). It is a <b>universal</b> gate: any other logic function can be built using NAND gates only.</p>',
+          nor: '<p>The NOR gate (short for <i>NOT OR</i>) is an OR followed by a NOT: \\(Y = 1\\) only when \\(A\\) and \\(B\\) are both \\(0\\). Like NAND, it is a universal gate.</p>',
+          xor: '<p>The XOR gate (short for <i>eXclusive OR</i>) gives \\(Y = 1\\) when the inputs are <b>different</b>: one of the two is \\(1\\), but not both. It coincides with the binary sum of two bits ignoring the carry.</p>',
+          xnor: '<p>The XNOR gate (short for <i>eXclusive NOR</i>, i.e. XOR with a negated output) gives \\(Y = 1\\) when the inputs are <b>equal</b>; for this reason it is also called the <b>equivalence</b> gate.</p>',
+        },
+      },
+    }[LANG];
+    const L = D;
+
+    // ── riferimenti DOM ──────────────────────────────────────────────
+    const gateSel = root.querySelector('#plGate');
+    const bitsSel = root.querySelector('#plBits');
+    const boardInEl = root.querySelector('#plBoardIn');
+    const symbolEl = root.querySelector('#plSymbol');
+    const statusEl = root.querySelector('#plStatus');
+    const quickEl = root.querySelector('#plQuick');
+    const fullEl = root.querySelector('#plFull');
+
+    // ── helper rendering (come BaseConverter) ───────────────────────
+    const RMOPTS = {
+      throwOnError: false,
+      delimiters: [
+        { left: '\\(', right: '\\)', display: false },
+        { left: '\\[', right: '\\]', display: true },
+      ],
+    };
+    function kx(tex, display) {
+      try { return katex.renderToString(tex, { throwOnError: false, displayMode: !!display }); }
+      catch (e) { return '<span style="color:#e55">[KaTeX error]</span>'; }
+    }
+    function renderInline(el) { try { renderMathInElement(el, RMOPTS); } catch (e) {} }
+    function reveal(el) { el.hidden = false; el.style.display = 'block'; requestAnimationFrame(() => el.classList.add('pl-visible')); }
+    function hide(el) { el.classList.remove('pl-visible'); el.style.display = 'none'; el.hidden = true; }
+    function tip(msg) { statusEl.textContent = msg; statusEl.className = 'pl-status pl-error'; }
+    function unTip() {
+      statusEl.textContent = ''; statusEl.className = 'pl-status';
+      boardInEl.querySelectorAll('.pl-bit-empty').forEach((c) => c.classList.remove('pl-bit-empty'));
+    }
+    function emit(target, html, tex) {
+      if (html) { const d = document.createElement('div'); d.className = 'pl-text'; d.innerHTML = html; target.appendChild(d); renderInline(d); }
+      if (tex) { const w = document.createElement('div'); w.className = 'pl-katex'; w.innerHTML = kx(tex, true); target.appendChild(w); }
+    }
+    function clearResults() { quickEl.innerHTML = ''; fullEl.innerHTML = ''; hide(quickEl); hide(fullEl); }
+    function el(tag, cls, html) {
+      const e = document.createElement(tag);
+      if (cls) e.className = cls;
+      if (html != null) e.innerHTML = html;
+      return e;
+    }
+
+    // parola binaria in LaTeX, a gruppi di 4 bit (spazio sottile tra i gruppi)
+    function wordTex(bits) {
+      const groups = [];
+      for (let i = 0; i < bits.length; i += 4) groups.push(`\\texttt{${bits.slice(i, i + 4).join('')}}`);
+      return groups.join('\\,');
+    }
+
+    // ── stato ────────────────────────────────────────────────────────
+    let gate = 'and';
+    let nBits = 8;
+    const state = { A: Array(8).fill('0'), B: Array(8).fill('0') };
+    let plRandomUsed = false;
+    // nel cambio di lunghezza si conservano i bit meno significativi (a destra)
+    function resizeBits(arr, n) {
+      if (arr.length >= n) return arr.slice(arr.length - n);
+      return Array(n - arr.length).fill('0').concat(arr);
+    }
+    const rowsOf = () => (GATES[gate].inputs === 2 ? ['A', 'B'] : ['A']);
+
+    // ============================================================= casellario
+    // colonna 1: etichetta; poi una colonna per bit, con uno spaziatore
+    // stretto ogni 4 bit. colOf(i) = colonna CSS del bit di indice i
+    // (indice 0 = bit piu' significativo, a sinistra).
+    const colOf = (i) => 2 + i + Math.floor(i / 4);
+    function boardGrid(n) {
+      const grid = el('div', 'pl-board');
+      const cols = ['auto'];
+      for (let i = 0; i < n; i++) {
+        if (i > 0 && i % 4 === 0) cols.push('0.45rem');
+        cols.push('auto');
+      }
+      grid.style.gridTemplateColumns = cols.join(' ');
+      return grid;
+    }
+    function place(grid, node, row, col) {
+      node.style.gridRow = String(row);
+      node.style.gridColumn = String(col);
+      grid.appendChild(node);
+    }
+    function positionsRow(grid, row, n, hlIdx) {
+      for (let i = 0; i < n; i++) {
+        const p = el('div', 'pl-pos' + (i === hlIdx ? ' pl-hl' : ''), String(n - 1 - i));
+        place(grid, p, row, colOf(i));
+      }
+    }
+    function rowLabel(grid, row, name) {
+      place(grid, el('div', 'pl-rowlabel', kx(`${name} =`, false)), row, 1);
+    }
+    function arrowSvg() {
+      return '<svg width="22" height="34" viewBox="0 0 22 34" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11,3 V30"/><path d="M3,22 L11,30 L19,22"/></g></svg>';
+    }
+
+    // casellario di sola lettura (svolgimento): A, (B), freccia, Y
+    function buildResultBoard(rows, yBits, hlIdx) {
+      const n = yBits.length;
+      const scroller = el('div', 'pl-board-scroller');
+      const grid = boardGrid(n);
+      let r = 1;
+      positionsRow(grid, r++, n, hlIdx);
+      rows.forEach(({ name, bits }) => {
+        rowLabel(grid, r, name);
+        bits.forEach((b, i) => place(grid, el('div', 'pl-cell' + (i === hlIdx ? ' pl-hl' : ''), b), r, colOf(i)));
+        r++;
+      });
+      const arrow = el('div', 'pl-arrow', `${arrowSvg()}<span class="pl-arrow-name">${GATES[gate].name}</span>`);
+      arrow.style.gridRow = String(r++);
+      arrow.style.gridColumn = `2 / ${colOf(n - 1) + 1}`;
+      grid.appendChild(arrow);
+      rowLabel(grid, r, 'Y');
+      yBits.forEach((b, i) => place(grid, el('div', 'pl-cell pl-out' + (i === hlIdx ? ' pl-hl' : ''), String(b)), r, colOf(i)));
+      scroller.appendChild(grid);
+      return scroller;
+    }
+
+    // casellario di input: una <input> per bit
+    function buildInputBoard() {
+      boardInEl.innerHTML = '';
+      const rows = rowsOf();
+      const scroller = el('div', 'pl-board-scroller');
+      const grid = boardGrid(nBits);
+      positionsRow(grid, 1, nBits, -1);
+      rows.forEach((name, rIdx) => {
+        const r = rIdx + 2;
+        rowLabel(grid, r, name);
+        for (let i = 0; i < nBits; i++) {
+          const inp = document.createElement('input');
+          inp.type = 'text';
+          inp.className = 'pl-bit';
+          inp.maxLength = 1;
+          inp.inputMode = 'numeric';
+          inp.autocomplete = 'off';
+          inp.spellcheck = false;
+          inp.value = state[name][i];
+          inp.dataset.row = name;
+          inp.dataset.idx = String(i);
+          inp.setAttribute('aria-label', L.bitAria(name, nBits - 1 - i));
+          place(grid, inp, r, colOf(i));
+        }
+      });
+      scroller.appendChild(grid);
+      boardInEl.appendChild(scroller);
+    }
+    const cellAt = (row, i) => boardInEl.querySelector(`.pl-bit[data-row="${row}"][data-idx="${i}"]`);
+    function focusCell(row, i) {
+      const c = cellAt(row, i);
+      if (c) { c.focus(); c.select(); }
+    }
+    function onBitsEdited() { clearResults(); unTip(); plRandomUsed = false; }
+
+    // gestione tastiera delegata al contenitore (le caselle vengono ricreate)
+    boardInEl.addEventListener('focusin', (e) => {
+      const t = e.target;
+      if (t.classList && t.classList.contains('pl-bit')) t.select();
+    });
+    boardInEl.addEventListener('input', (e) => {
+      const t = e.target;
+      if (!t.classList || !t.classList.contains('pl-bit')) return;
+      const row = t.dataset.row, i = parseInt(t.dataset.idx, 10);
+      const v = t.value.replace(/[^01]/g, '').slice(-1);
+      t.value = v;
+      state[row][i] = v;
+      t.classList.remove('pl-bit-empty');
+      onBitsEdited();
+      if (v !== '' && i < nBits - 1) focusCell(row, i + 1);
+    });
+    boardInEl.addEventListener('keydown', (e) => {
+      const t = e.target;
+      if (!t.classList || !t.classList.contains('pl-bit')) return;
+      const row = t.dataset.row, i = parseInt(t.dataset.idx, 10);
+      if (e.key === 'Backspace' && t.value === '' && i > 0) {
+        e.preventDefault();
+        const prev = cellAt(row, i - 1);
+        prev.value = ''; state[row][i - 1] = '';
+        onBitsEdited();
+        focusCell(row, i - 1);
+      } else if (e.key === 'ArrowLeft' && i > 0) {
+        e.preventDefault(); focusCell(row, i - 1);
+      } else if (e.key === 'ArrowRight' && i < nBits - 1) {
+        e.preventDefault(); focusCell(row, i + 1);
+      } else if (e.key.length === 1 && !/[01]/.test(e.key) && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault(); // qualsiasi altro carattere non entra nella casella
+      }
+    });
+    boardInEl.addEventListener('paste', (e) => {
+      const t = e.target;
+      if (!t.classList || !t.classList.contains('pl-bit')) return;
+      e.preventDefault();
+      const text = (e.clipboardData || window.clipboardData).getData('text') || '';
+      const digits = text.replace(/[^01]/g, '').split('');
+      if (!digits.length) return;
+      const row = t.dataset.row;
+      let i = parseInt(t.dataset.idx, 10);
+      for (const d of digits) {
+        if (i >= nBits) break;
+        state[row][i] = d;
+        cellAt(row, i).value = d;
+        i++;
+      }
+      onBitsEdited();
+      focusCell(row, Math.min(i, nBits - 1));
+    });
+
+    // simbolo della porta sotto le caselle
+    function updateSymbol() {
+      const g = GATES[gate];
+      symbolEl.innerHTML = gateSvg(gate, 220)
+        + `<div class="pl-symbol-caption"><b>${g.name}</b>: ${kx(g.tex, false)}</div>`;
+    }
+
+    // ============================================================= tabelle e schede
+    function buildTruthTable(g, small, hlRow) {
+      const gd = GATES[g];
+      const two = gd.inputs === 2;
+      const wrap = el('div', 'pl-tablewrap');
+      const table = el('table', 'pl-booktable' + (small ? ' pl-small' : ''));
+      table.innerHTML = `<thead><tr><th>A</th>${two ? '<th>B</th>' : ''}<th class="pl-th-y">Y</th></tr></thead>`;
+      const tbody = document.createElement('tbody');
+      const combos = two ? [[0, 0], [0, 1], [1, 0], [1, 1]] : [[0], [1]];
+      combos.forEach((c, idx) => {
+        const tr = document.createElement('tr');
+        if (idx === hlRow) tr.className = 'pl-hl';
+        const y = two ? gd.f(c[0], c[1]) : gd.f(c[0]);
+        tr.innerHTML = c.map((v) => `<td>${v}</td>`).join('') + `<td class="pl-td-y">${y}</td>`;
+        tbody.appendChild(tr);
+      });
+      table.appendChild(tbody);
+      wrap.appendChild(table);
+      return wrap;
+    }
+    function buildCards(list) {
+      const cards = el('div', 'pl-cards');
+      list.forEach((g) => {
+        const card = el('div', 'pl-card' + (g === gate ? ' pl-card-on' : ''));
+        card.appendChild(el('div', 'pl-card-name', GATES[g].name));
+        card.appendChild(el('div', 'pl-card-svg', gateSvg(g, 150)));
+        card.appendChild(el('div', 'pl-card-expr', kx(GATES[g].tex, false)));
+        const desc = el('div', 'pl-card-desc', L.short[g]);
+        renderInline(desc);
+        card.appendChild(desc);
+        card.appendChild(buildTruthTable(g, true, -1));
+        cards.appendChild(card);
+      });
+      return cards;
+    }
+    function buildFigure(hlRow) {
+      const fig = el('div', 'pl-figure');
+      const left = el('div', 'pl-figure-left');
+      left.appendChild(el('div', '', gateSvg(gate, 240)));
+      left.appendChild(el('div', 'pl-katex', kx(GATES[gate].tex, true)));
+      fig.appendChild(left);
+      fig.appendChild(buildTruthTable(gate, false, hlRow));
+      return fig;
+    }
+
+    // ============================================================= orchestratore
+    function plTrack(mode) {
+      if (window.umami) {
+        umami.track('portelogiche-solve', { mode, gate, bits: nBits, randomUsed: plRandomUsed });
+      }
+    }
+
+    function elabora(quick) {
+      const target = quick ? quickEl : fullEl;
+      const other = quick ? fullEl : quickEl;
+      quickEl.innerHTML = ''; fullEl.innerHTML = '';
+      unTip();
+
+      // validazione: nessuna casella vuota
+      const rows = rowsOf();
+      let missing = false;
+      rows.forEach((name) => {
+        state[name].forEach((v, i) => {
+          if (v !== '0' && v !== '1') { missing = true; cellAt(name, i).classList.add('pl-bit-empty'); }
+        });
+      });
+      if (missing) { hide(quickEl); hide(fullEl); tip(L.errEmpty); return; }
+
+      const g = GATES[gate];
+      const two = g.inputs === 2;
+      const A = state.A.map(Number);
+      const B = state.B.map(Number);
+      const Y = A.map((a, i) => (two ? g.f(a, B[i]) : g.f(a)));
+      const boardRows = [{ name: 'A', bits: state.A.slice() }];
+      if (two) boardRows.push({ name: 'B', bits: state.B.slice() });
+      const yTex = wordTex(Y);
+
+      emit(target, `<h2>${quick ? L.titleQuick : L.titleStep}</h2>`);
+
+      if (quick) {
+        target.appendChild(buildResultBoard(boardRows, Y, -1));
+        emit(target, L.quickFinal(yTex));
+      } else {
+        // 1) logica booleana e carrellata di tutte le porte
+        emit(target, `<h5>${L.s1Title}</h5>`);
+        emit(target, L.s1Intro);
+        emit(target, L.s1One);
+        target.appendChild(buildCards(GATE_ORDER.slice(0, 2)));
+        emit(target, L.s1Two);
+        target.appendChild(buildCards(GATE_ORDER.slice(2)));
+        emit(target, L.s1Bubble);
+
+        // 2) la porta scelta; esempio di lettura sulla colonna piu' a sinistra
+        const hlIdx = 0;
+        const hlRow = two ? A[hlIdx] * 2 + B[hlIdx] : A[hlIdx];
+        emit(target, `<h5>${L.s2Title(g.name)}</h5>`);
+        emit(target, L.s2Intro(g.name) + L.long[gate]);
+        target.appendChild(buildFigure(hlRow));
+
+        // 3) calcolo bit a bit
+        emit(target, `<h5>${L.s3Title}</h5>`);
+        emit(target, two ? L.s3Intro2(nBits) : L.s3Intro1(nBits));
+        emit(target, two
+          ? L.s3Example2(nBits - 1, A[hlIdx], B[hlIdx], Y[hlIdx])
+          : L.s3Example1(nBits - 1, A[hlIdx], Y[hlIdx]));
+        target.appendChild(buildResultBoard(boardRows, Y, hlIdx));
+
+        // 4) risultato
+        emit(target, `<h5>${L.s4Title}</h5>`);
+        emit(target, L.final(g.name, yTex));
+      }
+
+      hide(other);
+      reveal(target);
+      plTrack(quick ? 'quick' : 'steps');
+    }
+
+    // ── interazioni ──────────────────────────────────────────────────
+    gateSel.addEventListener('change', () => {
+      gate = gateSel.value;
+      buildInputBoard();
+      updateSymbol();
+      clearResults(); unTip();
+    });
+    bitsSel.addEventListener('change', () => {
+      nBits = parseInt(bitsSel.value, 10);
+      state.A = resizeBits(state.A, nBits);
+      state.B = resizeBits(state.B, nBits);
+      buildInputBoard();
+      clearResults(); unTip();
+    });
+    root.querySelector('#plBtnReset').addEventListener('click', () => {
+      state.A = Array(nBits).fill('0');
+      state.B = Array(nBits).fill('0');
+      buildInputBoard();
+      clearResults(); unTip();
+      plRandomUsed = false;
+    });
+    root.querySelector('#plBtnRandom').addEventListener('click', () => {
+      const rnd = () => Array.from({ length: nBits }, () => (Math.random() < 0.5 ? '0' : '1'));
+      state.A = rnd();
+      state.B = rnd();
+      buildInputBoard();
+      clearResults(); unTip();
+      plRandomUsed = true;
+    });
+    root.querySelector('#plBtnQuick').addEventListener('click', () => elabora(true));
+    root.querySelector('#plBtnStep').addEventListener('click', () => elabora(false));
+
+    // ── avvio ────────────────────────────────────────────────────────
+    gate = GATES[gateSel.value] ? gateSel.value : 'and';
+    nBits = parseInt(bitsSel.value, 10) || 8;
+    state.A = resizeBits(state.A, nBits);
+    state.B = resizeBits(state.B, nBits);
+    buildInputBoard();
+    updateSymbol();
+  }
+</script>

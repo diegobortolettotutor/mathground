@@ -1,0 +1,907 @@
+---
+/**
+ * Complementi.astro — Risolutore del complemento a 1 e del complemento a 2
+ * di un numero binario da 4, 8, 12 o 16 bit. Nativo, responsive, bilingue
+ * (it/en).
+ *
+ * Dipendenze:  npm install katex
+ *
+ * Uso in una pagina .mdx di Starlight:
+ *   import Complementi from '@components/Complementi.astro';
+ *   <Complementi />
+ *
+ * ── Inserimento ────────────────────────────────────────────────────────
+ *   Si sceglie il numero di bit n (4, 8, 12, 16); compaiono n caselle, tutte
+ *   a 0. Un tocco su una casella scambia 0 e 1; da tastiera si possono anche
+ *   scrivere 0 e 1 (il cursore avanza da solo) e muoversi con le frecce.
+ *   Cambiando n si conservano i bit di destra (i meno significativi).
+ *
+ * ── Svolgimento ────────────────────────────────────────────────────────
+ *   1) dati: X con n bit, valore senza segno, bit di segno, richiamo breve
+ *   2) complemento a 1: inversione di ogni bit; equivalenza (2^n - 1) - X
+ *   3) complemento a 2: C1(X) + 1 in colonna con i riporti (riporto in
+ *      uscita barrato); equivalenza 2^n - X; verifica con la regola rapida
+ *      (da destra si copia fino al primo 1 compreso, si inverte il resto)
+ *   4) lettura con segno: in complemento a 2 il bit di segno pesa -2^(n-1),
+ *      in complemento a 1 pesa -(2^(n-1) - 1); C2(X) e C1(X) valgono -X
+ *   5) verifica: X + C1(X) = 11...1 (zero negativo), X + C2(X) = 0
+ *   6) riepilogo in tabella; note sui casi limite (X = 0, X = 10...0)
+ *
+ * ── Limiti ─────────────────────────────────────────────────────────────
+ *   n fra 4, 8, 12, 16. Aritmetica su interi JavaScript (esatta fino a 2^16).
+ */
+
+import 'katex/dist/katex.min.css';
+
+const lang = (Astro.currentLocale ?? 'it').toLowerCase().startsWith('en') ? 'en' : 'it';
+
+const UI = {
+  it: {
+    step1: 'Step 1 — SCEGLI IL NUMERO DI BIT',
+    bitsLabel: 'Numero di bit',
+    step2: 'Step 2 — INSERISCI I BIT',
+    help1: 'Toccare una casella per passare da 0 a 1 e viceversa. Da tastiera si possono anche scrivere direttamente 0 e 1 e spostarsi con le frecce.',
+    help2: 'Il numero sopra ogni casella è la posizione del bit, contata da destra a partire da 0.',
+    btnReset: 'AZZERA VALORI',
+    btnRandom: 'VALORE CASUALE',
+    btnQuick: 'RISULTATO SINTETICO',
+    btnStep: 'SVOLGIMENTO PASSO-PASSO',
+  },
+  en: {
+    step1: 'Step 1 — CHOOSE THE NUMBER OF BITS',
+    bitsLabel: 'Number of bits',
+    step2: 'Step 2 — ENTER THE BITS',
+    help1: 'Tap a box to switch between 0 and 1. With a keyboard you can also type 0 and 1 directly and move with the arrow keys.',
+    help2: 'The number above each box is the bit position, counted from the right starting at 0.',
+    btnReset: 'RESET VALUES',
+    btnRandom: 'RANDOM VALUE',
+    btnQuick: 'QUICK RESULT',
+    btnStep: 'STEP-BY-STEP SOLUTION',
+  },
+}[lang];
+---
+
+<div class="cmp-root" data-lang={lang}>
+  <!-- Step 1: numero di bit -->
+  <section class="cmp-panel">
+    <h3 class="cmp-steplabel">{UI.step1}</h3>
+    <div class="cmp-widthrow">
+      <label for="cmpWidth" class="cmp-label">{UI.bitsLabel}</label>
+      <select id="cmpWidth" class="cmp-select">
+        <option value="4">4</option>
+        <option value="8" selected>8</option>
+        <option value="12">12</option>
+        <option value="16">16</option>
+      </select>
+    </div>
+  </section>
+
+  <!-- Step 2: bit -->
+  <section class="cmp-panel">
+    <h3 class="cmp-steplabel">{UI.step2}</h3>
+    <div id="cmpCells" class="cmp-cells"></div>
+    <div class="cmp-help">
+      <p>{UI.help1}</p>
+      <p>{UI.help2}</p>
+    </div>
+  </section>
+
+  <!-- Azioni -->
+  <div class="cmp-actions">
+    <button id="cmpBtnReset" class="cmp-btn cmp-btn-ghost" type="button">{UI.btnReset}</button>
+    <button id="cmpBtnRandom" class="cmp-btn cmp-btn-ghost" type="button">{UI.btnRandom}</button>
+    <button id="cmpBtnQuick" class="cmp-btn cmp-btn-ghost" type="button">{UI.btnQuick}</button>
+  </div>
+  <div class="cmp-secondary">
+    <button id="cmpBtnStep" class="cmp-btn cmp-btn-ghost cmp-btn-wide" type="button">{UI.btnStep}</button>
+  </div>
+
+  <!-- Output -->
+  <section id="cmpQuick" class="cmp-result" hidden></section>
+  <section id="cmpFull" class="cmp-result" hidden></section>
+</div>
+<style is:global>
+  .cmp-root {
+    --cmp-radius: 12px;
+    --cmp-surface: var(--sl-color-gray-6, #1a1a1a);
+    --cmp-border: var(--sl-color-gray-5, #383838);
+    --cmp-accent: var(--sl-color-accent, #4f7cff);
+    --cmp-red: #d11111;
+    --cmp-green: #1f9d55;
+    --cmp-accent-hi: var(--sl-color-accent-high, #b8c8ff);
+    --cmp-faint: var(--sl-color-gray-3, #888);
+    font-size: 1rem;
+    line-height: 1.5;
+    color: var(--sl-color-text, inherit);
+    width: 100%;
+    min-width: 330px;
+    margin: 1.5rem 0;
+    text-align: center;
+  }
+  .cmp-root *,
+  .cmp-root *::before,
+  .cmp-root *::after { box-sizing: border-box; }
+
+  /* reset difensivo contro il margin-top che Starlight inietta sugli elementi
+     "fratelli" dentro il contenuto markdown (stesso fix degli altri risolutori) */
+  .cmp-root[data-lang] .cmp-widthrow,
+  .cmp-root[data-lang] .cmp-label,
+  .cmp-root[data-lang] .cmp-select,
+  .cmp-root[data-lang] .cmp-cells,
+  .cmp-root[data-lang] .cmp-nibble,
+  .cmp-root[data-lang] .cmp-cellwrap,
+  .cmp-root[data-lang] .cmp-pos,
+  .cmp-root[data-lang] .cmp-bit,
+  .cmp-root[data-lang] .cmp-help,
+  .cmp-root[data-lang] .cmp-booktable,
+  .cmp-root[data-lang] .cmp-booktable th,
+  .cmp-root[data-lang] .cmp-booktable td,
+  .cmp-root[data-lang] .cmp-fig {
+    margin: 0 !important;
+  }
+
+  .cmp-panel {
+    background: var(--cmp-surface);
+    border: 1px solid var(--cmp-border);
+    border-radius: var(--cmp-radius);
+    padding: 1.25rem 1rem;
+    margin: 1.25rem 0;
+  }
+  .cmp-steplabel {
+    margin: 0 0 1rem;
+    font-size: clamp(0.85rem, 2.4vw, 1rem);
+    letter-spacing: 0.02em;
+    color: var(--sl-color-text-accent, var(--cmp-accent-hi));
+  }
+
+  /* numero di bit */
+  .cmp-widthrow { display: flex; align-items: center; justify-content: center; gap: 0.9rem; flex-wrap: wrap; }
+  .cmp-label { font-size: 0.95rem; color: var(--sl-color-text-accent, var(--cmp-accent-hi)); }
+  .cmp-select {
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    background-color: var(--sl-color-bg, #000);
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' stroke='%23888' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+    background-repeat: no-repeat;
+    background-position: right 0.75rem center;
+    background-size: 10px 6px;
+    color: var(--sl-color-text, #fff);
+    border: 1.5px solid var(--cmp-border);
+    border-radius: 6px;
+    padding: 0.5rem 2rem 0.5rem 0.9rem;
+    font: inherit;
+    line-height: 1.5rem;
+    cursor: pointer;
+    transition: border-color 0.15s ease;
+  }
+  .cmp-select:hover, .cmp-select:focus { border-color: var(--cmp-accent); outline: none; }
+
+  /* caselle dei bit, raggruppate a 4 (un gruppo puo' andare a capo sui telefoni) */
+  .cmp-cells { display: flex; flex-wrap: wrap; justify-content: center; gap: 0.75rem 1rem; }
+  .cmp-nibble { display: flex; gap: 0.25rem; }
+  .cmp-cellwrap { display: flex; flex-direction: column; align-items: center; gap: 0.15rem; }
+  .cmp-pos { font-size: 0.7rem; line-height: 1; color: var(--cmp-faint); font-family: var(--__sl-font-mono, ui-monospace, monospace); }
+  .cmp-bit {
+    width: 2.2rem;
+    height: 2.4rem;
+    padding: 0;
+    border: 1.5px solid var(--cmp-border);
+    border-radius: 6px;
+    background: var(--sl-color-bg, #000);
+    color: var(--sl-color-text, #fff);
+    font-family: var(--__sl-font-mono, ui-monospace, monospace);
+    font-size: 1.2rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background-color 0.15s ease, border-color 0.15s ease;
+  }
+  .cmp-bit[data-v="1"] {
+    border-color: var(--cmp-accent);
+    background: color-mix(in srgb, var(--cmp-accent) 18%, var(--sl-color-bg, #000));
+  }
+  .cmp-bit:hover, .cmp-bit:focus-visible { border-color: var(--cmp-accent); outline: none; }
+  .cmp-help { margin-top: 0.9rem; font-size: 0.82rem; color: var(--cmp-faint); }
+  .cmp-help p { margin: 0.25rem 0; }
+
+  /* pulsanti: riga da tre e pulsante largo con la stessa larghezza massima */
+  .cmp-actions {
+    display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.75rem; align-items: stretch; margin: 1.25rem auto; max-width: 48rem;
+  }
+  .cmp-actions .cmp-btn {
+    box-sizing: border-box; width: 100%; margin: 0;
+    height: 3.6rem; padding: 0 1rem; line-height: 1.2;
+    display: inline-flex; align-items: center; justify-content: center; text-align: center;
+  }
+  .cmp-secondary { max-width: 48rem; margin: 1.25rem auto 0; }
+  .cmp-btn {
+    font: inherit; font-weight: 600; cursor: pointer;
+    border-radius: 999px; padding: 0.7rem 1.4rem; border: 1.5px solid transparent;
+    transition: transform 0.1s ease, background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+  }
+  .cmp-btn:active { transform: scale(0.96); }
+  .cmp-btn-ghost { background: transparent; color: var(--sl-color-text, inherit); border-color: var(--cmp-border); }
+  .cmp-btn-ghost:hover { border-color: var(--cmp-accent); color: var(--cmp-accent); }
+  .cmp-btn-wide { padding: 0.9rem 1.4rem; width: 100%; margin: 0 0 1rem; }
+
+  /* output */
+  .cmp-result {
+    background: var(--cmp-surface); border: 1px solid var(--cmp-border);
+    border-radius: var(--cmp-radius); margin-top: 1.5rem; padding: 1.5rem 1rem;
+    opacity: 0; transition: opacity 0.3s ease; text-align: left;
+  }
+  .cmp-result.cmp-visible { opacity: 1; }
+  .cmp-result h2 { text-align: center; }
+  .cmp-result h5 {
+    margin: 2.25rem 0 1rem; padding-top: 1rem;
+    font-size: 0.95rem; letter-spacing: 0.03em; color: var(--sl-color-text-accent, var(--cmp-accent-hi));
+  }
+  .cmp-result h5:first-child { margin-top: 0; padding-top: 0; }
+  .cmp-text p { margin: 0.7rem 0; }
+  .cmp-tip {
+    background: var(--sl-color-gray-6, rgba(255,255,255,0.04));
+    border-left: 4px solid var(--cmp-accent);
+    border-radius: 6px; padding: 0.9rem 1rem; margin: 1.25rem 0;
+  }
+  .cmp-katex { overflow-x: auto; overflow-y: hidden; padding: 0.75rem 0.25rem; margin: 1.25rem 0; }
+  .cmp-katex .katex-display { margin: 0; }
+  .cmp-red-strong { color: var(--cmp-red); }
+  .cmp-green-strong { color: var(--cmp-green); }
+
+  /* ----- figure con le righe di bit (SVG) ----- */
+  .cmp-figwrap { overflow-x: auto; margin: 1.5rem 0; padding: 0.25rem 0; }
+  /* larghezza naturale (attributo width): sotto quella misura la figura
+     scorre in orizzontale invece di rimpicciolire le cifre */
+  .cmp-fig { display: block; height: auto; margin: 0 auto !important; max-width: none; }
+  .cmp-fig .cmp-c { fill: var(--sl-color-bg, #fff); stroke: var(--sl-color-gray-4, #888); stroke-width: 0.8; }
+  .cmp-fig .cmp-cfill { fill: color-mix(in srgb, var(--sl-color-gray-5, #888) 45%, var(--sl-color-bg, #fff)); stroke: var(--sl-color-gray-4, #888); stroke-width: 0.8; stroke-dasharray: 2 2; }
+  .cmp-fig text { fill: var(--sl-color-text, #222); font-family: var(--__sl-font-mono, ui-monospace, monospace); }
+  .cmp-fig .cmp-bit-t { font-size: 15px; font-weight: 700; }
+  .cmp-fig .cmp-red-t { fill: var(--cmp-red); }
+  .cmp-fig .cmp-faint-t { fill: var(--cmp-faint); }
+  .cmp-fig .cmp-carry-t { font-size: 11px; font-weight: 700; fill: var(--cmp-red); }
+  .cmp-fig .cmp-rowlabel { font-family: var(--sl-font, sans-serif); font-size: 13px; font-weight: 600; }
+  .cmp-fig .cmp-small { font-family: var(--sl-font, sans-serif); font-size: 11px; fill: var(--cmp-faint); }
+  .cmp-fig .cmp-bracelabel { font-family: var(--sl-font, sans-serif); font-size: 11.5px; }
+  .cmp-fig .cmp-brace { fill: none; stroke-width: 1.3; }
+  .cmp-fig .cmp-rule { stroke: var(--sl-color-text, #222); stroke-width: 1.5; }
+  .cmp-fig .cmp-arrow { stroke: var(--cmp-faint); stroke-width: 1.2; fill: none; }
+  .cmp-fig .cmp-cross { fill: none; stroke: var(--sl-color-gray-3, #888); stroke-width: 1.4; stroke-linecap: round; }
+
+  /* ----- tabelle in stile "libro" (come negli altri risolutori) ----- */
+  .cmp-tablewrap { display: flex; justify-content: center; overflow-x: auto; margin: 1.5rem 0 !important; padding: 0.25rem; }
+  .cmp-booktable { border-collapse: collapse; margin: 0 auto; font-size: 0.92rem; }
+  .cmp-booktable th, .cmp-booktable td { border: none; padding: 0.3rem 0.9rem; text-align: center; white-space: nowrap; }
+  .cmp-booktable td { font-family: var(--__sl-font-mono, ui-monospace, monospace); }
+  .cmp-booktable thead tr {
+    border-top: 1.5px solid var(--sl-color-text, currentColor);
+    border-bottom: 1.5px solid var(--sl-color-text, currentColor);
+  }
+  .cmp-booktable th {
+    /* intestazioni su due righe fisse: "Con segno" sopra, la parentesi
+       intera sotto (a capo solo dove c'e' il <br>) */
+    font-weight: 700; white-space: nowrap; line-height: 1.25;
+    color: var(--sl-color-text-accent, var(--cmp-accent-hi));
+    padding-top: 0.45rem; padding-bottom: 0.45rem;
+  }
+  .cmp-booktable tbody tr:last-child { border-bottom: 1.5px solid var(--sl-color-text, currentColor); }
+  .cmp-booktable tbody tr:nth-child(even) { background: color-mix(in srgb, var(--sl-color-gray-5, #888) 32%, transparent); }
+  .cmp-booktable td.cmp-rowhead { font-family: var(--sl-font, system-ui, sans-serif); font-weight: 600; text-align: left; }
+
+  @media (max-width: 600px) {
+    .cmp-root { font-size: 0.95rem; }
+    .cmp-actions { grid-template-columns: 1fr; }
+    .cmp-actions .cmp-btn, .cmp-btn-wide { width: 100%; }
+    .cmp-result { padding: 1rem 0.5rem; }
+    .cmp-bit { width: 1.95rem; height: 2.2rem; font-size: 1.1rem; }
+    .cmp-nibble { gap: 0.2rem; }
+    .cmp-cells { gap: 0.6rem 0.7rem; }
+  }
+</style>
+<script>
+  import katex from 'katex';
+  import renderMathInElement from 'katex/contrib/auto-render';
+
+  document.querySelectorAll('.cmp-root').forEach((root) => initComplementi(root));
+
+  function initComplementi(root) {
+    const LANG = (root.dataset.lang || document.documentElement.lang || 'it')
+      .toLowerCase().startsWith('en') ? 'en' : 'it';
+
+    const RED = '#d11111';
+    const GREEN = '#1f9d55';
+    const GRAY = '#8a8a8a';
+
+    // ============================================================= i18n
+    const D = {
+      it: {
+        titleQuick: 'Risultato sintetico',
+        titleStep: 'Svolgimento passo-passo',
+
+        // 1. dati
+        s1: '1. Dati',
+        s1Intro: (xTex, n) =>
+          `<p>Il numero inserito è \\( X = ${xTex} \\), scritto con \\( n = ${n} \\) bit. Il bit più a sinistra è il più significativo, cioè quello di peso \\( 2^{${n - 1}} \\): nelle letture con segno indica il segno, \\( 0 \\) per i numeri positivi o nulli e \\( 1 \\) per i negativi.</p>`,
+        s1Uns: '<p>Letto come numero senza segno, \\( X \\) vale la somma dei pesi dei suoi bit a \\( 1 \\):</p>',
+        s1Zero: '<p>Tutti i bit valgono \\( 0 \\): letto come numero senza segno, \\( X \\) vale \\( 0 \\).</p>',
+        recap:
+          '<b>In breve.</b> Il <b>complemento a 1</b> di un numero binario si ottiene invertendo tutti i suoi bit; il <b>complemento a 2</b> si ottiene sommando \\( 1 \\) al complemento a 1. Entrambi, con lo stesso numero di bit, rappresentano l\'<b>opposto</b> del numero di partenza: il complemento a 2 è il metodo con cui i processori rappresentano i numeri interi con segno.',
+
+        // 2. complemento a 1
+        s2: '2. Complemento a 1',
+        s2Text:
+          '<p>Il complemento a 1 di \\( X \\), indicato con \\( C_1(X) \\), si ottiene <b>invertendo ogni bit</b>: ogni \\( 0 \\) diventa \\( 1 \\) e ogni \\( 1 \\) diventa \\( 0 \\). Il numero di bit resta lo stesso.</p>',
+        s2Equiv: (n) =>
+          `<p>Invertire tutti gli \\( n \\) bit equivale a calcolare \\( (2^{n}-1)-X \\): infatti \\( 2^{n}-1 \\) si scrive con \\( n \\) bit tutti a \\( 1 \\), e sottrarre un bit da \\( 1 \\) lo inverte senza mai richiedere prestiti. Con \\( n = ${n} \\):</p>`,
+
+        // 3. complemento a 2
+        s3: '3. Complemento a 2',
+        s3Text:
+          '<p>Il complemento a 2 di \\( X \\), indicato con \\( C_2(X) \\), si ottiene <b>sommando \\( 1 \\) al complemento a 1</b>. La somma si esegue in colonna, da destra verso sinistra; i riporti sono scritti in <b class="cmp-red-strong">rosso</b> sopra la colonna in cui entrano.</p>',
+        s3Discard:
+          '<p>Il riporto che esce dal bit più a sinistra non trova posto negli \\( n \\) bit: si <b>scarta</b> (casella barrata).</p>',
+        s3Equiv: (n) =>
+          `<p>Sommare \\( 1 \\) a \\( (2^{n}-1)-X \\) equivale a calcolare \\( 2^{n}-X \\). Con \\( n = ${n} \\):</p>`,
+        s3EquivZero: (n) =>
+          `<p>Sommare \\( 1 \\) a \\( (2^{n}-1)-X \\) equivale a calcolare \\( 2^{n}-X \\). Qui \\( X = 0 \\) e \\( 2^{${n}} - 0 = 2^{${n}} \\) richiederebbe \\( ${n + 1} \\) bit: con \\( ${n} \\) bit, scartato il riporto, resta \\( 0 \\).</p>`,
+        ruleText:
+          '<p><b>Verifica con la regola rapida.</b> Lo stesso risultato si ottiene senza eseguire la somma: partendo da destra si <b class="cmp-green-strong">copiano</b> i bit di \\( X \\) fino al primo \\( 1 \\) compreso, poi si <b class="cmp-red-strong">invertono</b> tutti gli altri.</p>',
+        ruleZero:
+          '<p><b>Verifica con la regola rapida.</b> Partendo da destra si copiano i bit di \\( X \\) fino al primo \\( 1 \\) compreso e si invertono gli altri. Qui \\( X \\) non contiene alcun \\( 1 \\): si copiano tutti i bit e si ritrova \\( C_2(X) = 0 \\).</p>',
+        ruleWhy:
+          "<p>La regola funziona perché il complemento a 1 ha degli \\( 1 \\) proprio dove \\( X \\) termina con degli \\( 0 \\): sommando \\( 1 \\), il riporto attraversa questi \\( 1 \\) trasformandoli di nuovo in \\( 0 \\), e si ferma nella colonna del primo \\( 1 \\) di \\( X \\), dove il complemento a 1 ha uno \\( 0 \\) che diventa \\( 1 \\). Più a sinistra il complemento a 1 resta invariato, cioè invertito rispetto a \\( X \\).</p>",
+
+        // 4. lettura con segno
+        s4: '4. Significato: lettura con segno',
+        s4C2Text: (n) =>
+          `<p>I complementi servono a rappresentare i numeri negativi. Nella lettura con segno in <b>complemento a 2</b>, il bit più a sinistra pesa \\( -2^{${n - 1}} \\) invece di \\( +2^{${n - 1}} \\); gli altri bit pesano come al solito:</p>`,
+        s4C2Opp:
+          "<p>I due valori sono <b>opposti</b>: \\( C_2(X) \\) rappresenta l'opposto del numero rappresentato da \\( X \\).</p>",
+        s4C2OppZero: '<p>Lo zero è l\'opposto di sé stesso: \\( X \\) e \\( C_2(X) \\) valgono entrambi \\( 0 \\).</p>',
+        s4C1Text: (n) =>
+          `<p>Nella lettura con segno in <b>complemento a 1</b>, il bit più a sinistra pesa \\( -(2^{${n - 1}}-1) \\):</p>`,
+        s4C1Opp:
+          "<p>Anche qui i due valori sono <b>opposti</b>: \\( C_1(X) \\) rappresenta l'opposto del numero rappresentato da \\( X \\).</p>",
+        s4C1OppZero:
+          '<p>Entrambi valgono \\( 0 \\): uno dei due è lo <b>zero negativo</b>, cioè la scrittura con tutti i bit a \\( 1 \\), che in complemento a 1 rappresenta ancora lo zero.</p>',
+
+        // 5. verifica con le somme
+        s5: '5. Verifica: somma di X con i suoi complementi',
+        s5C1:
+          '<p><b>\\( X + C_1(X) \\).</b> In ogni colonna si sommano un \\( 0 \\) e un \\( 1 \\): ogni bit del risultato è \\( 1 \\) e non nasce mai un riporto.</p>',
+        s5C1After: (n) =>
+          `<p>Il risultato, \\( ${n} \\) bit tutti a \\( 1 \\), vale \\( 2^{${n}}-1 \\) senza segno; letto in complemento a 1 è lo <b>zero negativo</b>. Il complemento a 1 ha quindi due scritture dello zero, tutti \\( 0 \\) e tutti \\( 1 \\): è uno dei motivi per cui si preferisce il complemento a 2.</p>`,
+        s5C2:
+          '<p><b>\\( X + C_2(X) \\).</b> Si somma in colonna con i riporti, come prima.</p>',
+        s5C2After: (n) =>
+          `<p>Si ottiene un \\( 1 \\) seguito da \\( ${n} \\) zeri, cioè \\( 2^{${n}} \\). Il riporto che esce dal bit più a sinistra si scarta e restano \\( ${n} \\) zeri: \\( X + C_2(X) = 0 \\). È la proprietà che definisce l'opposto, ed è il motivo per cui il complemento a 2 permette di eseguire la sottrazione \\( A - B \\) come somma \\( A + C_2(B) \\), con lo stesso circuito sommatore.</p>`,
+        s5C2Zero:
+          '<p>Qui \\( X = 0 \\) e \\( C_2(X) = 0 \\): la somma vale \\( 0 \\) senza alcun riporto.</p>',
+
+        // 6. riepilogo
+        s6: '6. Riepilogo',
+        sumHead: ['', 'Binario', 'Senza segno', 'Con segno<br>(complemento a 2)', 'Con segno<br>(complemento a 1)'],
+        negZero: '−0',
+
+        // casi limite
+        noteZero: (n) =>
+          `<b>Caso particolare: \\( X = 0 \\).</b> Il complemento a 1 è formato da \\( ${n} \\) bit tutti a \\( 1 \\), che in complemento a 1 rappresentano lo zero negativo. Il complemento a 2 è ancora \\( 0 \\), perché il riporto che esce dal bit più a sinistra si scarta: in complemento a 2 lo zero ha una sola scrittura.`,
+        noteMin: (n, minAbs) =>
+          `<b>Caso particolare: un \\( 1 \\) seguito da soli zeri.</b> Letto con segno in complemento a 2, \\( X \\) vale \\( -2^{${n - 1}} = -${minAbs} \\), il numero più negativo rappresentabile con \\( ${n} \\) bit. Il suo complemento a 2 è \\( X \\) stesso: l'opposto \\( +${minAbs} \\) supera il massimo rappresentabile, \\( 2^{${n - 1}}-1 = ${minAbs - 1} \\), e per scriverlo servirebbe un bit in più.`,
+
+        // figure
+        figX: 'X',
+        figC1: 'C1(X)',
+        figC2: 'C2(X)',
+        figPlus1: '+ 1',
+        figXplusC1: 'X + C1(X)',
+        figXplusC2: 'X + C2(X)',
+        figPlusC1: '+ C1(X)',
+        figPlusC2: '+ C2(X)',
+        figCarry: 'riporti',
+        figDiscard: 'scartato',
+        braceCopy: (k) => (k === 1 ? '1 bit copiato' : `${k} bit copiati`),
+        braceInv: (k) => (k === 1 ? '1 bit invertito' : `${k} bit invertiti`),
+      },
+      en: {
+        titleQuick: 'Quick result',
+        titleStep: 'Step-by-step solution',
+
+        s1: '1. Data',
+        s1Intro: (xTex, n) =>
+          `<p>The entered number is \\( X = ${xTex} \\), written with \\( n = ${n} \\) bits. The leftmost bit is the most significant one, the one with weight \\( 2^{${n - 1}} \\): in signed readings it gives the sign, \\( 0 \\) for positive or zero numbers and \\( 1 \\) for negative ones.</p>`,
+        s1Uns: '<p>Read as an unsigned number, \\( X \\) is worth the sum of the weights of its bits set to \\( 1 \\):</p>',
+        s1Zero: '<p>All the bits are \\( 0 \\): read as an unsigned number, \\( X \\) is \\( 0 \\).</p>',
+        recap:
+          '<b>In short.</b> The <b>ones\' complement</b> of a binary number is obtained by inverting all its bits; the <b>two\'s complement</b> is obtained by adding \\( 1 \\) to the ones\' complement. Both, with the same number of bits, represent the <b>opposite</b> of the starting number: two\'s complement is how processors represent signed integers.',
+
+        s2: '2. Ones\' complement',
+        s2Text:
+          '<p>The ones\' complement of \\( X \\), written \\( C_1(X) \\), is obtained by <b>inverting every bit</b>: every \\( 0 \\) becomes \\( 1 \\) and every \\( 1 \\) becomes \\( 0 \\). The number of bits stays the same.</p>',
+        s2Equiv: (n) =>
+          `<p>Inverting all \\( n \\) bits is the same as computing \\( (2^{n}-1)-X \\): indeed \\( 2^{n}-1 \\) is written with \\( n \\) bits all set to \\( 1 \\), and subtracting a bit from \\( 1 \\) inverts it without ever borrowing. With \\( n = ${n} \\):</p>`,
+
+        s3: '3. Two\'s complement',
+        s3Text:
+          '<p>The two\'s complement of \\( X \\), written \\( C_2(X) \\), is obtained by <b>adding \\( 1 \\) to the ones\' complement</b>. The addition is done column by column, from right to left; the carries are written in <b class="cmp-red-strong">red</b> above the column they enter.</p>',
+        s3Discard:
+          '<p>The carry leaving the leftmost bit does not fit in the \\( n \\) bits: it is <b>discarded</b> (crossed-out box).</p>',
+        s3Equiv: (n) =>
+          `<p>Adding \\( 1 \\) to \\( (2^{n}-1)-X \\) is the same as computing \\( 2^{n}-X \\). With \\( n = ${n} \\):</p>`,
+        s3EquivZero: (n) =>
+          `<p>Adding \\( 1 \\) to \\( (2^{n}-1)-X \\) is the same as computing \\( 2^{n}-X \\). Here \\( X = 0 \\) and \\( 2^{${n}} - 0 = 2^{${n}} \\) would need \\( ${n + 1} \\) bits: with \\( ${n} \\) bits, once the carry is discarded, \\( 0 \\) remains.</p>`,
+        ruleText:
+          '<p><b>Check with the quick rule.</b> The same result is obtained without doing the addition: starting from the right, the bits of \\( X \\) are <b class="cmp-green-strong">copied</b> up to and including the first \\( 1 \\), then all the others are <b class="cmp-red-strong">inverted</b>.</p>',
+        ruleZero:
+          '<p><b>Check with the quick rule.</b> Starting from the right, the bits of \\( X \\) are copied up to and including the first \\( 1 \\) and the others are inverted. Here \\( X \\) contains no \\( 1 \\): all the bits are copied and \\( C_2(X) = 0 \\) is obtained again.</p>',
+        ruleWhy:
+          '<p>The rule works because the ones\' complement has \\( 1 \\)s exactly where \\( X \\) ends with \\( 0 \\)s: adding \\( 1 \\), the carry runs through these \\( 1 \\)s turning them back into \\( 0 \\)s, and stops in the column of the first \\( 1 \\) of \\( X \\), where the ones\' complement has a \\( 0 \\) that becomes \\( 1 \\). Further left the ones\' complement is unchanged, that is inverted with respect to \\( X \\).</p>',
+
+        s4: '4. Meaning: signed reading',
+        s4C2Text: (n) =>
+          `<p>Complements are used to represent negative numbers. In the signed <b>two\'s complement</b> reading, the leftmost bit weighs \\( -2^{${n - 1}} \\) instead of \\( +2^{${n - 1}} \\); the other bits weigh as usual:</p>`,
+        s4C2Opp:
+          '<p>The two values are <b>opposite</b>: \\( C_2(X) \\) represents the opposite of the number represented by \\( X \\).</p>',
+        s4C2OppZero: '<p>Zero is its own opposite: \\( X \\) and \\( C_2(X) \\) are both \\( 0 \\).</p>',
+        s4C1Text: (n) =>
+          `<p>In the signed <b>ones\' complement</b> reading, the leftmost bit weighs \\( -(2^{${n - 1}}-1) \\):</p>`,
+        s4C1Opp:
+          '<p>Here too the two values are <b>opposite</b>: \\( C_1(X) \\) represents the opposite of the number represented by \\( X \\).</p>',
+        s4C1OppZero:
+          '<p>Both are \\( 0 \\): one of them is the <b>negative zero</b>, that is the pattern with all bits set to \\( 1 \\), which in ones\' complement still represents zero.</p>',
+
+        s5: '5. Check: adding X to its complements',
+        s5C1:
+          '<p><b>\\( X + C_1(X) \\).</b> In every column a \\( 0 \\) and a \\( 1 \\) are added: every bit of the result is \\( 1 \\) and no carry ever arises.</p>',
+        s5C1After: (n) =>
+          `<p>The result, \\( ${n} \\) bits all set to \\( 1 \\), is worth \\( 2^{${n}}-1 \\) unsigned; read in ones\' complement it is the <b>negative zero</b>. Ones\' complement therefore has two patterns for zero, all \\( 0 \\)s and all \\( 1 \\)s: this is one of the reasons why two\'s complement is preferred.</p>`,
+        s5C2:
+          '<p><b>\\( X + C_2(X) \\).</b> The addition is done column by column with the carries, as before.</p>',
+        s5C2After: (n) =>
+          `<p>The result is a \\( 1 \\) followed by \\( ${n} \\) zeros, that is \\( 2^{${n}} \\). The carry leaving the leftmost bit is discarded and \\( ${n} \\) zeros remain: \\( X + C_2(X) = 0 \\). This is the property that defines the opposite, and it is why two\'s complement lets the subtraction \\( A - B \\) be done as the addition \\( A + C_2(B) \\), with the same adder circuit.</p>`,
+        s5C2Zero:
+          '<p>Here \\( X = 0 \\) and \\( C_2(X) = 0 \\): the sum is \\( 0 \\) with no carry at all.</p>',
+
+        s6: '6. Summary',
+        sumHead: ['', 'Binary', 'Unsigned', 'Signed<br>(two\'s complement)', 'Signed<br>(ones\' complement)'],
+        negZero: '−0',
+
+        noteZero: (n) =>
+          `<b>Special case: \\( X = 0 \\).</b> The ones\' complement consists of \\( ${n} \\) bits all set to \\( 1 \\), which in ones\' complement represent the negative zero. The two\'s complement is still \\( 0 \\), because the carry leaving the leftmost bit is discarded: in two\'s complement zero has a single pattern.`,
+        noteMin: (n, minAbs) =>
+          `<b>Special case: a \\( 1 \\) followed only by zeros.</b> Read as signed two\'s complement, \\( X \\) is \\( -2^{${n - 1}} = -${minAbs} \\), the most negative number representable with \\( ${n} \\) bits. Its two\'s complement is \\( X \\) itself: the opposite \\( +${minAbs} \\) exceeds the largest representable value, \\( 2^{${n - 1}}-1 = ${minAbs - 1} \\), and writing it would need one more bit.`,
+
+        figX: 'X',
+        figC1: 'C1(X)',
+        figC2: 'C2(X)',
+        figPlus1: '+ 1',
+        figXplusC1: 'X + C1(X)',
+        figXplusC2: 'X + C2(X)',
+        figPlusC1: '+ C1(X)',
+        figPlusC2: '+ C2(X)',
+        figCarry: 'carries',
+        figDiscard: 'discarded',
+        braceCopy: (k) => (k === 1 ? '1 bit copied' : `${k} bits copied`),
+        braceInv: (k) => (k === 1 ? '1 bit inverted' : `${k} bits inverted`),
+      },
+    }[LANG];
+    const L = D;
+
+    // ── riferimenti DOM ──────────────────────────────────────────────
+    const widthSel = root.querySelector('#cmpWidth');
+    const cellsEl = root.querySelector('#cmpCells');
+    const quickEl = root.querySelector('#cmpQuick');
+    const fullEl = root.querySelector('#cmpFull');
+
+    // ── helper rendering (come negli altri risolutori) ───────────────
+    const KOPTS_DISPLAY = { throwOnError: false, displayMode: true };
+    const RMOPTS = {
+      throwOnError: false,
+      delimiters: [
+        { left: '\\(', right: '\\)', display: false },
+        { left: '\\[', right: '\\]', display: true },
+      ],
+    };
+    function kx(tex) {
+      try { return katex.renderToString(tex, KOPTS_DISPLAY); }
+      catch (e) { return '<span style="color:#e55">[KaTeX error]</span>'; }
+    }
+    function renderInline(el) { try { renderMathInElement(el, RMOPTS); } catch (e) {} }
+    function reveal(el) { el.hidden = false; el.style.display = 'block'; requestAnimationFrame(() => el.classList.add('cmp-visible')); }
+    function hide(el) { el.classList.remove('cmp-visible'); el.style.display = 'none'; el.hidden = true; }
+    function emit(target, html, tex) {
+      if (html) { const d = document.createElement('div'); d.className = 'cmp-text'; d.innerHTML = html; target.appendChild(d); renderInline(d); }
+      if (tex) { const w = document.createElement('div'); w.className = 'cmp-katex'; w.innerHTML = kx(tex); target.appendChild(w); }
+    }
+    function emitTip(target, html) {
+      const d = document.createElement('div'); d.className = 'cmp-tip'; d.innerHTML = html; target.appendChild(d); renderInline(d);
+    }
+    function heading(target, text) { const h = document.createElement('h5'); h.textContent = text; target.appendChild(h); }
+    function clearResults() { quickEl.innerHTML = ''; fullEl.innerHTML = ''; hide(quickEl); hide(fullEl); }
+
+    // ============================================================= aritmetica sui bit
+    // I bit sono stringhe di '0'/'1'; indice 0 = bit piu' a sinistra (peso 2^(n-1)).
+    const invert = (b) => b.split('').map((c) => (c === '0' ? '1' : '0')).join('');
+    const uval = (b) => parseInt(b, 2);
+    // somma in colonna: cin[j] = riporto che entra nella colonna j; out = riporto in uscita
+    function addBits(a, b) {
+      const n = a.length;
+      const sum = new Array(n);
+      const cin = new Array(n).fill(0);
+      let c = 0;
+      for (let j = n - 1; j >= 0; j--) {
+        cin[j] = c;
+        const s = +a[j] + +b[j] + c;
+        sum[j] = String(s % 2);
+        c = s >> 1;
+      }
+      return { sum: sum.join(''), cin, out: c };
+    }
+    const c2val = (b) => uval(b) - (b[0] === '1' ? 2 ** b.length : 0);
+    const c1val = (b) => uval(b) - (b[0] === '1' ? 2 ** b.length - 1 : 0);
+    const isNegZeroC1 = (b) => !b.includes('0');
+
+    function analyze(x) {
+      const n = x.length;
+      const c1 = invert(x);
+      const one = '0'.repeat(n - 1) + '1';
+      const step = addBits(c1, one);
+      const c2 = step.sum;
+      const lastOne = x.lastIndexOf('1');            // -1 se X = 0
+      const sumC1 = addBits(x, c1);
+      const sumC2 = addBits(x, c2);
+      const isZero = lastOne === -1;
+      const isMin = x[0] === '1' && !x.slice(1).includes('1');
+      return { n, x, c1, c2, one, step, lastOne, sumC1, sumC2, isZero, isMin };
+    }
+
+    // ── LaTeX ────────────────────────────────────────────────────────
+    const nibbles = (b) => b.match(/.{1,4}/g);
+    const texBits = (b) => `{${nibbles(b).map((g) => `\\texttt{${g}}`).join('\\,')}}_{2}`;
+    const plainBits = (b) => nibbles(b).join('\u2009');
+
+    // somma dei pesi dei bit a 1 (lettura senza segno)
+    function unsignedTex(name, b) {
+      const n = b.length;
+      const pw = [];
+      for (let j = 0; j < n; j++) if (b[j] === '1') pw.push(n - 1 - j);
+      if (!pw.length) return `${name} = 0`;
+      const t1 = pw.map((k) => `2^{${k}}`).join(' + ');
+      const t2 = pw.map((k) => String(2 ** k)).join(' + ');
+      return pw.length === 1 ? `${name} = ${t1} = ${t2}` : `${name} = ${t1} = ${t2} = ${uval(b)}`;
+    }
+    // lettura con segno: kind 'c2' (bit di segno -2^(n-1)) o 'c1' (-(2^(n-1)-1))
+    function signedTex(name, b, kind) {
+      const n = b.length;
+      const sym = [], num = [];
+      if (b[0] === '1') {
+        if (kind === 'c2') { sym.push(`-2^{${n - 1}}`); num.push(`-${2 ** (n - 1)}`); }
+        else { sym.push(`-(2^{${n - 1}}-1)`); num.push(`-${2 ** (n - 1) - 1}`); }
+      }
+      for (let j = 1; j < n; j++) {
+        if (b[j] === '1') { sym.push(`2^{${n - 1 - j}}`); num.push(String(2 ** (n - 1 - j))); }
+      }
+      const v = kind === 'c2' ? c2val(b) : c1val(b);
+      if (!sym.length) return `${name} = 0`;
+      const join = (arr) => arr.map((t, i) => (i === 0 ? t : (t.startsWith('-') ? ` ${t}` : ` + ${t}`))).join('');
+      // un solo termine: il suo valore numerico e' gia' il risultato
+      if (sym.length === 1) return `${name} = ${join(sym)} = ${join(num)}`;
+      return `${name} = ${join(sym)} = ${join(num)} = ${v}`;
+    }
+
+    // ============================================================= figure SVG
+    // Colonne: -1 = colonna del riporto in uscita, 0..n-1 = bit (0 = piu' a sinistra).
+    const FG = { cell: 24, gap: 10, label: 104, pad: 12 };
+    const fx = (j) => FG.label + (j + 1) * FG.cell + (j >= 0 ? (Math.floor(j / 4) + 1) * FG.gap : 0);
+    const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    // etichetta con pedice: "C1(X)" -> C con pedice 1, poi (X)
+    function labelSvg(txt) {
+      return esc(txt).replace(/C([12])/g, 'C<tspan dy="4" font-size="9.5">$1</tspan><tspan dy="-4">\u200A</tspan>');
+    }
+    function txt(x, y, s, cls, anchor) {
+      return `<text x="${x}" y="${y}" class="${cls}" text-anchor="${anchor || 'middle'}" dominant-baseline="central">${s}</text>`;
+    }
+
+    // items: { type: 'bits', label, bits, color: [...]|fn, out?: '0'|'1', discard?: bool }
+    //        { type: 'carries', cin, out }   { type: 'arrows' }   { type: 'rule' }
+    // overlays: { rows: [i1, i2], cols: [a, b), color }
+    // braces (sotto l'ultima riga): [{ cols: [a, b), text, color }]
+    function buildFigure(n, items, overlays, braces, aria) {
+      const C = FG.cell;
+      const out = [];
+      const ys = [];
+      let y = 6;
+      items.forEach((it) => {
+        ys.push(y);
+        if (it.type === 'bits') y += C + 8;
+        else if (it.type === 'carries') y += 16;
+        else if (it.type === 'arrows') y += 18;
+        else if (it.type === 'rule') y += 10;
+      });
+      const lastBitsIdx = items.map((it) => it.type).lastIndexOf('bits');
+      const hasDiscard = items.some((it) => it.type === 'bits' && it.discard);
+      let H = y + (braces && braces.length ? 34 : 0) + (hasDiscard ? 14 : 0);
+      const W = fx(n - 1) + C + FG.pad;
+
+      items.forEach((it, i) => {
+        const y0 = ys[i];
+        if (it.type === 'bits') {
+          out.push(`<text x="${FG.label - 10}" y="${y0 + C / 2}" class="cmp-rowlabel" text-anchor="end" dominant-baseline="central">${labelSvg(it.label)}</text>`);
+          for (let j = 0; j < n; j++) {
+            out.push(`<rect x="${fx(j)}" y="${y0}" width="${C}" height="${C}" class="cmp-c"/>`);
+            const col = typeof it.color === 'function' ? it.color(j) : '';
+            const cls = col === 'red' ? 'cmp-bit-t cmp-red-t' : col === 'faint' ? 'cmp-bit-t cmp-faint-t' : 'cmp-bit-t';
+            out.push(txt(fx(j) + C / 2, y0 + C / 2 + 0.5, it.bits[j], cls));
+          }
+          if (it.out !== undefined) {
+            out.push(`<rect x="${fx(-1)}" y="${y0}" width="${C}" height="${C}" class="cmp-cfill"/>`);
+            out.push(txt(fx(-1) + C / 2, y0 + C / 2 + 0.5, it.out, 'cmp-bit-t cmp-faint-t'));
+            if (it.discard) {
+              const x0 = fx(-1) + 3, yy = y0 + 3, s = C - 6;
+              out.push(`<path d="M ${x0} ${yy} L ${x0 + s} ${yy + s} M ${x0} ${yy + s} L ${x0 + s} ${yy}" class="cmp-cross"/>`);
+              out.push(txt(fx(-1) + C / 2, y0 + C + 9, L.figDiscard, 'cmp-small'));
+            }
+          }
+        } else if (it.type === 'carries') {
+          out.push(`<text x="${FG.label - 10}" y="${y0 + 7}" class="cmp-small" text-anchor="end" dominant-baseline="central">${esc(L.figCarry)}</text>`);
+          for (let j = 0; j < n; j++) if (it.cin[j]) out.push(txt(fx(j) + C / 2, y0 + 7, '1', 'cmp-carry-t'));
+          if (it.out) out.push(txt(fx(-1) + C / 2, y0 + 7, '1', 'cmp-carry-t'));
+        } else if (it.type === 'arrows') {
+          for (let j = 0; j < n; j++) {
+            const cx = fx(j) + C / 2;
+            out.push(`<path d="M ${cx} ${y0 - 4} V ${y0 + 12} M ${cx - 3.5} ${y0 + 8} L ${cx} ${y0 + 12} L ${cx + 3.5} ${y0 + 8}" class="cmp-arrow"/>`);
+          }
+        } else if (it.type === 'rule') {
+          out.push(`<line x1="${fx(-1)}" y1="${y0 + 1}" x2="${fx(n - 1) + C}" y2="${y0 + 1}" class="cmp-rule"/>`);
+        }
+      });
+
+      (overlays || []).forEach((o) => {
+        if (o.cols[1] <= o.cols[0]) return;
+        const x1 = fx(o.cols[0]) - 4, x2 = fx(o.cols[1] - 1) + C + 4;
+        const y1 = ys[o.rows[0]] - 4, y2 = ys[o.rows[1]] + C + 4;
+        out.push(`<rect x="${x1}" y="${y1}" width="${x2 - x1}" height="${y2 - y1}" rx="5" fill="${o.color}" fill-opacity="0.14" stroke="${o.color}" stroke-width="2"/>`);
+      });
+
+      if (braces && braces.length) {
+        const yB = ys[lastBitsIdx] + C + 12, yT = yB + 14;
+        braces.forEach((b) => {
+          if (b.cols[1] <= b.cols[0]) return;
+          const bx1 = fx(b.cols[0]) + 2, bx2 = fx(b.cols[1] - 1) + C - 2;
+          out.push(`<path d="M ${bx1} ${yB - 5} V ${yB} H ${bx2} V ${yB - 5}" class="cmp-brace" stroke="${b.color}"/>`);
+          const w = b.text.length * 6.2;
+          let x = (bx1 + bx2) / 2, anchor = 'middle';
+          if (x - w / 2 < fx(-1)) { x = bx1; anchor = 'start'; }
+          else if (x + w / 2 > W) { x = bx2; anchor = 'end'; }
+          out.push(txt(x, yT, esc(b.text), 'cmp-bracelabel', anchor));
+        });
+      }
+
+      const svg = `<svg class="cmp-fig" viewBox="0 0 ${W} ${H}" width="${W}" role="img" aria-label="${esc(aria)}" xmlns="http://www.w3.org/2000/svg">${out.join('')}</svg>`;
+      const wrap = document.createElement('div');
+      wrap.className = 'cmp-figwrap';
+      wrap.innerHTML = svg;
+      return wrap;
+    }
+
+    // tabella riassuntiva
+    function buildSummary(info) {
+      const rows = [['\\( X \\)', info.x], ['\\( C_1(X) \\)', info.c1], ['\\( C_2(X) \\)', info.c2]];
+      const wrap = document.createElement('div');
+      wrap.className = 'cmp-tablewrap';
+      const table = document.createElement('table');
+      table.className = 'cmp-booktable';
+      table.innerHTML = `<thead><tr>${L.sumHead.map((h) => `<th>${h}</th>`).join('')}</tr></thead>`;
+      const tbody = document.createElement('tbody');
+      rows.forEach(([name, b]) => {
+        const v1 = isNegZeroC1(b) ? L.negZero : String(c1val(b)).replace('-', '−');
+        const v2 = String(c2val(b)).replace('-', '−');
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td class="cmp-rowhead">${name}</td><td>${plainBits(b)}</td><td>${uval(b)}</td><td>${v2}</td><td>${v1}</td>`;
+        tbody.appendChild(tr);
+      });
+      table.appendChild(tbody);
+      wrap.appendChild(table);
+      renderInline(wrap);
+      return wrap;
+    }
+
+    function edgeNotes(target, info) {
+      if (info.isZero) emitTip(target, L.noteZero(info.n));
+      if (info.isMin) emitTip(target, L.noteMin(info.n, 2 ** (info.n - 1)));
+    }
+
+    // ============================================================= svolgimento completo
+    function renderFull(t, info) {
+      const { n, x, c1, c2 } = info;
+      const all = (b) => () => b;
+
+      // 1. dati
+      heading(t, L.s1);
+      if (info.isZero) emit(t, L.s1Intro(texBits(x), n) + L.s1Zero);
+      else emit(t, L.s1Intro(texBits(x), n) + L.s1Uns, unsignedTex('X', x));
+      emitTip(t, L.recap);
+
+      // 2. complemento a 1
+      heading(t, L.s2);
+      emit(t, L.s2Text);
+      t.appendChild(buildFigure(n, [
+        { type: 'bits', label: L.figX, bits: x },
+        { type: 'arrows' },
+        { type: 'bits', label: L.figC1, bits: c1, color: () => 'red' },
+      ], [], [], 'X, C1(X)'));
+      emit(t, '', `C_1(X) = ${texBits(c1)}`);
+      emit(t, L.s2Equiv(n), `(2^{${n}}-1) - ${uval(x)} = ${2 ** n - 1} - ${uval(x)} = ${uval(c1)} = ${texBits(c1)}`);
+
+      // 3. complemento a 2
+      heading(t, L.s3);
+      emit(t, L.s3Text);
+      t.appendChild(buildFigure(n, [
+        { type: 'carries', cin: info.step.cin, out: info.step.out },
+        { type: 'bits', label: L.figC1, bits: c1 },
+        { type: 'bits', label: L.figPlus1, bits: info.one },
+        { type: 'rule' },
+        info.step.out
+          ? { type: 'bits', label: L.figC2, bits: c2, out: '1', discard: true }
+          : { type: 'bits', label: L.figC2, bits: c2 },
+      ], [], [], 'C1(X) + 1 = C2(X)'));
+      if (info.step.out) emit(t, L.s3Discard);
+      emit(t, '', `C_2(X) = ${texBits(c2)}`);
+      if (info.isZero) emit(t, L.s3EquivZero(n));
+      else emit(t, L.s3Equiv(n), `2^{${n}} - ${uval(x)} = ${2 ** n} - ${uval(x)} = ${uval(c2)} = ${texBits(c2)}`);
+
+      // verifica con la regola rapida
+      if (info.isZero) {
+        emit(t, L.ruleZero);
+      } else {
+        const p = info.lastOne;                     // primo 1 da destra
+        emit(t, L.ruleText);
+        t.appendChild(buildFigure(n, [
+          { type: 'bits', label: L.figX, bits: x },
+          { type: 'arrows' },
+          { type: 'bits', label: L.figC2, bits: c2, color: (j) => (j < p ? 'red' : '') },
+        ], [{ rows: [0, 2], cols: [p, n], color: GREEN }],
+        [{ cols: [p, n], text: L.braceCopy(n - p), color: GREEN }, { cols: [0, p], text: L.braceInv(p), color: RED }],
+        'X, C2(X)'));
+        emit(t, L.ruleWhy);
+      }
+
+      // 4. lettura con segno
+      heading(t, L.s4);
+      emit(t, L.s4C2Text(n), `\\begin{aligned} ${signedTex('X', x, 'c2').replace(' = ', ' &= ')} \\\\ ${signedTex('C_2(X)', c2, 'c2').replace(' = ', ' &= ')} \\end{aligned}`);
+      if (info.isMin) emitTip(t, L.noteMin(n, 2 ** (n - 1)));
+      else emit(t, info.isZero ? L.s4C2OppZero : L.s4C2Opp);
+      emit(t, L.s4C1Text(n), `\\begin{aligned} ${signedTex('X', x, 'c1').replace(' = ', ' &= ')} \\\\ ${signedTex('C_1(X)', c1, 'c1').replace(' = ', ' &= ')} \\end{aligned}`);
+      emit(t, (info.isZero || isNegZeroC1(x)) ? L.s4C1OppZero : L.s4C1Opp);
+
+      // 5. verifica con le somme
+      heading(t, L.s5);
+      emit(t, L.s5C1);
+      t.appendChild(buildFigure(n, [
+        { type: 'bits', label: L.figX, bits: x },
+        { type: 'bits', label: L.figPlusC1, bits: c1 },
+        { type: 'rule' },
+        { type: 'bits', label: L.figXplusC1, bits: info.sumC1.sum },
+      ], [], [], 'X + C1(X)'));
+      emit(t, L.s5C1After(n));
+      emit(t, L.s5C2);
+      t.appendChild(buildFigure(n, [
+        { type: 'carries', cin: info.sumC2.cin, out: info.sumC2.out },
+        { type: 'bits', label: L.figX, bits: x },
+        { type: 'bits', label: L.figPlusC2, bits: c2 },
+        { type: 'rule' },
+        info.sumC2.out
+          ? { type: 'bits', label: L.figXplusC2, bits: info.sumC2.sum, out: '1', discard: true }
+          : { type: 'bits', label: L.figXplusC2, bits: info.sumC2.sum },
+      ], [], [], 'X + C2(X)'));
+      emit(t, info.isZero ? L.s5C2Zero : L.s5C2After(n));
+
+      // 6. riepilogo
+      heading(t, L.s6);
+      t.appendChild(buildSummary(info));
+      if (info.isZero) emitTip(t, L.noteZero(n));
+    }
+
+    // ============================================================= stato e interazioni
+    let width = parseInt(widthSel.value, 10);
+    let bits = '0'.repeat(width);
+    let cmpRandomUsed = false;
+
+    function drawCells() {
+      cellsEl.innerHTML = '';
+      for (let g = 0; g < width / 4; g++) {
+        const nib = document.createElement('div');
+        nib.className = 'cmp-nibble';
+        for (let k = 0; k < 4; k++) {
+          const j = 4 * g + k;
+          const wrap = document.createElement('div');
+          wrap.className = 'cmp-cellwrap';
+          const pos = document.createElement('span');
+          pos.className = 'cmp-pos';
+          pos.textContent = String(width - 1 - j);
+          const b = document.createElement('button');
+          b.type = 'button';
+          b.className = 'cmp-bit';
+          b.dataset.j = String(j);
+          wrap.appendChild(pos);
+          wrap.appendChild(b);
+          nib.appendChild(wrap);
+        }
+        cellsEl.appendChild(nib);
+      }
+      refreshCells();
+    }
+    function refreshCells() {
+      cellsEl.querySelectorAll('.cmp-bit').forEach((b) => {
+        const j = +b.dataset.j;
+        b.textContent = bits[j];
+        b.dataset.v = bits[j];
+        b.setAttribute('aria-label', `bit ${width - 1 - j}: ${bits[j]}`);
+      });
+    }
+    function setBit(j, v) {
+      bits = bits.slice(0, j) + v + bits.slice(j + 1);
+      refreshCells(); clearResults(); cmpRandomUsed = false;
+    }
+    const cellAt = (j) => cellsEl.querySelector(`.cmp-bit[data-j="${j}"]`);
+    cellsEl.addEventListener('click', (e) => {
+      const b = e.target.closest('.cmp-bit');
+      if (!b) return;
+      const j = +b.dataset.j;
+      setBit(j, bits[j] === '0' ? '1' : '0');
+    });
+    cellsEl.addEventListener('keydown', (e) => {
+      const b = e.target.closest('.cmp-bit');
+      if (!b) return;
+      const j = +b.dataset.j;
+      if (e.key === '0' || e.key === '1') {
+        e.preventDefault(); setBit(j, e.key);
+        if (j < width - 1) cellAt(j + 1).focus();
+      } else if (e.key === 'ArrowRight' && j < width - 1) { e.preventDefault(); cellAt(j + 1).focus(); }
+      else if (e.key === 'ArrowLeft' && j > 0) { e.preventDefault(); cellAt(j - 1).focus(); }
+      else if (e.key === 'Backspace') {
+        e.preventDefault(); setBit(j, '0');
+        if (j > 0) cellAt(j - 1).focus();
+      }
+    });
+    widthSel.addEventListener('change', () => {
+      const w = parseInt(widthSel.value, 10);
+      // si conservano i bit di destra (meno significativi)
+      bits = w >= width ? '0'.repeat(w - width) + bits : bits.slice(width - w);
+      width = w;
+      drawCells(); clearResults(); cmpRandomUsed = false;
+    });
+    root.querySelector('#cmpBtnReset').addEventListener('click', () => {
+      bits = '0'.repeat(width); refreshCells(); clearResults(); cmpRandomUsed = false;
+    });
+    root.querySelector('#cmpBtnRandom').addEventListener('click', () => {
+      do { bits = Array.from({ length: width }, () => (Math.random() < 0.5 ? '0' : '1')).join(''); }
+      while (!bits.includes('1'));
+      refreshCells(); clearResults(); cmpRandomUsed = true;
+    });
+
+    function elabora(quick) {
+      const target = quick ? quickEl : fullEl;
+      const other = quick ? fullEl : quickEl;
+      quickEl.innerHTML = ''; fullEl.innerHTML = '';
+      const info = analyze(bits);
+      emit(target, `<h2>${quick ? L.titleQuick : L.titleStep}</h2>`);
+      if (quick) {
+        target.appendChild(buildSummary(info));
+        edgeNotes(target, info);
+      } else {
+        renderFull(target, info);
+      }
+      hide(other);
+      reveal(target);
+      if (window.umami) umami.track('complementi-solve', { mode: quick ? 'quick' : 'steps', bits: width, randomUsed: cmpRandomUsed });
+    }
+    root.querySelector('#cmpBtnQuick').addEventListener('click', () => elabora(true));
+    root.querySelector('#cmpBtnStep').addEventListener('click', () => elabora(false));
+
+    // ── avvio ────────────────────────────────────────────────────────
+    drawCells();
+    renderInline(root);
+  }
+</script>

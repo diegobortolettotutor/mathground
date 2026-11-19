@@ -1,0 +1,22 @@
+---
+title: Logic gates — bitwise operations
+description: Online solver for bitwise logic operations (BUFFER, NOT, AND, OR, NAND, NOR, XOR, XNOR) on 4, 8, 12 or 16-bit words, with symbols, truth tables and a step-by-step solution.
+sidebar:
+  hidden: false
+  label: Logic gates
+  order: 12
+tableOfContents: false
+---
+
+import PorteLogiche from '@components/PorteLogiche.astro';
+
+Given one or two binary words of $4$, $8$, $12$ or $16$ bits, this solver applies a
+logic gate **bitwise**, chosen among BUFFER, NOT, AND, OR, NAND, NOR, XOR and XNOR.
+The BUFFER and NOT gates have a single input $A$; all the others have two inputs
+$A$ and $B$. The output is denoted by $Y$.
+
+The step-by-step solution recalls Boolean logic, presents the symbol and the truth
+table of each gate, and derives the output word $Y$ column by column, each time
+reading the corresponding row of the truth table.
+
+<PorteLogiche />

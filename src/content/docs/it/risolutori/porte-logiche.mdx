@@ -1,0 +1,22 @@
+---
+title: Porte logiche — operazioni bit a bit
+description: Risolutore online per le operazioni logiche bit a bit (BUFFER, NOT, AND, OR, NAND, NOR, XOR, XNOR) su parole da 4, 8, 12 o 16 bit, con simboli, tabelle di verità e svolgimento passo-passo.
+sidebar:
+  hidden: false
+  label: Porte logiche
+  order: 12
+tableOfContents: false
+---
+
+import PorteLogiche from '@components/PorteLogiche.astro';
+
+Date una o due parole binarie da $4$, $8$, $12$ o $16$ bit, questo risolutore applica
+**bit a bit** una porta logica a scelta tra BUFFER, NOT, AND, OR, NAND, NOR, XOR e XNOR.
+Le porte BUFFER e NOT hanno un solo ingresso $A$; tutte le altre hanno due ingressi
+$A$ e $B$. L'uscita si indica con $Y$.
+
+Lo svolgimento passo-passo richiama la logica booleana, presenta il simbolo e la
+tabella di verità di ciascuna porta e ricava la parola d'uscita $Y$ colonna per
+colonna, leggendo ogni volta la riga corrispondente della tabella di verità.
+
+<PorteLogiche />

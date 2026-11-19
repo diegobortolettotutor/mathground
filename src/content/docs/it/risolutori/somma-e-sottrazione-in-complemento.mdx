@@ -1,0 +1,86 @@
+---
+title: Somma e sottrazione in complemento a 2 e a 1
+description: "Risolutore online di somma e sottrazione tra numeri con segno in complemento a 2 e in complemento a 1, su 4, 8, 12 o 16 bit: riporti, traboccamento, passo-passo."
+sidebar:
+  hidden: false
+  label: Somma e sottrazione in complemento
+  order: 11
+tableOfContents: false
+---
+
+import SommeComplementi from '@components/SommeComplementi.astro';
+
+Dati due numeri interi $A$ e $B$ e un numero di bit $n$ ($4$, $8$, $12$ o $16$), questo
+risolutore calcola $A + B$ oppure $A - B$ **due volte**, in complemento a 2 e in
+complemento a 1, così che i due procedimenti si possano confrontare. I numeri si possono
+inserire in decimale oppure direttamente in binario.
+
+Per il significato del complemento a 1 e del complemento a 2 e per il calcolo
+dell'opposto di un numero si veda la pagina
+[Complemento a 1 e complemento a 2](/it/risolutori/complemento-a-1-e-a-2/).
+
+## La somma
+
+In entrambi i sistemi la somma si esegue **in colonna**, come per i numeri naturali,
+da destra verso sinistra e con i riporti. Il bit di segno si somma come tutti gli altri:
+non serve trattarlo a parte. La differenza tra i due sistemi sta nel riporto che esce
+dal bit più a sinistra.
+
+- **Complemento a 2**: il riporto in uscita si **scarta**.
+- **Complemento a 1**: il riporto in uscita si **risomma in coda**, cioè si somma $1$ al
+  risultato partendo dalla colonna più a destra. Questa seconda somma non produce mai un
+  nuovo riporto in uscita.
+
+## La sottrazione
+
+La sottrazione si riconduce a una somma con l'opposto: $A - B = A + (-B)$. L'opposto di
+$B$ si ottiene invertendo i bit e sommando $1$ in complemento a 2, solo invertendo i bit
+in complemento a 1. Così lo stesso circuito esegue sia le addizioni sia le sottrazioni.
+
+## Il traboccamento
+
+Con $n$ bit si rappresenta un intervallo limitato di numeri: se il risultato vero cade
+fuori dall'intervallo si ha **traboccamento** (in inglese *overflow*). Il calcolo si
+esegue comunque, ma i bit ottenuti, letti con segno, danno un numero sbagliato, di segno
+opposto a quello vero.
+
+Il traboccamento **non coincide con il riporto in uscita**: in complemento a 2 il
+riporto in uscita si scarta senza conseguenze, e ci può essere traboccamento anche
+senza alcun riporto in uscita. Per riconoscerlo si usano due regole.
+
+- **Regola dei segni** (valida in entrambi i sistemi). Se i due addendi hanno segno
+  diverso il traboccamento è impossibile, perché la somma sta fra i due. Se hanno lo
+  stesso segno, c'è traboccamento quando il risultato ha segno opposto.
+- **Regola dei riporti** (complemento a 2). C'è traboccamento quando il riporto che
+  entra nella colonna del bit di segno è diverso da quello che ne esce.
+
+Nella sottrazione in complemento a 2 c'è un caso particolare: se $B = -2^{n-1}$, il
+numero più negativo, il suo opposto non è rappresentabile e invertire i bit e sommare
+$1$ restituisce gli stessi bit di $B$. Le due regole, applicate ad $A + (-B)$, non sono
+più affidabili e il traboccamento si stabilisce dal valore vero: c'è se e solo se
+$A \geq 0$.
+
+| Numero di bit | Complemento a 1 | Complemento a 2 |
+| :-: | :-: | :-: |
+| $4$ | da $-7$ a $7$ | da $-8$ a $7$ |
+| $8$ | da $-127$ a $127$ | da $-128$ a $127$ |
+| $12$ | da $-2047$ a $2047$ | da $-2048$ a $2047$ |
+| $16$ | da $-32767$ a $32767$ | da $-32768$ a $32767$ |
+
+## Risolutore
+
+Si sceglie il numero di bit e l'operazione, poi il modo di inserimento.
+
+- **In decimale**: si scrivono i due numeri interi, con un eventuale segno $+$ o $-$
+  davanti. Il risolutore li scrive in binario, li rappresenta nei due sistemi ed esegue
+  il calcolo. Il numero $-2^{n-1}$ è accettato, ma esiste solo in complemento a 2: in
+  quel caso il complemento a 1 viene saltato.
+- **In binario**: si inseriscono i bit nelle caselle. Gli stessi bit si leggono in modo
+  diverso nei due sistemi quando il bit di segno è $1$: in complemento a 1 valgono una
+  unità in più che in complemento a 2.
+
+Il risultato sintetico riporta il confronto fra i due sistemi; lo svolgimento passo-passo
+mostra la rappresentazione dei numeri, l'opposto di $B$, la somma in colonna con i
+riporti, il controllo del traboccamento e la lettura del risultato.
+
+<SommeComplementi />

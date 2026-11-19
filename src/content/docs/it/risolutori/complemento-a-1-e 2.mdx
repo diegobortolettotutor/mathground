@@ -1,0 +1,74 @@
+---
+title: Complemento a 1 e complemento a 2
+description: "Risolutore online del complemento a 1 e del complemento a 2 di un numero binario da 4, 8, 12 o 16 bit: inversione, somma con i riporti, lettura con segno, passo-passo."
+sidebar:
+  hidden: false
+  label: Complemento a 1 e a 2
+  order: 10
+tableOfContents: false
+---
+
+import Complementi from '@components/Complementi.astro';
+
+Dato un numero binario da $4$, $8$, $12$ o $16$ bit, questo risolutore ne calcola il
+**complemento a 1** e il **complemento a 2**, mostra come si leggono i tre numeri con
+segno e verifica il risultato sommando il numero di partenza ai suoi complementi.
+
+## A cosa servono
+
+Un calcolatore memorizza i numeri come sequenze di bit di lunghezza fissa, per esempio
+$8$ o $16$. Con $n$ bit si scrivono i numeri naturali da $0$ a $2^{n}-1$; per
+rappresentare anche i numeri **negativi** serve una regola che stabilisca quali
+sequenze indicano un numero negativo. Il complemento a 1 e il complemento a 2 sono due
+di queste regole: in entrambe il bit più a sinistra indica il segno ($0$ positivo,
+$1$ negativo) e l'opposto di un numero si ottiene con una semplice operazione sui suoi
+bit.
+
+### Complemento a 1
+
+- Si ottiene **invertendo tutti i bit**: ogni $0$ diventa $1$ e ogni $1$ diventa $0$.
+- Con $n$ bit rappresenta i numeri da $-(2^{n-1}-1)$ a $2^{n-1}-1$; con $8$ bit, da
+  $-127$ a $127$.
+- Lo zero ha **due scritture**: tutti i bit a $0$ (zero positivo) e tutti i bit a $1$
+  (zero negativo).
+- Nella somma, il riporto che esce dal bit più a sinistra non si scarta: va risommato
+  al risultato.
+- Dove si usa oggi: nel **checksum** delle intestazioni IPv4, UDP e TCP, cioè il campo
+  con cui chi riceve un pacchetto controlla che l'intestazione non si sia danneggiata
+  durante la trasmissione. Il checksum è il complemento a 1 della somma, eseguita in
+  complemento a 1, delle parole da $16$ bit dell'intestazione. Il complemento a 1 è
+  inoltre il primo passo per calcolare il complemento a 2.
+
+### Complemento a 2
+
+- Si ottiene **sommando $1$ al complemento a 1**. In alternativa: partendo da destra si
+  copiano i bit fino al primo $1$ compreso e si invertono tutti gli altri.
+- Con $n$ bit rappresenta i numeri da $-2^{n-1}$ a $2^{n-1}-1$; con $8$ bit, da $-128$
+  a $127$.
+- Lo zero ha **una sola scrittura**.
+- La sottrazione $A - B$ si esegue come somma $A + C_2(B)$, con lo stesso circuito che
+  esegue le addizioni; il riporto che esce dal bit più a sinistra si scarta. Per questo
+  il complemento a 2 è il modo in cui tutti i processori moderni rappresentano i numeri
+  interi con segno.
+
+Intervalli rappresentabili con i numeri di bit del risolutore:
+
+| Numero di bit | Complemento a 1 | Complemento a 2 |
+| :-: | :-: | :-: |
+| $4$ | da $-7$ a $7$ | da $-8$ a $7$ |
+| $8$ | da $-127$ a $127$ | da $-128$ a $127$ |
+| $12$ | da $-2047$ a $2047$ | da $-2048$ a $2047$ |
+| $16$ | da $-32767$ a $32767$ | da $-32768$ a $32767$ |
+
+Per la somma e la sottrazione fra numeri con segno, con il controllo del traboccamento,
+si veda la pagina
+[Somma e sottrazione in complemento a 2 e a 1](/it/risolutori/somma-e-sottrazione-in-complemento/).
+
+## Risolutore
+
+Si sceglie il numero di bit e si inseriscono i bit nelle caselle, che partono tutte da
+$0$. Il risultato sintetico riporta i tre numeri, in binario e in decimale; lo
+svolgimento passo-passo mostra l'inversione dei bit, la somma con i riporti, la verifica
+con la regola rapida, la lettura con segno e la somma del numero con i suoi complementi.
+
+<Complementi />

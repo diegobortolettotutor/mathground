@@ -1,0 +1,1173 @@
+---
+/**
+ * SommeComplementi.astro — Risolutore di somma e sottrazione in complemento
+ * a 2 e in complemento a 1, su 4, 8, 12 o 16 bit. Nativo, responsive,
+ * bilingue (it/en).
+ *
+ * Dipendenze:  npm install katex
+ *
+ * Uso in una pagina .mdx di Starlight:
+ *   import SommeComplementi from '@components/SommeComplementi.astro';
+ *   <SommeComplementi />
+ *
+ * ── Inserimento ────────────────────────────────────────────────────────
+ *   Due pulsanti a scelta esclusiva (grigio spento, giallo acceso, come in
+ *   SimulatoreUrti) scelgono l'operazione (A + B, A - B) e altri due il modo
+ *   di inserimento:
+ *   - decimale: una casella per numero; i caratteri non ammessi vengono
+ *     tolti mentre si scrive (solo cifre, con un eventuale + o - davanti);
+ *   - binario: n caselle per numero, tutte a 0, come in Complementi.astro.
+ *   I due modi conservano ciascuno i propri valori. Cambiando n, in binario
+ *   si estende il segno (allargando) o si tengono i bit di destra (stringendo).
+ *
+ * ── Svolgimento: tutti e due i sistemi, uno dopo l'altro ───────────────
+ *   1) dati e intervalli rappresentabili
+ *   2) solo in decimale: |A| e |B| in binario con le divisioni successive
+ *   3) complemento a 2 / 4) complemento a 1, ciascuno con:
+ *      rappresentazione di A e B (in decimale: i negativi si complementano;
+ *      in binario: lettura con segno dei bit), eventuale opposto di B,
+ *      somma in colonna con i riporti, riporto in uscita scartato (C2) o
+ *      risommato in coda (C1), controllo del traboccamento (regola dei segni;
+ *      in C2 anche regola dei riporti), lettura del risultato e confronto col
+ *      valore vero. Il traboccamento non blocca il calcolo: si mostra il
+ *      risultato sbagliato e perche'.
+ *   5) confronto fra i due sistemi in tabella
+ *
+ * ── Casi particolari (verificati in modo esaustivo su 4 e 8 bit) ───────
+ *   - in C2, A - B con B = -2^(n-1): C2(B) = B e le regole dei segni e dei
+ *     riporti applicate ad A + C2(B) sbagliano; il traboccamento si stabilisce
+ *     dal valore vero (c'e' se e solo se A >= 0)
+ *   - in C1 il riporto risommato in coda non genera mai un secondo riporto
+ *   - in decimale, -2^(n-1) non e' rappresentabile in C1: quel sistema si salta
+ */
+
+import 'katex/dist/katex.min.css';
+
+const lang = (Astro.currentLocale ?? 'it').toLowerCase().startsWith('en') ? 'en' : 'it';
+
+const UI = {
+  it: {
+    step1: 'Step 1 — IMPOSTA L\'OPERAZIONE',
+    bitsLabel: 'Numero di bit',
+    opSum: 'A + B',
+    opSub: 'A − B',
+    step2: 'Step 2 — INSERISCI I NUMERI',
+    modeDec: 'INSERISCI IN DECIMALE',
+    modeBin: 'INSERISCI IN BINARIO',
+    helpDec: 'Numeri interi, eventualmente con il segno + o − davanti: i caratteri non ammessi vengono tolti mentre si scrive.',
+    helpBin: 'Toccare una casella per passare da 0 a 1 e viceversa; da tastiera si possono anche scrivere 0 e 1 e spostarsi con le frecce. Sopra ogni casella c\'è la posizione del bit.',
+    btnReset: 'AZZERA VALORI',
+    btnRandom: 'VALORI CASUALI',
+    btnQuick: 'RISULTATO SINTETICO',
+    btnStep: 'SVOLGIMENTO PASSO-PASSO',
+  },
+  en: {
+    step1: 'Step 1 — SET THE OPERATION',
+    bitsLabel: 'Number of bits',
+    opSum: 'A + B',
+    opSub: 'A − B',
+    step2: 'Step 2 — ENTER THE NUMBERS',
+    modeDec: 'ENTER IN DECIMAL',
+    modeBin: 'ENTER IN BINARY',
+    helpDec: 'Integers, optionally preceded by a + or − sign: characters that are not allowed are removed while typing.',
+    helpBin: 'Tap a box to switch between 0 and 1; with a keyboard you can also type 0 and 1 and move with the arrow keys. The bit position is shown above each box.',
+    btnReset: 'RESET VALUES',
+    btnRandom: 'RANDOM VALUES',
+    btnQuick: 'QUICK RESULT',
+    btnStep: 'STEP-BY-STEP SOLUTION',
+  },
+}[lang];
+---
+
+<div class="sc-root" data-lang={lang}>
+  <!-- Step 1: numero di bit e operazione -->
+  <section class="sc-panel">
+    <h3 class="sc-steplabel">{UI.step1}</h3>
+    <div class="sc-widthrow">
+      <label for="scWidth" class="sc-label">{UI.bitsLabel}</label>
+      <select id="scWidth" class="sc-select">
+        <option value="4">4</option>
+        <option value="8" selected>8</option>
+        <option value="12">12</option>
+        <option value="16">16</option>
+      </select>
+    </div>
+    <div class="sc-modes sc-ops" role="group">
+      <button type="button" class="sc-mode-btn is-on" data-op="sum" aria-pressed="true">{UI.opSum}</button>
+      <button type="button" class="sc-mode-btn" data-op="sub" aria-pressed="false">{UI.opSub}</button>
+    </div>
+  </section>
+
+  <!-- Step 2: numeri -->
+  <section class="sc-panel">
+    <h3 class="sc-steplabel">{UI.step2}</h3>
+    <div class="sc-modes sc-inmodes" role="group">
+      <button type="button" class="sc-mode-btn is-on" data-mode="dec" aria-pressed="true">{UI.modeDec}</button>
+      <button type="button" class="sc-mode-btn" data-mode="bin" aria-pressed="false">{UI.modeBin}</button>
+    </div>
+
+    <div id="scDec" class="sc-decbox">
+      <div class="sc-decfields">
+        <div class="sc-decfield">
+          <label for="scDecA" class="sc-label">A</label>
+          <input id="scDecA" class="sc-input" type="text" inputmode="numeric" autocomplete="off" spellcheck="false" placeholder="45" />
+        </div>
+        <div class="sc-decfield">
+          <label for="scDecB" class="sc-label">B</label>
+          <input id="scDecB" class="sc-input" type="text" inputmode="numeric" autocomplete="off" spellcheck="false" placeholder="-23" />
+        </div>
+      </div>
+      <div class="sc-help"><p>{UI.helpDec}</p><p id="scRange"></p></div>
+    </div>
+
+    <div id="scBin" class="sc-binbox" hidden>
+      <div class="sc-numrow"><span class="sc-rowname">A</span><div id="scCellsA" class="sc-cells"></div></div>
+      <div class="sc-numrow"><span class="sc-rowname">B</span><div id="scCellsB" class="sc-cells"></div></div>
+      <div class="sc-help"><p>{UI.helpBin}</p></div>
+    </div>
+
+    <div id="scStatus" class="sc-status" role="alert" aria-live="polite"></div>
+  </section>
+
+  <!-- Azioni -->
+  <div class="sc-actions">
+    <button id="scBtnReset" class="sc-btn sc-btn-ghost" type="button">{UI.btnReset}</button>
+    <button id="scBtnRandom" class="sc-btn sc-btn-ghost" type="button">{UI.btnRandom}</button>
+    <button id="scBtnQuick" class="sc-btn sc-btn-ghost" type="button">{UI.btnQuick}</button>
+  </div>
+  <div class="sc-secondary">
+    <button id="scBtnStep" class="sc-btn sc-btn-ghost sc-btn-wide" type="button">{UI.btnStep}</button>
+  </div>
+
+  <!-- Output -->
+  <section id="scQuick" class="sc-result" hidden></section>
+  <section id="scFull" class="sc-result" hidden></section>
+</div>
+<style is:global>
+  .sc-root {
+    --sc-radius: 12px;
+    --sc-surface: var(--sl-color-gray-6, #1a1a1a);
+    --sc-border: var(--sl-color-gray-5, #383838);
+    --sc-accent: var(--sl-color-accent, #4f7cff);
+    --sc-red: #d11111;
+    --sc-green: #1f9d55;
+    --sc-yellow: #ffcc44;
+    --sc-accent-hi: var(--sl-color-accent-high, #b8c8ff);
+    --sc-faint: var(--sl-color-gray-3, #888);
+    font-size: 1rem;
+    line-height: 1.5;
+    color: var(--sl-color-text, inherit);
+    width: 100%;
+    min-width: 330px;
+    margin: 1.5rem 0;
+    text-align: center;
+  }
+  .sc-root *,
+  .sc-root *::before,
+  .sc-root *::after { box-sizing: border-box; }
+
+  /* reset difensivo contro il margin-top che Starlight inietta sugli elementi
+     "fratelli" dentro il contenuto markdown (stesso fix degli altri risolutori) */
+  .sc-root[data-lang] .sc-widthrow,
+  .sc-root[data-lang] .sc-label,
+  .sc-root[data-lang] .sc-select,
+  .sc-root[data-lang] .sc-mode-btn,
+  .sc-root[data-lang] .sc-decfields,
+  .sc-root[data-lang] .sc-decfield,
+  .sc-root[data-lang] .sc-input,
+  .sc-root[data-lang] .sc-numrow,
+  .sc-root[data-lang] .sc-rowname,
+  .sc-root[data-lang] .sc-cells,
+  .sc-root[data-lang] .sc-nibble,
+  .sc-root[data-lang] .sc-cellwrap,
+  .sc-root[data-lang] .sc-pos,
+  .sc-root[data-lang] .sc-bit,
+  .sc-root[data-lang] .sc-help,
+  .sc-root[data-lang] .sc-booktable,
+  .sc-root[data-lang] .sc-booktable th,
+  .sc-root[data-lang] .sc-booktable td,
+  .sc-root[data-lang] .sc-remainder-box,
+  .sc-root[data-lang] .sc-readarrow,
+  .sc-root[data-lang] .sc-readarrow-head,
+  .sc-root[data-lang] .sc-fig {
+    margin: 0 !important;
+  }
+
+  .sc-panel {
+    background: var(--sc-surface);
+    border: 1px solid var(--sc-border);
+    border-radius: var(--sc-radius);
+    padding: 1.25rem 1rem;
+    margin: 1.25rem 0;
+  }
+  .sc-steplabel {
+    margin: 0 0 1rem;
+    font-size: clamp(0.85rem, 2.4vw, 1rem);
+    letter-spacing: 0.02em;
+    color: var(--sl-color-text-accent, var(--sc-accent-hi));
+  }
+
+  .sc-widthrow { display: flex; align-items: center; justify-content: center; gap: 0.9rem; flex-wrap: wrap; }
+  .sc-label { font-size: 0.95rem; color: var(--sl-color-text-accent, var(--sc-accent-hi)); }
+  .sc-select {
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    background-color: var(--sl-color-bg, #000);
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' stroke='%23888' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+    background-repeat: no-repeat;
+    background-position: right 0.75rem center;
+    background-size: 10px 6px;
+    color: var(--sl-color-text, #fff);
+    border: 1.5px solid var(--sc-border);
+    border-radius: 6px;
+    padding: 0.5rem 2rem 0.5rem 0.9rem;
+    font: inherit;
+    line-height: 1.5rem;
+    cursor: pointer;
+  }
+  .sc-select:hover, .sc-select:focus { border-color: var(--sc-accent); outline: none; }
+
+  /* pulsanti a scelta esclusiva: grigi spenti, gialli accesi (come SimulatoreUrti) */
+  .sc-modes { display: flex; gap: 0.6rem; max-width: 32rem; margin: 1rem auto 0 !important; }
+  .sc-inmodes { margin: 0 auto 1.1rem !important; }
+  .sc-mode-btn {
+    flex: 1 1 0;
+    font: inherit; font-size: 0.9rem; font-weight: 600;
+    padding: 0.6rem 0.7rem;
+    border-radius: 8px;
+    border: 1px solid var(--sc-border);
+    background: var(--sl-color-bg, #fff);
+    color: var(--sc-faint);
+    cursor: pointer; text-align: center;
+    transition: background 0.12s, border-color 0.12s, color 0.12s;
+  }
+  .sc-mode-btn:hover { border-color: var(--sc-faint); color: var(--sl-color-text, inherit); }
+  .sc-mode-btn.is-on {
+    background: var(--sc-yellow);
+    border-color: var(--sc-yellow);
+    color: #3a2f00;
+    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.06);
+  }
+  .sc-mode-btn.is-on:hover { border-color: var(--sc-yellow); color: #3a2f00; }
+
+  /* inserimento in decimale */
+  .sc-decfields { display: flex; justify-content: center; gap: 1rem 2rem; flex-wrap: wrap; }
+  .sc-decfield { display: flex; align-items: center; gap: 0.6rem; }
+  .sc-input {
+    background: var(--sl-color-bg, #000);
+    color: var(--sl-color-text, #fff);
+    border: 1.5px solid var(--sc-border);
+    border-radius: 6px;
+    text-align: center;
+    padding: 0.45rem 0.6rem;
+    font: inherit;
+    line-height: 1.5rem;
+    font-family: var(--__sl-font-mono, ui-monospace, monospace);
+    width: 9rem;
+  }
+  .sc-input:hover, .sc-input:focus { border-color: var(--sc-accent); outline: none; }
+  .sc-input.sc-invalid { border-color: var(--sc-red); }
+
+  /* inserimento in binario */
+  .sc-numrow { display: flex; align-items: flex-end; justify-content: center; gap: 0.7rem; }
+  .sc-root[data-lang] .sc-numrow + .sc-numrow { margin-top: 1.1rem !important; }
+  .sc-rowname { font-weight: 700; color: var(--sl-color-text-accent, var(--sc-accent-hi)); width: 1.2rem; padding-bottom: 0.55rem; }
+  .sc-cells { display: flex; flex-wrap: wrap; justify-content: center; gap: 0.5rem 0.9rem; }
+  .sc-nibble { display: flex; gap: 0.25rem; }
+  .sc-cellwrap { display: flex; flex-direction: column; align-items: center; gap: 0.15rem; }
+  .sc-pos { font-size: 0.7rem; line-height: 1; color: var(--sc-faint); font-family: var(--__sl-font-mono, ui-monospace, monospace); }
+  .sc-bit {
+    width: 2.2rem; height: 2.4rem; padding: 0;
+    border: 1.5px solid var(--sc-border); border-radius: 6px;
+    background: var(--sl-color-bg, #000); color: var(--sl-color-text, #fff);
+    font-family: var(--__sl-font-mono, ui-monospace, monospace); font-size: 1.2rem; font-weight: 700;
+    cursor: pointer;
+  }
+  .sc-bit[data-v="1"] { border-color: var(--sc-accent); background: color-mix(in srgb, var(--sc-accent) 18%, var(--sl-color-bg, #000)); }
+  .sc-bit:hover, .sc-bit:focus-visible { border-color: var(--sc-accent); outline: none; }
+
+  .sc-help { font-size: 0.82rem; color: var(--sc-faint); }
+  .sc-root[data-lang] .sc-help { margin-top: 1rem !important; }
+  .sc-help p { margin: 0.25rem 0; }
+  .sc-status { margin: 0.6rem 0 0; font-size: 0.95rem; }
+  .sc-status.sc-error {
+    padding: 0.6rem 0.8rem; text-align: left;
+    border-left: 4px solid var(--sc-red);
+    background: color-mix(in srgb, var(--sc-red) 8%, transparent);
+    border-radius: 4px;
+  }
+
+  /* pulsanti: riga da tre e pulsante largo con la stessa larghezza massima */
+  .sc-actions {
+    display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.75rem; align-items: stretch; margin: 1.25rem auto; max-width: 48rem;
+  }
+  .sc-actions .sc-btn {
+    box-sizing: border-box; width: 100%; margin: 0;
+    height: 3.6rem; padding: 0 1rem; line-height: 1.2;
+    display: inline-flex; align-items: center; justify-content: center; text-align: center;
+  }
+  .sc-secondary { max-width: 48rem; margin: 1.25rem auto 0; }
+  .sc-btn {
+    font: inherit; font-weight: 600; cursor: pointer;
+    border-radius: 999px; padding: 0.7rem 1.4rem; border: 1.5px solid transparent;
+    transition: transform 0.1s ease, background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+  }
+  .sc-btn:active { transform: scale(0.96); }
+  .sc-btn-ghost { background: transparent; color: var(--sl-color-text, inherit); border-color: var(--sc-border); }
+  .sc-btn-ghost:hover { border-color: var(--sc-accent); color: var(--sc-accent); }
+  .sc-btn-wide { padding: 0.9rem 1.4rem; width: 100%; margin: 0 0 1rem; }
+
+  /* output */
+  .sc-result {
+    background: var(--sc-surface); border: 1px solid var(--sc-border);
+    border-radius: var(--sc-radius); margin-top: 1.5rem; padding: 1.5rem 1rem;
+    opacity: 0; transition: opacity 0.3s ease; text-align: left;
+  }
+  .sc-result.sc-visible { opacity: 1; }
+  .sc-result h2 { text-align: center; }
+  .sc-result h4 {
+    margin: 2.75rem 0 0.5rem; padding-top: 1rem;
+    border-top: 2px solid var(--sc-border);
+    font-size: 1.05rem; color: var(--sl-color-text-accent, var(--sc-accent-hi));
+  }
+  .sc-result h5 {
+    margin: 2rem 0 0.8rem; padding-top: 0.5rem;
+    font-size: 0.95rem; letter-spacing: 0.03em; color: var(--sl-color-text-accent, var(--sc-accent-hi));
+  }
+  .sc-result h5:first-child { margin-top: 0; padding-top: 0; }
+  .sc-text p { margin: 0.7rem 0; }
+  .sc-tip {
+    background: var(--sl-color-gray-6, rgba(255,255,255,0.04));
+    border-left: 4px solid var(--sc-accent);
+    border-radius: 6px; padding: 0.9rem 1rem; margin: 1.25rem 0;
+  }
+  .sc-warn { border-left-color: var(--sc-red); }
+  .sc-katex { overflow-x: auto; overflow-y: hidden; padding: 0.75rem 0.25rem; margin: 1.25rem 0; }
+  .sc-katex .katex-display { margin: 0; }
+  .sc-red-strong { color: var(--sc-red); }
+  .sc-octblock { border-top: 1px dashed var(--sc-border); margin-top: 1.25rem; padding-top: 0.5rem; }
+
+  /* ----- figure con le righe di bit (SVG), come in Complementi ----- */
+  .sc-figwrap { overflow-x: auto; margin: 1.5rem 0; padding: 0.25rem 0; }
+  .sc-fig { display: block; height: auto; margin: 0 auto !important; max-width: none; }
+  .sc-fig .sc-c { fill: var(--sl-color-bg, #fff); stroke: var(--sl-color-gray-4, #888); stroke-width: 0.8; }
+  .sc-fig .sc-cfill { fill: color-mix(in srgb, var(--sl-color-gray-5, #888) 45%, var(--sl-color-bg, #fff)); stroke: var(--sl-color-gray-4, #888); stroke-width: 0.8; stroke-dasharray: 2 2; }
+  .sc-fig text { fill: var(--sl-color-text, #222); font-family: var(--__sl-font-mono, ui-monospace, monospace); }
+  .sc-fig .sc-bit-t { font-size: 15px; font-weight: 700; }
+  .sc-fig .sc-red-t { fill: var(--sc-red); }
+  .sc-fig .sc-faint-t { fill: var(--sc-faint); }
+  .sc-fig .sc-carry-t { font-size: 11px; font-weight: 700; fill: var(--sc-red); }
+  .sc-fig .sc-rowlabel { font-family: var(--sl-font, sans-serif); font-size: 13px; font-weight: 600; }
+  .sc-fig .sc-small { font-family: var(--sl-font, sans-serif); font-size: 11px; fill: var(--sc-faint); }
+  .sc-fig .sc-rule { stroke: var(--sl-color-text, #222); stroke-width: 1.5; }
+  .sc-fig .sc-arrow { stroke: var(--sc-faint); stroke-width: 1.2; fill: none; }
+  .sc-fig .sc-cross { fill: none; stroke: var(--sl-color-gray-3, #888); stroke-width: 1.4; stroke-linecap: round; }
+
+  /* ----- tabelle in stile "libro" ----- */
+  .sc-tablewrap { display: flex; justify-content: safe center; overflow-x: auto; margin: 1.5rem 0 !important; padding: 0.25rem; }
+  .sc-booktable { border-collapse: collapse; margin: 0 auto; font-size: 0.92rem; }
+  .sc-tablewrap > .sc-booktable { flex: none; }
+  .sc-booktable th, .sc-booktable td { border: none; padding: 0.3rem 0.5rem; text-align: center; white-space: nowrap; }
+  .sc-booktable td { font-family: var(--__sl-font-mono, ui-monospace, monospace); }
+  .sc-booktable thead tr { border-top: 1.5px solid var(--sl-color-text, currentColor); border-bottom: 1.5px solid var(--sl-color-text, currentColor); }
+  .sc-booktable th { font-weight: 700; line-height: 1.25; color: var(--sl-color-text-accent, var(--sc-accent-hi)); padding-top: 0.45rem; padding-bottom: 0.45rem; }
+  .sc-booktable tbody tr:last-child { border-bottom: 1.5px solid var(--sl-color-text, currentColor); }
+  .sc-booktable tbody tr:nth-child(even) { background: color-mix(in srgb, var(--sl-color-gray-5, #888) 32%, transparent); }
+  .sc-booktable td.sc-rowhead { font-family: var(--sl-font, system-ui, sans-serif); font-weight: 600; text-align: left; }
+  .sc-booktable td.sc-bad { color: var(--sc-red); font-weight: 700; }
+  .sc-booktable .sc-octets { display: inline-block; text-align: left; line-height: 1.35; }
+  /* tabella delle divisioni successive con freccia di lettura (da BaseConverter) */
+  .sc-divtable td.sc-remainder { font-weight: 700; }
+  .sc-remainder-box { display: inline-flex; align-items: center; justify-content: center; min-width: 1.5rem; height: 1.5rem; padding: 0 0.25rem; border: 2px solid var(--sl-color-text, #111); border-radius: 4px; }
+  .sc-divtable td.sc-readarrow-cell { border: none; padding: 0 0.6rem; vertical-align: middle; position: relative; }
+  .sc-readarrow { position: relative; width: 3px; margin: 0 auto; background: var(--sc-red); }
+  .sc-readarrow-head { position: absolute; top: -4px; left: 50%; width: 0; height: 0; }
+  .sc-readarrow-head::before, .sc-readarrow-head::after {
+    content: ''; position: absolute; left: 0; top: 0; width: 3px; height: 10px;
+    background: var(--sc-red); border-radius: 1.5px; transform-origin: top center;
+  }
+  .sc-readarrow-head::before { transform: translateX(-50%) rotate(-24deg); }
+  .sc-readarrow-head::after { transform: translateX(-50%) rotate(24deg); }
+
+  @media (max-width: 600px) {
+    .sc-root { font-size: 0.95rem; }
+    .sc-actions { grid-template-columns: 1fr; }
+    .sc-actions .sc-btn, .sc-btn-wide { width: 100%; }
+    .sc-result { padding: 1rem 0.5rem; }
+    .sc-bit { width: 1.8rem; height: 2.15rem; font-size: 1.05rem; }
+    .sc-nibble { gap: 0.2rem; }
+    .sc-cells { gap: 0.5rem 0.7rem; }
+    .sc-numrow { gap: 0.4rem; }
+    .sc-mode-btn { font-size: 0.85rem; }
+  }
+</style>
+<script>
+  import katex from 'katex';
+  import renderMathInElement from 'katex/contrib/auto-render';
+
+  document.querySelectorAll('.sc-root').forEach((root) => initSomme(root));
+
+  function initSomme(root) {
+    const LANG = (root.dataset.lang || document.documentElement.lang || 'it')
+      .toLowerCase().startsWith('en') ? 'en' : 'it';
+
+    const RED = '#d11111';
+
+    // ============================================================= i18n
+    const D = {
+      it: {
+        titleQuick: 'Risultato sintetico',
+        titleStep: 'Svolgimento passo-passo',
+        sysName: { c2: 'complemento a 2', c1: 'complemento a 1' },
+        sysTitle: { c2: 'Complemento a 2', c1: 'Complemento a 1' },
+        sysRow: { c2: 'Complemento a 2', c1: 'Complemento a 1' },
+        rangeHelp: (n, m) => `Con ${n} bit: da −${m + 1} a ${m} in complemento a 2, da −${m} a ${m} in complemento a 1.`,
+
+        errEmpty: (w) => `Inserire il numero ${w}.`,
+        errSignOnly: (w) => `Il numero ${w} contiene solo il segno: aggiungere le cifre.`,
+        errRange: (w, v, n, m) => `${w} = ${v} non è rappresentabile con ${n} bit: in complemento a 2 si va da −${m + 1} a ${m}, in complemento a 1 da −${m} a ${m}.`,
+
+        // 1. dati
+        s1: '1. Dati',
+        dataDec: (n, opTex) =>
+          `<p>Si deve calcolare \\( ${opTex} \\) con \\( n = ${n} \\) bit, una volta in complemento a 2 e una volta in complemento a 1.</p>`,
+        dataBin: (n, opTex) =>
+          `<p>Si deve calcolare \\( ${opTex} \\) con \\( n = ${n} \\) bit, una volta in complemento a 2 e una volta in complemento a 1. I bit di \\( A \\) e \\( B \\) sono gli stessi nei due sistemi, ma i numeri negativi si leggono in modo diverso: la stessa scrittura con bit di segno \\( 1 \\) vale in complemento a 1 una unità in più che in complemento a 2.</p>`,
+        ranges: (n, m) =>
+          `<p>Con \\( ${n} \\) bit si rappresentano i numeri da \\( -2^{${n - 1}} = -${m + 1} \\) a \\( 2^{${n - 1}}-1 = ${m} \\) in complemento a 2 e da \\( -(2^{${n - 1}}-1) = -${m} \\) a \\( ${m} \\) in complemento a 1. Un risultato fuori da questi intervalli dà <b>traboccamento</b>: i bit ottenuti, letti con segno, non rappresentano il risultato vero.</p>`,
+
+        // 2. conversione
+        s2: '2. Valori assoluti in binario',
+        s2Intro:
+          `<p>In entrambi i sistemi si parte dal valore assoluto di ciascun numero scritto in binario con \\( n \\) bit. La conversione si fa con le divisioni successive per \\( 2 \\): le cifre binarie sono i resti letti <b class="sc-red-strong">dal basso verso l'alto</b>, poi si aggiungono zeri a sinistra fino a \\( n \\) bit.</p>`,
+        absHead: (w, v) => `<p><b>\\( |${w}| = ${v} \\)</b></p>`,
+        absZero: (w, n) => `<p><b>\\( |${w}| = 0 \\)</b>: si scrive con \\( ${n} \\) zeri.</p>`,
+        absSame: (w, v, bits) => `<p><b>\\( |${w}| = ${v} \\)</b>: già convertito sopra, \\( ${v}_{10} = ${bits} \\).</p>`,
+        bTableHead: { div: 'Dividendo', quo: 'Quoziente', rem: 'Resto' },
+        bRead: "<p>Resti letti dal basso verso l'alto, completati a sinistra con zeri:</p>",
+        bReadFull: "<p>Resti letti dal basso verso l'alto: sono già tutti gli \\( n \\) bit.</p>",
+
+        // sezione di sistema
+        repr: 'Rappresentazione di A e B',
+        reprPos: (w, v, bits, sys) =>
+          `<p>\\( ${w} = ${v} \\) è positivo o nullo: in ${sys} si scrive come il suo valore assoluto, con bit di segno \\( 0 \\): \\( ${w} = ${bits} \\).</p>`,
+        reprNegC2: (w, v) =>
+          `<p>\\( ${w} = ${v} \\) è negativo: in complemento a 2 si scrive come complemento a 2 di \\( |${w}| \\), cioè si invertono i bit e si somma \\( 1 \\).</p>`,
+        reprNegC1: (w, v) =>
+          `<p>\\( ${w} = ${v} \\) è negativo: in complemento a 1 si scrive come complemento a 1 di \\( |${w}| \\), cioè si invertono i bit.</p>`,
+        reprMinC2: (w, v) =>
+          `<p>\\( ${w} = ${v} \\) è il numero più negativo rappresentabile: il complemento a 2 di \\( |${w}| \\) restituisce gli stessi bit, \\( 1 \\) seguito da soli zeri.</p>`,
+        readBin: (sys) => `<p>I bit inseriti, letti con segno in ${sys}:</p>`,
+        opp: "Opposto di B",
+        oppC2:
+          '<p>La sottrazione si trasforma in una somma con l\'opposto: \\( A - B = A + (-B) \\). In complemento a 2 l\'opposto di \\( B \\) si ottiene invertendo i bit e sommando \\( 1 \\).</p>',
+        oppC1:
+          '<p>La sottrazione si trasforma in una somma con l\'opposto: \\( A - B = A + (-B) \\). In complemento a 1 l\'opposto di \\( B \\) si ottiene invertendo i bit.</p>',
+        oppMin: (v) =>
+          `<p>Qui \\( B = ${v} \\) è il numero più negativo: il complemento a 2 restituisce gli stessi bit, perché l'opposto \\( ${-v} \\) non è rappresentabile. Il calcolo prosegue comunque, ma il controllo del traboccamento va fatto sul valore vero (si veda sotto).</p>`,
+        sum: 'Somma in colonna',
+        sumC2:
+          '<p>Si sommano i due addendi in colonna, da destra verso sinistra, con i riporti in <b class="sc-red-strong">rosso</b> sopra la colonna in cui entrano. Il riporto che esce dal bit più a sinistra si <b>scarta</b>.</p>',
+        sumC1:
+          '<p>Si sommano i due addendi in colonna, da destra verso sinistra, con i riporti in <b class="sc-red-strong">rosso</b> sopra la colonna in cui entrano. In complemento a 1 il riporto che esce dal bit più a sinistra <b>non si scarta</b>: si risomma in coda al risultato.</p>',
+        noCarryOut: '<p>Non esce alcun riporto dal bit più a sinistra.</p>',
+        discarded: '<p>Esce un riporto dal bit più a sinistra: in complemento a 2 si scarta.</p>',
+        endAround:
+          '<p>Esce un riporto dal bit più a sinistra: si somma \\( 1 \\) al risultato parziale, partendo dalla colonna più a destra. Questa seconda somma non produce mai un nuovo riporto in uscita.</p>',
+        ovf: 'Traboccamento',
+        signRule: (sA, sB, sR, second) =>
+          `<p><b>Regola dei segni.</b> I bit di segno sono \\( ${sA} \\) per \\( A \\), \\( ${sB} \\) per ${second} e \\( ${sR} \\) per il risultato. ` +
+          (sA !== sB
+            ? 'Gli addendi hanno segni diversi: la somma sta sempre fra i due, quindi non può esserci traboccamento.</p>'
+            : (sR === sA
+              ? 'Gli addendi hanno lo stesso segno e anche il risultato ha quel segno: nessun traboccamento.</p>'
+              : 'Gli addendi hanno lo stesso segno ma il risultato ha segno opposto: c\'è <b class="sc-red-strong">traboccamento</b>.</p>')),
+        carryRule: (cin, cout) =>
+          `<p><b>Regola dei riporti.</b> Nella colonna del bit di segno entra un riporto \\( ${cin} \\) ed esce un riporto \\( ${cout} \\): ` +
+          (cin === cout ? 'sono uguali, nessun traboccamento.</p>' : 'sono diversi, c\'è <b class="sc-red-strong">traboccamento</b>.</p>'),
+        specialOvf: (posA, m) =>
+          `<p>Qui le due regole, applicate ad \\( A + (-B) \\), non sono affidabili: \\( -B \\) non è rappresentabile e i bit sommati sono quelli di \\( B \\). Si ragiona sul valore vero: \\( A - B = A + ${m + 1} \\), che ` +
+          (posA ? `supera il massimo \\( ${m} \\) perché \\( A \\geq 0 \\): c'è <b class="sc-red-strong">traboccamento</b>.</p>` : `resta nell'intervallo perché \\( A < 0 \\): nessun traboccamento.</p>`),
+        res: 'Risultato',
+        resRead: (sys) => `<p>Il risultato, letto con segno in ${sys}:</p>`,
+        resOk: (tTex) => `<p>Il valore vero è \\( ${tTex} \\): coincide con il risultato letto.</p>`,
+        resNegZero: '<p>I bit sono tutti a \\( 1 \\): è lo <b>zero negativo</b> del complemento a 1, che vale \\( 0 \\).</p>',
+        resBad: (tTex, r, lo, hi, n) =>
+          `<p>Il valore vero è \\( ${tTex} \\), fuori dall'intervallo da \\( ${lo} \\) a \\( ${hi} \\) rappresentabile con \\( ${n} \\) bit: il risultato letto, \\( ${r} \\), è <b class="sc-red-strong">sbagliato</b>. I bit ottenuti sono quelli del valore vero ridotto a \\( ${n} \\) bit, che il bit di segno fa leggere come un numero di segno opposto.</p>`,
+        c1Skip: (w, v, m) =>
+          `<p>\\( ${w} = ${v} \\) non è rappresentabile in complemento a 1 con questo numero di bit, perché l'intervallo va da \\( -${m} \\) a \\( ${m} \\): in complemento a 1 il calcolo non si può eseguire. È la conseguenza delle due scritture dello zero, che tolgono un valore all'intervallo.</p>`,
+
+        // confronto
+        s5: 'Confronto fra i due sistemi',
+        cmpHead: ['Sistema', 'A', 'Secondo<br>addendo', 'Risultato<br>(binario)', 'Risultato<br>letto', 'Risultato<br>vero', 'Traboccamento'],
+        yes: 'sì', no: 'no', na: 'non rappresentabile',
+
+        // figure
+        figCarry: 'riporti',
+        figDiscard: 'scartato',
+        figBack: 'si risomma',
+        figPartial: 'parziale',
+        figPlusCarry: '+ riporto',
+      },
+      en: {
+        titleQuick: 'Quick result',
+        titleStep: 'Step-by-step solution',
+        sysName: { c2: 'two\'s complement', c1: 'ones\' complement' },
+        sysTitle: { c2: 'Two\'s complement', c1: 'Ones\' complement' },
+        sysRow: { c2: 'Two\'s complement', c1: 'Ones\' complement' },
+        rangeHelp: (n, m) => `With ${n} bits: from −${m + 1} to ${m} in two's complement, from −${m} to ${m} in ones' complement.`,
+
+        errEmpty: (w) => `Enter the number ${w}.`,
+        errSignOnly: (w) => `The number ${w} contains only the sign: add the digits.`,
+        errRange: (w, v, n, m) => `${w} = ${v} cannot be represented with ${n} bits: two's complement goes from −${m + 1} to ${m}, ones' complement from −${m} to ${m}.`,
+
+        s1: '1. Data',
+        dataDec: (n, opTex) =>
+          `<p>The task is to compute \\( ${opTex} \\) with \\( n = ${n} \\) bits, once in two's complement and once in ones' complement.</p>`,
+        dataBin: (n, opTex) =>
+          `<p>The task is to compute \\( ${opTex} \\) with \\( n = ${n} \\) bits, once in two's complement and once in ones' complement. The bits of \\( A \\) and \\( B \\) are the same in the two systems, but negative numbers are read differently: the same pattern with sign bit \\( 1 \\) is worth one unit more in ones' complement than in two's complement.</p>`,
+        ranges: (n, m) =>
+          `<p>With \\( ${n} \\) bits the numbers from \\( -2^{${n - 1}} = -${m + 1} \\) to \\( 2^{${n - 1}}-1 = ${m} \\) are represented in two's complement, and from \\( -(2^{${n - 1}}-1) = -${m} \\) to \\( ${m} \\) in ones' complement. A result outside these ranges causes <b>overflow</b>: the bits obtained, read as signed, do not represent the true result.</p>`,
+
+        s2: '2. Absolute values in binary',
+        s2Intro:
+          `<p>In both systems the starting point is the absolute value of each number written in binary with \\( n \\) bits. The conversion is done by successive division by \\( 2 \\): the binary digits are the remainders read <b class="sc-red-strong">from bottom to top</b>, then zeros are added on the left up to \\( n \\) bits.</p>`,
+        absHead: (w, v) => `<p><b>\\( |${w}| = ${v} \\)</b></p>`,
+        absZero: (w, n) => `<p><b>\\( |${w}| = 0 \\)</b>: it is written with \\( ${n} \\) zeros.</p>`,
+        absSame: (w, v, bits) => `<p><b>\\( |${w}| = ${v} \\)</b>: already converted above, \\( ${v}_{10} = ${bits} \\).</p>`,
+        bTableHead: { div: 'Dividend', quo: 'Quotient', rem: 'Remainder' },
+        bRead: '<p>Remainders read from bottom to top, completed on the left with zeros:</p>',
+        bReadFull: '<p>Remainders read from bottom to top: they already fill all \\( n \\) bits.</p>',
+
+        repr: 'Representation of A and B',
+        reprPos: (w, v, bits, sys) =>
+          `<p>\\( ${w} = ${v} \\) is positive or zero: in ${sys} it is written as its absolute value, with sign bit \\( 0 \\): \\( ${w} = ${bits} \\).</p>`,
+        reprNegC2: (w, v) =>
+          `<p>\\( ${w} = ${v} \\) is negative: in two's complement it is written as the two's complement of \\( |${w}| \\), that is the bits are inverted and \\( 1 \\) is added.</p>`,
+        reprNegC1: (w, v) =>
+          `<p>\\( ${w} = ${v} \\) is negative: in ones' complement it is written as the ones' complement of \\( |${w}| \\), that is the bits are inverted.</p>`,
+        reprMinC2: (w, v) =>
+          `<p>\\( ${w} = ${v} \\) is the most negative representable number: the two's complement of \\( |${w}| \\) gives back the same bits, \\( 1 \\) followed only by zeros.</p>`,
+        readBin: (sys) => `<p>The entered bits, read as signed in ${sys}:</p>`,
+        opp: 'Opposite of B',
+        oppC2:
+          '<p>The subtraction becomes an addition with the opposite: \\( A - B = A + (-B) \\). In two\'s complement the opposite of \\( B \\) is obtained by inverting the bits and adding \\( 1 \\).</p>',
+        oppC1:
+          '<p>The subtraction becomes an addition with the opposite: \\( A - B = A + (-B) \\). In ones\' complement the opposite of \\( B \\) is obtained by inverting the bits.</p>',
+        oppMin: (v) =>
+          `<p>Here \\( B = ${v} \\) is the most negative number: the two's complement gives back the same bits, because the opposite \\( ${-v} \\) is not representable. The computation goes on anyway, but overflow must be checked on the true value (see below).</p>`,
+        sum: 'Column addition',
+        sumC2:
+          '<p>The two addends are added column by column, from right to left, with the carries in <b class="sc-red-strong">red</b> above the column they enter. The carry leaving the leftmost bit is <b>discarded</b>.</p>',
+        sumC1:
+          '<p>The two addends are added column by column, from right to left, with the carries in <b class="sc-red-strong">red</b> above the column they enter. In ones\' complement the carry leaving the leftmost bit is <b>not discarded</b>: it is added back to the result.</p>',
+        noCarryOut: '<p>No carry leaves the leftmost bit.</p>',
+        discarded: '<p>A carry leaves the leftmost bit: in two\'s complement it is discarded.</p>',
+        endAround:
+          '<p>A carry leaves the leftmost bit: \\( 1 \\) is added to the partial result, starting from the rightmost column. This second addition never produces a new outgoing carry.</p>',
+        ovf: 'Overflow',
+        signRule: (sA, sB, sR, second) =>
+          `<p><b>Sign rule.</b> The sign bits are \\( ${sA} \\) for \\( A \\), \\( ${sB} \\) for ${second} and \\( ${sR} \\) for the result. ` +
+          (sA !== sB
+            ? 'The addends have different signs: the sum always lies between them, so overflow is impossible.</p>'
+            : (sR === sA
+              ? 'The addends have the same sign and the result has that sign too: no overflow.</p>'
+              : 'The addends have the same sign but the result has the opposite sign: there is <b class="sc-red-strong">overflow</b>.</p>')),
+        carryRule: (cin, cout) =>
+          `<p><b>Carry rule.</b> A carry \\( ${cin} \\) enters the sign-bit column and a carry \\( ${cout} \\) leaves it: ` +
+          (cin === cout ? 'they are equal, no overflow.</p>' : 'they differ, there is <b class="sc-red-strong">overflow</b>.</p>'),
+        specialOvf: (posA, m) =>
+          `<p>Here the two rules, applied to \\( A + (-B) \\), are not reliable: \\( -B \\) is not representable and the bits added are those of \\( B \\). The reasoning is done on the true value: \\( A - B = A + ${m + 1} \\), which ` +
+          (posA ? `exceeds the maximum \\( ${m} \\) because \\( A \\geq 0 \\): there is <b class="sc-red-strong">overflow</b>.</p>` : `stays in range because \\( A < 0 \\): no overflow.</p>`),
+        res: 'Result',
+        resRead: (sys) => `<p>The result, read as signed in ${sys}:</p>`,
+        resOk: (tTex) => `<p>The true value is \\( ${tTex} \\): it matches the result read.</p>`,
+        resNegZero: '<p>The bits are all \\( 1 \\): this is the <b>negative zero</b> of ones\' complement, worth \\( 0 \\).</p>',
+        resBad: (tTex, r, lo, hi, n) =>
+          `<p>The true value is \\( ${tTex} \\), outside the range from \\( ${lo} \\) to \\( ${hi} \\) representable with \\( ${n} \\) bits: the result read, \\( ${r} \\), is <b class="sc-red-strong">wrong</b>. The bits obtained are those of the true value reduced to \\( ${n} \\) bits, which the sign bit makes read as a number of opposite sign.</p>`,
+        c1Skip: (w, v, m) =>
+          `<p>\\( ${w} = ${v} \\) cannot be represented in ones' complement with this number of bits, because the range goes from \\( -${m} \\) to \\( ${m} \\): the computation cannot be done in ones' complement. This follows from the two patterns of zero, which take one value away from the range.</p>`,
+
+        s5: 'Comparison of the two systems',
+        cmpHead: ['System', 'A', 'Second<br>addend', 'Result<br>(binary)', 'Result<br>read', 'True<br>result', 'Overflow'],
+        yes: 'yes', no: 'no', na: 'not representable',
+
+        figCarry: 'carries',
+        figDiscard: 'discarded',
+        figBack: 'added back',
+        figPartial: 'partial',
+        figPlusCarry: '+ carry',
+      },
+    }[LANG];
+    const L = D;
+
+    // ── riferimenti DOM ──────────────────────────────────────────────
+    const widthSel = root.querySelector('#scWidth');
+    const decBox = root.querySelector('#scDec');
+    const binBox = root.querySelector('#scBin');
+    const decA = root.querySelector('#scDecA');
+    const decB = root.querySelector('#scDecB');
+    const rangeEl = root.querySelector('#scRange');
+    const cellsA = root.querySelector('#scCellsA');
+    const cellsB = root.querySelector('#scCellsB');
+    const statusEl = root.querySelector('#scStatus');
+    const quickEl = root.querySelector('#scQuick');
+    const fullEl = root.querySelector('#scFull');
+
+    // ── helper rendering ─────────────────────────────────────────────
+    const RMOPTS = {
+      throwOnError: false,
+      delimiters: [
+        { left: '\\(', right: '\\)', display: false },
+        { left: '\\[', right: '\\]', display: true },
+      ],
+    };
+    function kx(tex, display) {
+      try { return katex.renderToString(tex, { throwOnError: false, displayMode: display !== false }); }
+      catch (e) { return '<span style="color:#e55">[KaTeX error]</span>'; }
+    }
+    function renderInline(el) { try { renderMathInElement(el, RMOPTS); } catch (e) {} }
+    function reveal(el) { el.hidden = false; el.style.display = 'block'; requestAnimationFrame(() => el.classList.add('sc-visible')); }
+    function hide(el) { el.classList.remove('sc-visible'); el.style.display = 'none'; el.hidden = true; }
+    function emit(target, html, tex) {
+      if (html) { const d = document.createElement('div'); d.className = 'sc-text'; d.innerHTML = html; target.appendChild(d); renderInline(d); }
+      if (tex) { const w = document.createElement('div'); w.className = 'sc-katex'; w.innerHTML = kx(tex); target.appendChild(w); }
+    }
+    function emitTip(target, html, warn) {
+      const d = document.createElement('div'); d.className = 'sc-tip' + (warn ? ' sc-warn' : ''); d.innerHTML = html; target.appendChild(d); renderInline(d);
+    }
+    function heading(target, text, level) { const h = document.createElement(level || 'h5'); h.textContent = text; target.appendChild(h); }
+    function block(target) { const b = document.createElement('div'); b.className = 'sc-octblock'; target.appendChild(b); return b; }
+    function tip(msg) { statusEl.textContent = msg; statusEl.className = 'sc-status sc-error'; }
+    function unTip() { statusEl.textContent = ''; statusEl.className = 'sc-status'; decA.classList.remove('sc-invalid'); decB.classList.remove('sc-invalid'); }
+    function clearResults() { quickEl.innerHTML = ''; fullEl.innerHTML = ''; hide(quickEl); hide(fullEl); }
+    const minus = (v) => String(v).replace('-', '−');
+
+    // ============================================================= aritmetica sui bit
+    // stringhe di '0'/'1', indice 0 = bit piu' a sinistra (bit di segno)
+    const invert = (b) => b.split('').map((c) => (c === '0' ? '1' : '0')).join('');
+    const uval = (b) => parseInt(b, 2);
+    function addBits(a, b) {
+      const n = a.length, sum = new Array(n), cin = new Array(n).fill(0);
+      let c = 0;
+      for (let j = n - 1; j >= 0; j--) {
+        cin[j] = c;
+        const s = +a[j] + +b[j] + c;
+        sum[j] = String(s % 2);
+        c = s >> 1;
+      }
+      return { sum: sum.join(''), cin, out: c };
+    }
+    const c2val = (b) => uval(b) - (b[0] === '1' ? 2 ** b.length : 0);
+    const c1val = (b) => uval(b) - (b[0] === '1' ? 2 ** b.length - 1 : 0);
+    const valOf = (sys, b) => (sys === 'c2' ? c2val(b) : c1val(b));
+    const isNegZero = (sys, b) => sys === 'c1' && !b.includes('0');
+    const absBits = (v, n) => Math.abs(v).toString(2).padStart(n, '0');
+
+    // calcolo completo in un sistema; A, B: { bits, v, dec } (dec = valore decimale inserito o null)
+    function computeSys(sys, n, A, B, sub) {
+      const m = 2 ** (n - 1) - 1;
+      const lo = sys === 'c2' ? -(m + 1) : -m;
+      const one = '0'.repeat(n - 1) + '1';
+      let Bp = B.bits, oppStep = null, special = false;
+      if (sub) {
+        const inv = invert(B.bits);
+        if (sys === 'c2') { oppStep = addBits(inv, one); Bp = oppStep.sum; special = B.v === -(m + 1); }
+        else Bp = inv;
+      }
+      const first = addBits(A.bits, Bp);
+      let endStep = null, R = first.sum;
+      if (sys === 'c1' && first.out) { endStep = addBits(first.sum, one); R = endStep.sum; }
+      const t = sub ? A.v - B.v : A.v + B.v;
+      const ov = t < lo || t > m;
+      return {
+        sys, n, m, lo, one, A, B, sub, Bp, inv: sub ? invert(B.bits) : null, oppStep, special,
+        first, endStep, R, r: valOf(sys, R), t, ov,
+      };
+    }
+
+    // ── LaTeX ────────────────────────────────────────────────────────
+    const nibbles = (b) => b.match(/.{1,4}/g);
+    const texBits = (b) => `{${nibbles(b).map((g) => `\\texttt{${g}}`).join('\\,')}}_{2}`;
+    const plainBits = (b) => nibbles(b).join('\u2009');
+    function signedTex(name, b, sys) {
+      const n = b.length;
+      const sym = [], num = [];
+      if (b[0] === '1') {
+        if (sys === 'c2') { sym.push(`-2^{${n - 1}}`); num.push(`-${2 ** (n - 1)}`); }
+        else { sym.push(`-(2^{${n - 1}}-1)`); num.push(`-${2 ** (n - 1) - 1}`); }
+      }
+      for (let j = 1; j < n; j++) if (b[j] === '1') { sym.push(`2^{${n - 1 - j}}`); num.push(String(2 ** (n - 1 - j))); }
+      if (!sym.length) return `${name} = ${texBits(b)} = 0`;
+      const join = (arr) => arr.map((t, i) => (i === 0 ? t : (t.startsWith('-') ? ` ${t}` : ` + ${t}`))).join('');
+      const head = `${name} = ${texBits(b)} = ${join(sym)} = ${join(num)}`;
+      return sym.length === 1 ? head : `${head} = ${valOf(sys, b)}`;
+    }
+
+    // ============================================================= figure SVG (come in Complementi)
+    const FG = { cell: 24, gap: 10, label: 104, pad: 12 };
+    const fx = (j) => FG.label + (j + 1) * FG.cell + (j >= 0 ? (Math.floor(j / 4) + 1) * FG.gap : 0);
+    const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    function labelSvg(t) {
+      return esc(t).replace(/C([12])/g, 'C<tspan dy="4" font-size="9.5">$1</tspan><tspan dy="-4">\u200A</tspan>');
+    }
+    function txt(x, y, s, cls, anchor) {
+      return `<text x="${x}" y="${y}" class="${cls}" text-anchor="${anchor || 'middle'}" dominant-baseline="central">${s}</text>`;
+    }
+    // items: { type:'bits', label, bits, red?:bool, out?:'1', outMode?:'discard'|'back' }
+    //        { type:'carries', cin, out }  { type:'arrows' }  { type:'rule' }
+    function buildFigure(n, items, aria) {
+      const C = FG.cell;
+      const out = [], ys = [];
+      let y = 6;
+      items.forEach((it) => {
+        ys.push(y);
+        y += it.type === 'bits' ? C + 8 : it.type === 'carries' ? 16 : it.type === 'arrows' ? 18 : 10;
+      });
+      const hasNote = items.some((it) => it.type === 'bits' && it.out !== undefined);
+      const H = y + (hasNote ? 14 : 0);
+      const W = fx(n - 1) + C + FG.pad;
+      items.forEach((it, i) => {
+        const y0 = ys[i];
+        if (it.type === 'bits') {
+          out.push(`<text x="${FG.label - 10}" y="${y0 + C / 2}" class="sc-rowlabel" text-anchor="end" dominant-baseline="central">${labelSvg(it.label)}</text>`);
+          for (let j = 0; j < n; j++) {
+            out.push(`<rect x="${fx(j)}" y="${y0}" width="${C}" height="${C}" class="sc-c"/>`);
+            out.push(txt(fx(j) + C / 2, y0 + C / 2 + 0.5, it.bits[j], it.red ? 'sc-bit-t sc-red-t' : 'sc-bit-t'));
+          }
+          if (it.out !== undefined) {
+            out.push(`<rect x="${fx(-1)}" y="${y0}" width="${C}" height="${C}" class="sc-cfill"/>`);
+            out.push(txt(fx(-1) + C / 2, y0 + C / 2 + 0.5, it.out, it.outMode === 'back' ? 'sc-bit-t sc-red-t' : 'sc-bit-t sc-faint-t'));
+            if (it.outMode === 'discard') {
+              const x0 = fx(-1) + 3, yy = y0 + 3, s = C - 6;
+              out.push(`<path d="M ${x0} ${yy} L ${x0 + s} ${yy + s} M ${x0} ${yy + s} L ${x0 + s} ${yy}" class="sc-cross"/>`);
+            }
+            out.push(txt(fx(-1) + C / 2, y0 + C + 9, it.outMode === 'discard' ? L.figDiscard : L.figBack, 'sc-small'));
+          }
+        } else if (it.type === 'carries') {
+          if (it.out || it.cin.some((c) => c)) out.push(`<text x="${FG.label - 10}" y="${y0 + 7}" class="sc-small" text-anchor="end" dominant-baseline="central">${esc(L.figCarry)}</text>`);
+          for (let j = 0; j < n; j++) if (it.cin[j]) out.push(txt(fx(j) + C / 2, y0 + 7, '1', 'sc-carry-t'));
+          if (it.out) out.push(txt(fx(-1) + C / 2, y0 + 7, '1', 'sc-carry-t'));
+        } else if (it.type === 'arrows') {
+          for (let j = 0; j < n; j++) {
+            const cx = fx(j) + C / 2;
+            out.push(`<path d="M ${cx} ${y0 - 4} V ${y0 + 12} M ${cx - 3.5} ${y0 + 8} L ${cx} ${y0 + 12} L ${cx + 3.5} ${y0 + 8}" class="sc-arrow"/>`);
+          }
+        } else if (it.type === 'rule') {
+          out.push(`<line x1="${fx(-1)}" y1="${y0 + 1}" x2="${fx(n - 1) + C}" y2="${y0 + 1}" class="sc-rule"/>`);
+        }
+      });
+      const wrap = document.createElement('div');
+      wrap.className = 'sc-figwrap';
+      wrap.innerHTML = `<svg class="sc-fig" viewBox="0 0 ${W} ${H}" width="${W}" role="img" aria-label="${esc(aria)}" xmlns="http://www.w3.org/2000/svg">${out.join('')}</svg>`;
+      return wrap;
+    }
+    // inversione (e, in C2, somma di 1): da "src" a "dst"
+    function complementFigure(sys, n, srcLabel, srcBits, midLabel, dstLabel, step) {
+      if (sys === 'c1') {
+        return buildFigure(n, [
+          { type: 'bits', label: srcLabel, bits: srcBits },
+          { type: 'arrows' },
+          { type: 'bits', label: dstLabel, bits: invert(srcBits), red: true },
+        ], `${srcLabel} → ${dstLabel}`);
+      }
+      return buildFigure(n, [
+        { type: 'bits', label: srcLabel, bits: srcBits },
+        { type: 'arrows' },
+        { type: 'carries', cin: step.cin, out: step.out },
+        { type: 'bits', label: midLabel, bits: invert(srcBits), red: true },
+        { type: 'bits', label: '+ 1', bits: '0'.repeat(n - 1) + '1' },
+        { type: 'rule' },
+        step.out ? { type: 'bits', label: dstLabel, bits: step.sum, out: '1', outMode: 'discard' } : { type: 'bits', label: dstLabel, bits: step.sum },
+      ], `${srcLabel} → ${dstLabel}`);
+    }
+
+    // ── divisioni successive (da IPNetmask / BaseConverter) ──────────
+    function buildDivisionTable(rows) {
+      const wrap = document.createElement('div');
+      wrap.className = 'sc-tablewrap';
+      const table = document.createElement('table');
+      table.className = 'sc-booktable sc-divtable';
+      table.innerHTML = `<thead><tr><th>${L.bTableHead.div}</th><th></th><th>${L.bTableHead.quo}</th><th>${L.bTableHead.rem}</th><th></th></tr></thead>`;
+      const tbody = document.createElement('tbody');
+      rows.forEach((r, idx) => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td>${r.dividend}</td><td>${kx('\\div 2 \\;=\\;', false)}</td><td>${r.quotient}</td><td class="sc-remainder"><span class="sc-remainder-box">${r.remainder}</span></td>`;
+        if (idx === 0) {
+          const td = document.createElement('td');
+          td.className = 'sc-readarrow-cell';
+          td.rowSpan = rows.length;
+          td.innerHTML = '<div class="sc-readarrow"><div class="sc-readarrow-head"></div></div>';
+          tr.appendChild(td);
+        }
+        tbody.appendChild(tr);
+      });
+      table.appendChild(tbody);
+      wrap.appendChild(table);
+      return wrap;
+    }
+    function renderDivisions(target, v, n) {
+      const rows = [];
+      let q = v;
+      while (q > 0) { rows.push({ dividend: q, quotient: Math.floor(q / 2), remainder: q % 2 }); q = Math.floor(q / 2); }
+      const raw = rows.map((r) => r.remainder).reverse().join('');
+      target.appendChild(buildDivisionTable(rows));
+      const pad = n - raw.length;
+      const padTex = pad > 0 ? `\\textcolor{#8a8a8a}{\\texttt{${'0'.repeat(pad)}}}` : '';
+      emit(target, pad > 0 ? L.bRead : L.bReadFull,
+        `${v}_{10} \\;\\Longrightarrow\\; \\texttt{${raw}}_{2}` + (pad > 0 ? ` \\;\\Longrightarrow\\; {${padTex}\\texttt{${raw}}}_{2}` : ''));
+    }
+    const READARROW_INSET = 18;
+    function fitReadArrows(tries) {
+      tries = tries || 0;
+      requestAnimationFrame(() => {
+        const cells = root.querySelectorAll('.sc-readarrow-cell');
+        if (!cells.length) return;
+        let pending = false;
+        cells.forEach((cell) => {
+          const line = cell.querySelector('.sc-readarrow');
+          const h = cell.getBoundingClientRect().height;
+          if (h <= 0) { pending = true; return; }
+          line.style.height = Math.max(0, h - READARROW_INSET) + 'px';
+          const rowsCount = parseInt(cell.getAttribute('rowspan'), 10) || 1;
+          const rowH = h / rowsCount;
+          const table = cell.closest('table');
+          const evenRow = table ? table.querySelector('tbody tr:nth-child(2)') : null;
+          const tint = evenRow ? getComputedStyle(evenRow).backgroundColor : 'transparent';
+          cell.style.backgroundImage = `repeating-linear-gradient(to bottom, transparent 0px, transparent ${rowH}px, ${tint} ${rowH}px, ${tint} ${2 * rowH}px)`;
+        });
+        if (pending && tries < 12) fitReadArrows(tries + 1);
+      });
+    }
+
+    // ============================================================= svolgimento di un sistema
+    function renderSystem(t, S, mode) {
+      const { sys, n, m, A, B, sub } = S;
+      const sysN = L.sysName[sys];
+      const Cs = sys === 'c2' ? 'C2' : 'C1';
+      heading(t, L.sysTitle[sys], 'h4');
+
+      // rappresentazione
+      heading(t, L.repr);
+      if (mode === 'dec') {
+        [['A', A], ['B', B]].forEach(([w, X]) => {
+          const blk = block(t);
+          if (X.v >= 0) { emit(blk, L.reprPos(w, X.v, texBits(X.bits), sysN)); return; }
+          const abs = absBits(X.v, n);
+          if (sys === 'c2') {
+            emit(blk, X.v === -(m + 1) ? L.reprMinC2(w, X.v) : L.reprNegC2(w, X.v));
+            blk.appendChild(complementFigure('c2', n, `|${w}|`, abs, `C1(|${w}|)`, w, addBits(invert(abs), S.one)));
+          } else {
+            emit(blk, L.reprNegC1(w, X.v));
+            blk.appendChild(complementFigure('c1', n, `|${w}|`, abs, null, w));
+          }
+          emit(blk, '', `${w} = ${texBits(X.bits)}`);
+        });
+      } else {
+        emit(t, L.readBin(sysN), `\\begin{aligned} ${signedTex('A', A.bits, sys).replace(' = ', ' &= ')} \\\\ ${signedTex('B', B.bits, sys).replace(' = ', ' &= ')} \\end{aligned}`);
+      }
+
+      // opposto di B
+      if (sub) {
+        heading(t, L.opp);
+        emit(t, sys === 'c2' ? L.oppC2 : L.oppC1);
+        t.appendChild(complementFigure(sys, n, 'B', B.bits, 'C1(B)', '−B', S.oppStep));
+        emit(t, '', `-B = ${texBits(S.Bp)}`);
+        if (S.special) emitTip(t, L.oppMin(B.v), true);
+      }
+
+      // somma in colonna
+      heading(t, L.sum);
+      emit(t, sys === 'c2' ? L.sumC2 : L.sumC1);
+      const secondLabel = sub ? '+ (−B)' : '+ B';
+      const resLabel = sub ? 'A − B' : 'A + B';
+      const f = S.first;
+      const lastRow = { type: 'bits', label: S.endStep ? L.figPartial : resLabel, bits: f.sum };
+      if (f.out) { lastRow.out = '1'; lastRow.outMode = sys === 'c2' ? 'discard' : 'back'; }
+      t.appendChild(buildFigure(n, [
+        { type: 'carries', cin: f.cin, out: f.out },
+        { type: 'bits', label: 'A', bits: A.bits },
+        { type: 'bits', label: secondLabel, bits: S.Bp },
+        { type: 'rule' },
+        lastRow,
+      ], `A ${sub ? '−' : '+'} B`));
+      if (!f.out) emit(t, L.noCarryOut);
+      else if (sys === 'c2') emit(t, L.discarded);
+      else {
+        emit(t, L.endAround);
+        t.appendChild(buildFigure(n, [
+          { type: 'carries', cin: S.endStep.cin, out: S.endStep.out },
+          { type: 'bits', label: L.figPartial, bits: f.sum },
+          { type: 'bits', label: L.figPlusCarry, bits: S.one },
+          { type: 'rule' },
+          { type: 'bits', label: resLabel, bits: S.R },
+        ], resLabel));
+      }
+
+      // traboccamento
+      heading(t, L.ovf);
+      const second = sub ? '\\( -B \\)' : '\\( B \\)';
+      if (S.special) emit(t, L.specialOvf(A.v >= 0, m));
+      else {
+        emit(t, L.signRule(A.bits[0], S.Bp[0], S.R[0], second));
+        if (sys === 'c2') emit(t, L.carryRule(f.cin[0], f.out));
+      }
+
+      // risultato
+      heading(t, L.res);
+      const name = sub ? 'A - B' : 'A + B';
+      emit(t, L.resRead(sysN), signedTex(name, S.R, sys));
+      const bT = B.v < 0 ? `(${B.v})` : `${B.v}`;
+      const tTex = `${A.v} ${sub ? '-' : '+'} ${bT} = ${S.t}`;
+      if (S.ov) emitTip(t, L.resBad(tTex, S.r, S.lo, m, n), true);
+      else {
+        if (isNegZero(sys, S.R)) emit(t, L.resNegZero);
+        emit(t, L.resOk(tTex));
+      }
+    }
+
+    // tabella di confronto; con 12 e 16 bit i bit vanno su righe da 8, cosi' la tabella resta larga come a 8 bit
+    const cellBits = (b) => `<span class="sc-octets">${b.match(/.{1,8}/g).map(plainBits).join('<br>')}</span>`;
+    function buildComparison(systems) {
+      const wrap = document.createElement('div');
+      wrap.className = 'sc-tablewrap';
+      const table = document.createElement('table');
+      table.className = 'sc-booktable';
+      table.innerHTML = `<thead><tr>${L.cmpHead.map((h) => `<th>${h}</th>`).join('')}</tr></thead>`;
+      const tbody = document.createElement('tbody');
+      systems.forEach((S) => {
+        const tr = document.createElement('tr');
+        if (S.skip) {
+          tr.innerHTML = `<td class="sc-rowhead">${L.sysRow[S.sys]}</td><td colspan="6">${L.na}</td>`;
+        } else {
+          const read = isNegZero(S.sys, S.R) ? '−0' : minus(S.r);
+          tr.innerHTML = `<td class="sc-rowhead">${L.sysRow[S.sys]}</td><td>${cellBits(S.A.bits)}</td><td>${cellBits(S.Bp)}</td>`
+            + `<td>${cellBits(S.R)}</td><td class="${S.ov ? 'sc-bad' : ''}">${read}</td><td>${minus(S.t)}</td>`
+            + `<td class="${S.ov ? 'sc-bad' : ''}">${S.ov ? L.yes : L.no}</td>`;
+        }
+        tbody.appendChild(tr);
+      });
+      table.appendChild(tbody);
+      wrap.appendChild(table);
+      return wrap;
+    }
+
+    // ============================================================= stato e interazioni
+    let width = parseInt(widthSel.value, 10);
+    let op = 'sum';
+    let mode = 'dec';
+    let bitsA = '0'.repeat(width), bitsB = '0'.repeat(width);
+    let scRandomUsed = false;
+
+    function updateRangeHelp() { rangeEl.textContent = L.rangeHelp(width, 2 ** (width - 1) - 1); }
+
+    function setExclusive(group, attr, value) {
+      group.querySelectorAll('.sc-mode-btn').forEach((b) => {
+        const on = b.dataset[attr] === value;
+        b.classList.toggle('is-on', on);
+        b.setAttribute('aria-pressed', on ? 'true' : 'false');
+      });
+    }
+    root.querySelector('.sc-ops').addEventListener('click', (e) => {
+      const b = e.target.closest('.sc-mode-btn'); if (!b) return;
+      op = b.dataset.op; setExclusive(root.querySelector('.sc-ops'), 'op', op); clearResults(); unTip();
+    });
+    root.querySelector('.sc-inmodes').addEventListener('click', (e) => {
+      const b = e.target.closest('.sc-mode-btn'); if (!b) return;
+      mode = b.dataset.mode; setExclusive(root.querySelector('.sc-inmodes'), 'mode', mode);
+      decBox.hidden = mode !== 'dec'; binBox.hidden = mode !== 'bin';
+      clearResults(); unTip();
+    });
+
+    // celle binarie
+    function drawCells(el, which) {
+      el.innerHTML = '';
+      for (let g = 0; g < width / 4; g++) {
+        const nib = document.createElement('div');
+        nib.className = 'sc-nibble';
+        for (let k = 0; k < 4; k++) {
+          const j = 4 * g + k;
+          const wrap = document.createElement('div');
+          wrap.className = 'sc-cellwrap';
+          wrap.innerHTML = `<span class="sc-pos">${width - 1 - j}</span><button type="button" class="sc-bit" data-w="${which}" data-j="${j}"></button>`;
+          nib.appendChild(wrap);
+        }
+        el.appendChild(nib);
+      }
+    }
+    function refreshCells() {
+      root.querySelectorAll('.sc-bit').forEach((b) => {
+        const bits = b.dataset.w === 'A' ? bitsA : bitsB;
+        const j = +b.dataset.j;
+        b.textContent = bits[j]; b.dataset.v = bits[j];
+        b.setAttribute('aria-label', `${b.dataset.w}, bit ${width - 1 - j}: ${bits[j]}`);
+      });
+    }
+    function drawAllCells() { drawCells(cellsA, 'A'); drawCells(cellsB, 'B'); refreshCells(); }
+    function setBit(w, j, v) {
+      if (w === 'A') bitsA = bitsA.slice(0, j) + v + bitsA.slice(j + 1);
+      else bitsB = bitsB.slice(0, j) + v + bitsB.slice(j + 1);
+      refreshCells(); clearResults(); unTip(); scRandomUsed = false;
+    }
+    const cellAt = (w, j) => root.querySelector(`.sc-bit[data-w="${w}"][data-j="${j}"]`);
+    binBox.addEventListener('click', (e) => {
+      const b = e.target.closest('.sc-bit'); if (!b) return;
+      const w = b.dataset.w, j = +b.dataset.j, cur = (w === 'A' ? bitsA : bitsB)[j];
+      setBit(w, j, cur === '0' ? '1' : '0');
+    });
+    binBox.addEventListener('keydown', (e) => {
+      const b = e.target.closest('.sc-bit'); if (!b) return;
+      const w = b.dataset.w, j = +b.dataset.j;
+      const next = () => (j < width - 1 ? cellAt(w, j + 1) : (w === 'A' ? cellAt('B', 0) : null));
+      if (e.key === '0' || e.key === '1') { e.preventDefault(); setBit(w, j, e.key); const nx = next(); if (nx) nx.focus(); }
+      else if (e.key === 'ArrowRight') { e.preventDefault(); const nx = next(); if (nx) nx.focus(); }
+      else if (e.key === 'ArrowLeft' && j > 0) { e.preventDefault(); cellAt(w, j - 1).focus(); }
+      else if (e.key === 'Backspace') { e.preventDefault(); setBit(w, j, '0'); if (j > 0) cellAt(w, j - 1).focus(); }
+    });
+
+    // bonifica dell'inserimento decimale: solo cifre, con un eventuale segno davanti
+    function sanitize(s) {
+      s = s.replace(/[\u2212\u2013]/g, '-');
+      const sign = /^[+-]/.test(s) ? s[0] : '';
+      const digits = s.slice(sign.length).replace(/[^0-9]/g, '');
+      return (sign + digits).slice(0, 6);
+    }
+    [decA, decB].forEach((inp) => inp.addEventListener('input', () => {
+      const pos = inp.selectionStart, before = inp.value, clean = sanitize(before);
+      if (clean !== before) { inp.value = clean; const p = Math.max(0, pos - (before.length - clean.length)); inp.setSelectionRange(p, p); }
+      clearResults(); unTip(); scRandomUsed = false;
+    }));
+
+    widthSel.addEventListener('change', () => {
+      const w = parseInt(widthSel.value, 10);
+      // allargando si estende il bit di segno (il valore resta lo stesso in C2 e in C1);
+      // stringendo si tengono i bit di destra
+      const fit = (b) => (w >= width ? b[0].repeat(w - width) + b : b.slice(width - w));
+      bitsA = fit(bitsA); bitsB = fit(bitsB);
+      width = w;
+      drawAllCells(); updateRangeHelp(); clearResults(); unTip(); scRandomUsed = false;
+    });
+    root.querySelector('#scBtnReset').addEventListener('click', () => {
+      if (mode === 'dec') { decA.value = ''; decB.value = ''; }
+      else { bitsA = '0'.repeat(width); bitsB = '0'.repeat(width); refreshCells(); }
+      clearResults(); unTip(); scRandomUsed = false;
+    });
+    root.querySelector('#scBtnRandom').addEventListener('click', () => {
+      const m = 2 ** (width - 1) - 1;
+      const rnd = () => Math.floor(Math.random() * (2 * m + 1)) - m;   // intervallo comune ai due sistemi
+      if (mode === 'dec') { decA.value = String(rnd()); decB.value = String(rnd()); }
+      else {
+        const rb = () => Array.from({ length: width }, () => (Math.random() < 0.5 ? '0' : '1')).join('');
+        bitsA = rb(); bitsB = rb(); refreshCells();
+      }
+      clearResults(); unTip(); scRandomUsed = true;
+    });
+
+    // lettura degli ingressi
+    function readDec(inp, w) {
+      const s = inp.value.trim();
+      if (!s) return { error: L.errEmpty(w) };
+      if (/^[+-]$/.test(s)) return { error: L.errSignOnly(w) };
+      const v = parseInt(s, 10);
+      const m = 2 ** (width - 1) - 1;
+      if (v < -(m + 1) || v > m) return { error: L.errRange(w, minus(v), width, m) };
+      return { v };
+    }
+    function bitsFor(sys, v) {
+      const abs = absBits(v, width);
+      if (v >= 0) return abs;
+      return sys === 'c2' ? addBits(invert(abs), '0'.repeat(width - 1) + '1').sum : invert(abs);
+    }
+
+    function prepare() {
+      const sub = op === 'sub';
+      const m = 2 ** (width - 1) - 1;
+      if (mode === 'dec') {
+        const a = readDec(decA, 'A');
+        if (a.error) { tip(a.error); decA.classList.add('sc-invalid'); return null; }
+        const b = readDec(decB, 'B');
+        if (b.error) { tip(b.error); decB.classList.add('sc-invalid'); return null; }
+        const systems = ['c2', 'c1'].map((sys) => {
+          if (sys === 'c1' && (a.v === -(m + 1) || b.v === -(m + 1))) {
+            return { sys, skip: true, who: a.v === -(m + 1) ? 'A' : 'B', val: a.v === -(m + 1) ? a.v : b.v };
+          }
+          return computeSys(sys, width, { bits: bitsFor(sys, a.v), v: a.v }, { bits: bitsFor(sys, b.v), v: b.v }, sub);
+        });
+        return { mode, sub, a: a.v, b: b.v, systems };
+      }
+      const systems = ['c2', 'c1'].map((sys) =>
+        computeSys(sys, width, { bits: bitsA, v: valOf(sys, bitsA) }, { bits: bitsB, v: valOf(sys, bitsB) }, sub));
+      return { mode, sub, systems };
+    }
+
+    function renderFull(t, P) {
+      const n = width, m = 2 ** (n - 1) - 1;
+      heading(t, L.s1);
+      if (P.mode === 'dec') {
+        const bT = P.b < 0 ? `(${P.b})` : `${P.b}`;
+        const opTex = P.sub ? `A - B = ${P.a} - ${bT}` : `A + B = ${P.a} + ${bT}`;
+        emit(t, L.dataDec(n, opTex));
+      } else {
+        emit(t, L.dataBin(n, P.sub ? 'A - B' : 'A + B'), `A = ${texBits(bitsA)} \\qquad B = ${texBits(bitsB)}`);
+      }
+      emit(t, L.ranges(n, m));
+
+      if (P.mode === 'dec') {
+        heading(t, L.s2);
+        emit(t, L.s2Intro);
+        const seen = new Map();
+        [['A', P.a], ['B', P.b]].forEach(([w, v]) => {
+          const blk = block(t);
+          const av = Math.abs(v);
+          if (av === 0) { emit(blk, L.absZero(w, n)); return; }
+          if (seen.has(av)) { emit(blk, L.absSame(w, av, texBits(seen.get(av)))); return; }
+          emit(blk, L.absHead(w, av));
+          renderDivisions(blk, av, n);
+          seen.set(av, absBits(av, n));
+        });
+      }
+
+      P.systems.forEach((S, i) => {
+        if (S.skip) {
+          heading(t, L.sysTitle[S.sys], 'h4');
+          emitTip(t, L.c1Skip(S.who, S.val, m), true);
+          return;
+        }
+        renderSystem(t, S, P.mode);
+      });
+
+      heading(t, L.s5, 'h4');
+      t.appendChild(buildComparison(P.systems));
+    }
+
+    function elabora(quick) {
+      const target = quick ? quickEl : fullEl;
+      const other = quick ? fullEl : quickEl;
+      quickEl.innerHTML = ''; fullEl.innerHTML = '';
+      unTip();
+      const P = prepare();
+      if (!P) { hide(quickEl); hide(fullEl); return; }
+      emit(target, `<h2>${quick ? L.titleQuick : L.titleStep}</h2>`);
+      if (quick) {
+        target.appendChild(buildComparison(P.systems));
+        P.systems.forEach((S) => { if (S.skip) emitTip(target, L.c1Skip(S.who, S.val, 2 ** (width - 1) - 1), true); });
+      } else {
+        renderFull(target, P);
+      }
+      hide(other);
+      reveal(target);
+      fitReadArrows();
+      if (window.umami) umami.track('sommecomplementi-solve', { mode: quick ? 'quick' : 'steps', input: P.mode, op, bits: width, randomUsed: scRandomUsed });
+    }
+    root.querySelector('#scBtnQuick').addEventListener('click', () => elabora(true));
+    root.querySelector('#scBtnStep').addEventListener('click', () => elabora(false));
+    window.addEventListener('resize', () => fitReadArrows());
+
+    // ── avvio ────────────────────────────────────────────────────────
+    drawAllCells();
+    updateRangeHelp();
+    renderInline(root);
+  }
+</script>

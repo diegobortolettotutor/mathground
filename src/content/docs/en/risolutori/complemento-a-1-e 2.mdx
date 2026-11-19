@@ -1,0 +1,73 @@
+---
+title: Ones' complement and two's complement
+description: "Online solver for the ones' complement and two's complement of a 4, 8, 12 or 16-bit binary number: inversion, addition with carries, signed reading, step by step."
+sidebar:
+  hidden: false
+  label: Ones' and two's complement
+  order: 10
+tableOfContents: false
+---
+
+import Complementi from '@components/Complementi.astro';
+
+Given a binary number of $4$, $8$, $12$ or $16$ bits, this solver computes its
+**ones' complement** and **two's complement**, shows how the three numbers are read as
+signed values, and checks the result by adding the starting number to its complements.
+
+## What they are for
+
+A computer stores numbers as bit sequences of fixed length, for example $8$ or $16$.
+With $n$ bits the natural numbers from $0$ to $2^{n}-1$ can be written; to represent
+**negative** numbers as well, a rule is needed that states which sequences stand for a
+negative number. Ones' complement and two's complement are two such rules: in both the
+leftmost bit gives the sign ($0$ positive, $1$ negative), and the opposite of a number
+is obtained with a simple operation on its bits.
+
+### Ones' complement
+
+- It is obtained by **inverting all the bits**: every $0$ becomes $1$ and every $1$
+  becomes $0$.
+- With $n$ bits it represents the numbers from $-(2^{n-1}-1)$ to $2^{n-1}-1$; with $8$
+  bits, from $-127$ to $127$.
+- Zero has **two patterns**: all bits $0$ (positive zero) and all bits $1$ (negative
+  zero).
+- In an addition, the carry leaving the leftmost bit is not discarded: it is added back
+  to the result.
+- Where it is used today: in the **checksum** of IPv4, UDP and TCP headers, the field
+  the receiver of a packet uses to check that the header was not damaged in
+  transmission. The checksum is the ones' complement of the ones' complement sum of the
+  header's $16$-bit words. Ones' complement is also the first step in computing the
+  two's complement.
+
+### Two's complement
+
+- It is obtained by **adding $1$ to the ones' complement**. Alternatively: starting from
+  the right, the bits are copied up to and including the first $1$, and all the others
+  are inverted.
+- With $n$ bits it represents the numbers from $-2^{n-1}$ to $2^{n-1}-1$; with $8$ bits,
+  from $-128$ to $127$.
+- Zero has **a single pattern**.
+- The subtraction $A - B$ is done as the addition $A + C_2(B)$, with the same circuit
+  that performs additions; the carry leaving the leftmost bit is discarded. This is why
+  two's complement is how all modern processors represent signed integers.
+
+Ranges representable with the bit counts of the solver:
+
+| Number of bits | Ones' complement | Two's complement |
+| :-: | :-: | :-: |
+| $4$ | from $-7$ to $7$ | from $-8$ to $7$ |
+| $8$ | from $-127$ to $127$ | from $-128$ to $127$ |
+| $12$ | from $-2047$ to $2047$ | from $-2048$ to $2047$ |
+| $16$ | from $-32767$ to $32767$ | from $-32768$ to $32767$ |
+
+For addition and subtraction of signed numbers, with the overflow check, see the page
+[Addition and subtraction in two's and ones' complement](/en/risolutori/somma-e-sottrazione-in-complemento/).
+
+## Solver
+
+Choose the number of bits and enter the bits in the boxes, which all start at $0$. The
+quick result reports the three numbers, in binary and in decimal; the step-by-step
+solution shows the bit inversion, the addition with carries, the check with the quick
+rule, the signed reading, and the sum of the number with its complements.
+
+<Complementi />

@@ -1,0 +1,85 @@
+---
+title: Addition and subtraction in two's and ones' complement
+description: "Online solver for addition and subtraction of signed numbers in two's complement and ones' complement, with 4, 8, 12 or 16 bits: carries, overflow, step by step."
+sidebar:
+  hidden: false
+  label: Addition and subtraction in complement
+  order: 11
+tableOfContents: false
+---
+
+import SommeComplementi from '@components/SommeComplementi.astro';
+
+Given two integers $A$ and $B$ and a number of bits $n$ ($4$, $8$, $12$ or $16$), this
+solver computes $A + B$ or $A - B$ **twice**, in two's complement and in ones'
+complement, so that the two procedures can be compared. The numbers can be entered in
+decimal or directly in binary.
+
+For the meaning of ones' and two's complement and for computing the opposite of a
+number, see the page
+[Ones' complement and two's complement](/en/risolutori/complemento-a-1-e-a-2/).
+
+## Addition
+
+In both systems the addition is done **column by column**, as for natural numbers, from
+right to left and with carries. The sign bit is added like all the others: it needs no
+special treatment. The difference between the two systems lies in the carry leaving the
+leftmost bit.
+
+- **Two's complement**: the outgoing carry is **discarded**.
+- **Ones' complement**: the outgoing carry is **added back** (end-around carry), that is
+  $1$ is added to the result starting from the rightmost column. This second addition
+  never produces a new outgoing carry.
+
+## Subtraction
+
+Subtraction becomes an addition with the opposite: $A - B = A + (-B)$. The opposite of
+$B$ is obtained by inverting the bits and adding $1$ in two's complement, by inverting
+the bits only in ones' complement. In this way the same circuit performs both additions
+and subtractions.
+
+## Overflow
+
+With $n$ bits a limited range of numbers can be represented: if the true result falls
+outside the range there is **overflow**. The computation is carried out anyway, but the
+bits obtained, read as signed, give a wrong number, of opposite sign to the true one.
+
+Overflow **is not the same as the outgoing carry**: in two's complement the outgoing
+carry is discarded with no consequences, and overflow can occur even without any
+outgoing carry. Two rules are used to detect it.
+
+- **Sign rule** (valid in both systems). If the two addends have different signs,
+  overflow is impossible, because the sum lies between them. If they have the same sign,
+  there is overflow when the result has the opposite sign.
+- **Carry rule** (two's complement). There is overflow when the carry entering the
+  sign-bit column differs from the carry leaving it.
+
+Subtraction in two's complement has a special case: if $B = -2^{n-1}$, the most negative
+number, its opposite is not representable and inverting the bits and adding $1$ gives
+back the same bits as $B$. The two rules, applied to $A + (-B)$, are no longer reliable
+and overflow is decided from the true value: it occurs if and only if $A \geq 0$.
+
+| Number of bits | Ones' complement | Two's complement |
+| :-: | :-: | :-: |
+| $4$ | from $-7$ to $7$ | from $-8$ to $7$ |
+| $8$ | from $-127$ to $127$ | from $-128$ to $127$ |
+| $12$ | from $-2047$ to $2047$ | from $-2048$ to $2047$ |
+| $16$ | from $-32767$ to $32767$ | from $-32768$ to $32767$ |
+
+## Solver
+
+Choose the number of bits and the operation, then the input mode.
+
+- **In decimal**: write the two integers, optionally preceded by a $+$ or $-$ sign. The
+  solver writes them in binary, represents them in the two systems and carries out the
+  computation. The number $-2^{n-1}$ is accepted, but it exists only in two's
+  complement: in that case ones' complement is skipped.
+- **In binary**: enter the bits in the boxes. The same bits are read differently in the
+  two systems when the sign bit is $1$: in ones' complement they are worth one unit more
+  than in two's complement.
+
+The quick result shows the comparison between the two systems; the step-by-step
+solution shows the representation of the numbers, the opposite of $B$, the column
+addition with carries, the overflow check and the reading of the result.
+
+<SommeComplementi />
