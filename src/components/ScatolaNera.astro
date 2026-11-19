@@ -176,6 +176,7 @@ const S = {
   const L_PHYS = 1.2;     // lunghezza della serpentina (m)
   const K_EX = 0.25;      // coefficiente di scambio (1/s): dT_c/dt = −k (T_c − T_f)
   const RAMP = 3;         // durata dell'avviamento di pompe e temperature (s)
+  const T_AMB = 20;       // temperatura di riposo: quella dell'ambiente (°C)
   const V_SET = 0.10;     // velocità fissa dei fluidi (m/s)
   const TAU_F = 0.35, HYST = 0.75, HOLD = 1.0;   // filtri delle letture (solo visualizzazione)
 
@@ -216,7 +217,7 @@ const S = {
     // ---------- Stato del modello (copia di Scambiatorecalore.astro) ----------
     const dsPhys = L_PHYS / N;
     const TA = new Float64Array(N), TB = new Float64Array(N);   // A = caldo, B = freddo
-    let Tmax = +inTmax.value, Tmin = +inTmin.value, Teq = (Tmax + Tmin) / 2;
+    let Tmax = +inTmax.value, Tmin = +inTmin.value, Teq = T_AMB;
     let running = false, started = false;
     let t = 0, cellAcc = 0, vNow = 0, phase = 0;
     let tinA = Teq, tinB = Teq;
@@ -247,7 +248,7 @@ const S = {
     }
 
     function resetState() {
-      Teq = (Tmax + Tmin) / 2;
+      Teq = T_AMB;
       TA.fill(Teq); TB.fill(Teq);
       t = 0; cellAcc = 0; vNow = 0; tinA = Teq; tinB = Teq;
       running = false; started = false;
@@ -395,7 +396,7 @@ const S = {
     function onTemp() {
       Tmax = +inTmax.value; Tmin = +inTmin.value;
       outTmax.textContent = inTmax.value; outTmin.textContent = inTmin.value;
-      if (!started) { Teq = (Tmax + Tmin) / 2; tinA = Teq; tinB = Teq; TA.fill(Teq); TB.fill(Teq); updateFilters(0); }
+      if (!started) { Teq = T_AMB; tinA = Teq; tinB = Teq; TA.fill(Teq); TB.fill(Teq); updateFilters(0); }
       dirty = true;
     }
     inTmax.addEventListener('input', onTemp);

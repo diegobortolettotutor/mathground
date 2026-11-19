@@ -316,6 +316,7 @@ const legendSvg =
   const L_PHYS = 1.2;     // lunghezza della serpentina (m)
   const K_EX = 0.25;      // coefficiente di scambio (1/s): dT_c/dt = −k (T_c − T_f)
   const RAMP = 3;         // durata dell'avviamento di pompe e temperature (s)
+  const T_AMB = 20;       // temperatura di riposo: quella dell'ambiente (°C)
   const TAU_V = 0.4;      // costante di tempo per le variazioni di velocità (s)
 
   // ---------- Filtri anti-oscillazione (solo visualizzazione, la fisica non cambia) ----------
@@ -468,7 +469,7 @@ const legendSvg =
 
     // ---------- Stato ----------
     const TA = new Float64Array(N), TB = new Float64Array(N);
-    let Tmax = +inTmax.value, Tmin = +inTmin.value, Teq = (Tmax + Tmin) / 2;
+    let Tmax = +inTmax.value, Tmin = +inTmin.value, Teq = T_AMB;
     let vSet = +inV.value / 100, vS = vSet, vNow = 0;
     let counter = false, running = false, started = false;   // all'avvio: equicorrente
     let t = 0, cellAcc = 0, phA = 0, phB = 0;
@@ -552,7 +553,7 @@ const legendSvg =
     }
 
     function resetState() {
-      Teq = (Tmax + Tmin) / 2;
+      Teq = T_AMB;
       TA.fill(Teq); TB.fill(Teq);
       t = 0; cellAcc = 0; phA = 0; phB = 0; vS = vSet; vNow = 0; tinA = Teq; tinB = Teq;
       running = false; started = false;
@@ -836,7 +837,7 @@ const legendSvg =
       Tmax = +inTmax.value; Tmin = +inTmin.value;
       outTmax.textContent = inTmax.value; outTmin.textContent = inTmin.value;
       legLo.textContent = Tmin + ' °C'; legHi.textContent = Tmax + ' °C';
-      if (!started) { Teq = (Tmax + Tmin) / 2; tinA = Teq; tinB = Teq; TA.fill(Teq); TB.fill(Teq); updateFilters(0); }
+      if (!started) { Teq = T_AMB; tinA = Teq; tinB = Teq; TA.fill(Teq); TB.fill(Teq); updateFilters(0); }
       dirty = true;
     }
     inTmax.addEventListener('input', onTemp);
